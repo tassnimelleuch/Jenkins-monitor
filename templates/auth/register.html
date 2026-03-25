@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Register{% endblock %}
+
+{% block auth_content %}
+<div class="auth-wrap">
+  <div class="brand">
+    <div class="brand-icon">⚙</div>
+    <div class="brand-name">Jenkins Monitor</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Request Access</div>
+    <p class="card-sub">Fill in your details — admin will review your request.</p>
+
+    <div class="notice-warn">⏳ Your account won't be active until an admin approves it.</div>
+
+    {% if error %}
+      <div class="notice-error">⚠ {{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('auth.register') }}">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" value="{{ username }}" autofocus required />
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required />
+      </div>
+
+      <div class="form-group">
+        <label>I am a...</label>
+        <div class="role-grid">
+          <div class="role-option">
+            <input type="radio" id="dev" name="role" value="developer" {% if role == 'developer' %}checked{% endif %} />
+            <label for="dev">
+              <span class="icon">💻</span>
+              Developer
+            </label>
+          </div>
+          <div class="role-option">
+            <input type="radio" id="qa" name="role" value="qa" {% if role == 'qa' %}checked{% endif %} />
+            <label for="qa">
+              <span class="icon">🧪</span>
+              QA Engineer
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit">Submit Request →</button>
+    </form>
+
+    <div class="footer-link">
+      Already have an account? <a href="{{ url_for('auth.login') }}">Sign in</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

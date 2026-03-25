@@ -2,5 +2,5 @@ Flask
 Flask-SQLAlchemy
 Flask-Login
 Flask-Bcrypt
-python-dotenv
+dotenv
 requests
