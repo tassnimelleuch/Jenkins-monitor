@@ -1,4 +1,9 @@
-users = []
+users = [    {
+        'username': 'admin',
+        'password': 'admin',
+        'role':     'admin',
+        'status':   'approved'  # admin is always approved
+    }]
 def find_user(username):
     for user in users : 
         if user['username'] == username:
