@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+
+{% block title %}Pipeline KPIs - Jenkins Monitor{% endblock %}
+
+{% block body_attrs %}data-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}"{% endblock %}
+
+{% block page_name %}Pipeline KPIs{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-green" onclick="toggleBuild()">Run Build</button>
+{% endblock %}
+
+{% block page_content %}
+{% endblock %}

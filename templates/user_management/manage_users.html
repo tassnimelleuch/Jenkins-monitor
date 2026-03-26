@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block title %}Manage Users{% endblock %}
+
+{% block page_name %}Manage Users{% endblock %}
+
+{% block page_content %}
+<div class="page">
+
+  <div class="page-header">
+    <div class="page-icon">👥</div>
+    <div>
+      <div class="page-title">Manage Users</div>
+      <div class="page-sub">Review and manage access requests</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">
+      ⏳ Pending Approval
+      <span class="count {% if pending %}red{% endif %}">{{ pending | length }}</span>
+    </div>
+
+    {% if pending %}
+      {% for user in pending %}
+      <div class="user-card pending">
+        <div class="avatar {{ user.role }}">{{ user.username[0] }}</div>
+        <div class="user-info">
+          <div class="name">{{ user.username }}</div>
+          <div class="sub">Requested access as {{ user.role }}</div>
+        </div>
+        <span class="badge {{ user.role }}">{{ user.role }}</span>
+        <span class="badge pending">pending</span>
+        <div class="actions">
+          <form method="POST" action="{{ url_for('user_management.approve_user', username=user.username) }}">
+            <button class="btn approve" type="submit">✓ Approve</button>
+          </form>
+          <form method="POST" action="{{ url_for('user_management.reject_user', username=user.username) }}">
+            <button class="btn reject" type="submit">✗ Reject</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">✅ No pending requests</div>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <div class="section-label">
+      ✅ Approved Users
+      <span class="count">{{ approved | length }}</span>
+    </div>
+
+    {% if approved %}
+      {% for user in approved %}
+      <div class="user-card">
+        <div class="avatar {{ user.role }}">{{ user.username[0] }}</div>
+        <div class="user-info">
+          <div class="name">{{ user.username }}</div>
+          <div class="sub">Active account</div>
+        </div>
+        <span class="badge {{ user.role }}">{{ user.role }}</span>
+        <span class="badge approved">approved</span>
+        <div class="actions">
+          <form method="POST" action="{{ url_for('user_management.reject_user', username=user.username) }}"
+                onsubmit="return confirm('Revoke access for {{ user.username }}?')">
+            <button class="btn revoke" type="submit">Revoke</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">No approved users yet</div>
+    {% endif %}
+  </div>
+
+  {% if rejected %}
+  <div class="section">
+    <div class="section-label">
+      ❌ Rejected
+      <span class="count">{{ rejected | length }}</span>
+    </div>
+    {% for user in rejected %}
+    <div class="user-card">
+      <div class="avatar {{ user.role }}">{{ user.username[0] }}</div>
+      <div class="user-info">
+        <div class="name">{{ user.username }}</div>
+        <div class="sub">{{ user.role }}</div>
+      </div>
+      <span class="badge rejected">rejected</span>
+      <div class="actions">
+        <form method="POST" action="{{ url_for('user_management.approve_user', username=user.username) }}">
+          <button class="btn approve" type="submit">Re-approve</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

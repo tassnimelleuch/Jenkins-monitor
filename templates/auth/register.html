@@ -1,8 +1,9 @@
-{% extends 'base.html' %}
+{% extends 'auth_base.html' %}
 {% block title %}Register{% endblock %}
 
 {% block auth_content %}
 <div class="auth-wrap">
+
   <div class="brand">
     <div class="brand-icon">⚙</div>
     <div class="brand-name">Jenkins Monitor</div>
@@ -21,7 +22,8 @@
     <form method="POST" action="{{ url_for('auth.register') }}">
       <div class="form-group">
         <label for="username">Username</label>
-        <input type="text" id="username" name="username" value="{{ username }}" autofocus required />
+        <input type="text" id="username" name="username"
+               value="{{ username }}" autofocus required />
       </div>
 
       <div class="form-group">
@@ -33,14 +35,16 @@
         <label>I am a...</label>
         <div class="role-grid">
           <div class="role-option">
-            <input type="radio" id="dev" name="role" value="developer" {% if role == 'developer' %}checked{% endif %} />
+            <input type="radio" id="dev" name="role" value="developer"
+                   {% if role == 'developer' %}checked{% endif %} />
             <label for="dev">
               <span class="icon">💻</span>
               Developer
             </label>
           </div>
           <div class="role-option">
-            <input type="radio" id="qa" name="role" value="qa" {% if role == 'qa' %}checked{% endif %} />
+            <input type="radio" id="qa" name="role" value="qa"
+                   {% if role == 'qa' %}checked{% endif %} />
             <label for="qa">
               <span class="icon">🧪</span>
               QA Engineer
@@ -56,5 +60,6 @@
       Already have an account? <a href="{{ url_for('auth.login') }}">Sign in</a>
     </div>
   </div>
+
 </div>
 {% endblock %}

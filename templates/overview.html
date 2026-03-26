@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+
+{% block title %}Overview - Jenkins Monitor{% endblock %}
+
+{% block body_attrs %}data-kpis-url="{{ url_for('overview.kpis') }}"{% endblock %}
+
+{% block page_name %}Pipeline Overview{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-green" onclick="toggleBuild()">Run Build</button>
+<button class="btn btn-export" onclick="exportPDF()">Export PDF</button>
+<button class="btn btn-export" onclick="toggleChat()">AI Assistant</button>
+{% endblock %}
+
+{% block page_content %}
+
+<div id="disconnectedBanner" class="disconnected-banner">
+    <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <circle cx="12" cy="16" r="1"></circle>
+    </svg>
+    Jenkins is disconnected. Dashboard data is unavailable.
+</div>
+
+<div class="stat-row">
+    <div class="stat-card total">
+        <div class="stat-icon">
+            <svg viewBox="0 0 24 24">
+                <path d="M3 3h18v18H3z"></path>
+            </svg>
+        </div>
+        <div>
+            <div class="stat-label">Total Builds</div>
+            <div class="stat-value" id="sv-total">--</div>
+        </div>
+    </div>
+
+    <div class="stat-card success">
+        <div class="stat-icon">
+            <svg viewBox="0 0 24 24">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+        </div>
+        <div>
+            <div class="stat-label">Successful</div>
+            <div class="stat-value" id="sv-success">--</div>
+        </div>
+    </div>
+
+    <div class="stat-card failed">
+        <div class="stat-icon">
+            <svg viewBox="0 0 24 24">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </div>
+        <div>
+            <div class="stat-label">Failed</div>
+            <div class="stat-value" id="sv-failed">--</div>
+        </div>
+    </div>
+
+    <div class="stat-card aborted">
+        <div class="stat-icon">
+            <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="9"></circle>
+                <line x1="8" y1="8" x2="16" y2="16"></line>
+            </svg>
+        </div>
+        <div>
+            <div class="stat-label">Aborted</div>
+            <div class="stat-value" id="sv-aborted">--</div>
+        </div>
+    </div>
+</div>
+
+<div class="kpi-row">
+    <div class="kpi-card health">
+        <div class="circular-progress">
+            <svg viewBox="0 0 60 60">
+                <circle class="circle-bg" cx="30" cy="30" r="24"></circle>
+                <circle class="circle-progress" cx="30" cy="30" r="24"
+                        stroke-dasharray="150.796" stroke-dashoffset="150.796"></circle>
+            </svg>
+            <div class="progress-text">
+                <span class="progress-value" id="health-val">0</span>
+                <span class="progress-unit">%</span>
+            </div>
+        </div>
+        <div>
+            <div class="kpi-title">Health Score</div>
+            <div class="kpi-sub">Pipeline health indicator</div>
+            <div class="kpi-badge red" id="health-badge">⚠ No data</div>
+        </div>
+    </div>
+
+    <div class="kpi-card success-rate">
+        <div class="circular-progress">
+            <svg viewBox="0 0 60 60">
+                <circle class="circle-bg" cx="30" cy="30" r="24"></circle>
+                <circle class="circle-progress" cx="30" cy="30" r="24"
+                        stroke-dasharray="150.796" stroke-dashoffset="150.796"></circle>
+            </svg>
+            <div class="progress-text">
+                <span class="progress-value" id="rate-val">0</span>
+                <span class="progress-unit">%</span>
+            </div>
+        </div>
+        <div>
+            <div class="kpi-title">Success Rate</div>
+            <div class="kpi-sub">Recent build success ratio</div>
+            <div class="kpi-badge red" id="rate-badge">⚠ No data</div>
+        </div>
+    </div>
+
+    <div class="active-builds-card">
+        <div class="ab-header">
+            <div class="ab-title">Active Builds</div>
+            <div class="ab-count" id="activeCountBadge">0 running</div>
+        </div>
+        <div class="build-lines" id="activeBuildLines">
+            <div class="no-builds">No active builds right now</div>
+        </div>
+    </div>
+</div>
+
+<div class="charts-grid">
+    <div class="chart-card">
+        <div class="chart-hdr">
+            <div>
+                <div class="chart-title">Latest Builds</div>
+                <div class="chart-sub">Recent build outcomes and durations</div>
+            </div>
+        </div>
+
+        <div class="build-status-row" id="buildSummaryRow"></div>
+
+        <div class="chart-area">
+            <div class="bars-wrap" id="barsWrap">
+                <div class="no-builds" style="width:100%;text-align:center;">No build data available</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-card">
+        <div class="chart-hdr">
+            <div>
+                <div class="chart-title">Build Trend</div>
+                <div class="chart-sub">Recent build stability trend</div>
+            </div>
+            <div class="cbadge cbadge-g" id="trendBadge">Not enough data</div>
+        </div>
+
+        <div class="chart-area">
+            <svg class="chart-svg" viewBox="0 0 430 170">
+                <line x1="36" y1="138" x2="412" y2="138" class="grid-line"></line>
+                <line x1="36" y1="78"  x2="412" y2="78"  class="grid-line"></line>
+                <line x1="36" y1="18"  x2="412" y2="18"  class="grid-line"></line>
+
+                <path id="trendSuccessArea" fill="rgba(0,219,160,.10)"></path>
+                <path id="trendFailArea" fill="rgba(255,69,96,.08)"></path>
+                <path id="trendSuccessLine" fill="none" stroke="var(--green)" stroke-width="3"></path>
+                <path id="trendFailLine" fill="none" stroke="var(--red)" stroke-width="2" stroke-dasharray="5 4"></path>
+
+                <g id="trendDots"></g>
+                <g id="trendXLabels"></g>
+            </svg>
+        </div>
+
+        <div class="chart-legend">
+            <div class="leg-item"><span class="leg-dot" style="background:var(--green)"></span>Success</div>
+            <div class="leg-item"><span class="leg-dot" style="background:var(--red)"></span>Failure</div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_markup %}
+<div id="chatPanel" class="chat-panel">
+    <div class="chat-head">
+        <div class="chat-avatar">🤖</div>
+        <div>
+            <div class="chat-name">Pipeline Assistant</div>
+            <div class="chat-status">Online</div>
+        </div>
+        <button class="chat-close" onclick="toggleChat()">✕</button>
+    </div>
+
+    <div class="chat-msgs" id="chatMsgs">
+        <div class="msg bot">
+            <div class="bubble">Hi! Ask me about failures, coverage, health, or deployments.</div>
+            <div class="msg-time">Now</div>
+        </div>
+    </div>
+
+    <div class="chat-sugg" id="chatSugg">
+        <button class="sugg" onclick="useSugg(this)">Why did the last build fail?</button>
+        <button class="sugg" onclick="useSugg(this)">Show coverage trend</button>
+        <button class="sugg" onclick="useSugg(this)">How is pipeline health?</button>
+    </div>
+
+    <div class="chat-input-row">
+        <textarea id="chatInput" class="chat-input" rows="1" placeholder="Ask something..."
+                  oninput="resize(this)" onkeydown="onKey(event)"></textarea>
+        <button class="send-btn" onclick="send()">➤</button>
+    </div>
+</div>
+{% endblock %}

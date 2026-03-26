@@ -1,8 +1,9 @@
-{% extends 'base.html' %}
+{% extends 'auth_base.html' %}
 {% block title %}Login{% endblock %}
 
 {% block auth_content %}
 <div class="auth-wrap">
+
   <div class="brand">
     <div class="brand-icon">⚙</div>
     <div class="brand-name">Jenkins Monitor</div>
@@ -13,21 +14,23 @@
     <p class="card-sub">Sign in to your monitoring dashboard</p>
 
     {% if flash %}
-      <div class="notice-success">✓ {{ flash }}</div>
+      <div class="notice success">✓ {{ flash }}</div>
     {% endif %}
 
     {% if error %}
-      <div class="notice-error">⚠ {{ error }}</div>
+      <div class="notice error">⚠ {{ error }}</div>
     {% endif %}
 
     <form method="POST" action="{{ url_for('auth.login') }}">
       <div class="form-group">
         <label for="username">Username</label>
-        <input type="text" id="username" name="username" placeholder="Enter your username" autofocus required />
+        <input type="text" id="username" name="username"
+               placeholder="Enter your username" autofocus required />
       </div>
       <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" placeholder="Enter your password" required />
+        <input type="password" id="password" name="password"
+               placeholder="Enter your password" required />
       </div>
       <button type="submit">Sign In →</button>
     </form>
@@ -36,5 +39,6 @@
       Don't have an account? <a href="{{ url_for('auth.register') }}">Register</a>
     </div>
   </div>
+
 </div>
 {% endblock %}

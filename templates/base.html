@@ -1,39 +1,40 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>{% block title %}Jenkins Monitor{% endblock %}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Jenkins Monitor{% endblock %}</title>
 
-<!-- Shared CSS -->
-<link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet"/>
-{% block extra_styles %}{% endblock %}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+
+    {% block extra_css %}{% endblock %}
 </head>
+<body {% block body_attrs %}{% endblock %}>
 
-<body>
+    {% include 'partials/sidebar.html' %}
 
-{% if session.get('username') %}
-  {% block dashboard_content %}{% endblock %}
-{% else %}
-  <div class="auth-page">
-    {% block auth_content %}{% endblock %}
-  </div>
-{% endif %}
+    <main class="main">
+        {% include 'partials/navbar.html' %}
 
-<!-- Flash messages -->
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-  <div class="flashes">
-    {% for category, message in messages %}
-    <div class="flash {{ category }}" onclick="this.remove()">{{ message }}</div>
-    {% endfor %}
-  </div>
-  {% endif %}
-{% endwith %}
+        <div class="page">
+            {% block page_content %}{% endblock %}
+        </div>
+    </main>
 
-<!-- Shared JS -->
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
-{% block extra_scripts %}{% endblock %}
+    <div id="toast" class="toast"></div>
 
+    {% block extra_markup %}{% endblock %}
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/layout.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+
+    {% block extra_js %}{% endblock %}
 </body>
 </html>

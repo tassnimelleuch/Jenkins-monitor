@@ -1,0 +1,15 @@
+<header class="topbar">
+    <div class="pipe-icon">⚙️</div>
+
+    <div>
+        <div class="pipe-name">{% block page_name %}Jenkins Monitor{% endblock %}</div>
+        <div class="pipe-meta">
+            <span class="branch-tag">main</span>
+            <span class="build-tag" id="latestBuildTag">#--</span>
+        </div>
+    </div>
+
+    <div class="topbar-actions">
+        {% block topbar_actions %}{% endblock %}
+    </div>
+</header>

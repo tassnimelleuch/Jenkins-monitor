@@ -1,0 +1,85 @@
+<aside class="sidebar">
+  <div class="sb-profile">
+    <div class="avatar">{{ username[0]|upper if username else 'U' }}</div>
+    <div>
+      <div class="pname">{{ username or 'User' }}</div>
+      <div class="prole">{{ role or 'guest' }}</div>
+    </div>
+    <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">☀️</button>
+  </div>
+
+  <div class="sb-jenkins">
+    <div class="pulse-dot" id="statusDot"></div>
+    <div>
+      <div class="ji-label">Jenkins</div>
+      <div class="ji-val" id="statusVal">Checking...</div>
+    </div>
+    <button class="refresh-btn" id="refBtn" onclick="doRefresh()" title="Refresh">
+      <svg viewBox="0 0 24 24">
+        <path d="M1 4v6h6"/>
+        <path d="M23 20v-6h-6"/>
+        <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+      </svg>
+    </button>
+  </div>
+
+  <nav class="sb-nav">
+    <a class="nav-item {% if request.endpoint == 'overview.dashboard' %}active{% endif %}"
+       href="{{ url_for('overview.dashboard') }}">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/>
+        </svg>
+      </span>
+      <span class="nav-label">Overview</span>
+    </a>
+
+    <div class="nav-sep"></div>
+
+    <a class="nav-item {% if request.endpoint == 'pipeline_kpis.pipeline_kpis' %}active{% endif %}"
+       href="{{ url_for('pipeline_kpis.pipeline_kpis') }}">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+      </span>
+      <span class="nav-label">Pipeline KPIs</span>
+    </a>
+
+    {% if role == 'admin' %}
+    <div class="nav-sep"></div>
+
+    <a class="nav-item {% if request.endpoint == 'user_management.manage_users' %}active{% endif %}"
+       href="{{ url_for('user_management.manage_users') }}">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      </span>
+      <span class="nav-label">Manage Users</span>
+      {% if pending_count is defined and pending_count > 0 %}
+      <span class="nav-badge">{{ pending_count }}</span>
+      {% endif %}
+    </a>
+    {% endif %}
+  </nav>
+
+  <div class="sb-footer">
+    <div class="logout-row" onclick="window.location.href='{{ url_for('auth.logout') }}'">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </span>
+      <span>Logout</span>
+    </div>
+  </div>
+</aside>
