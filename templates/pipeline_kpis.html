@@ -1,14 +1,128 @@
 {% extends 'base.html' %}
 
-{% block title %}Pipeline KPIs - Jenkins Monitor{% endblock %}
+{% block title %}Pipeline KPIs — Jenkins Monitor{% endblock %}
 
-{% block body_attrs %}data-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}"{% endblock %}
-
-{% block page_name %}Pipeline KPIs{% endblock %}
-
-{% block topbar_actions %}
-<button class="btn btn-green" onclick="toggleBuild()">Run Build</button>
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pipeline_kpis.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 
+{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}"{% endblock %}
+
 {% block page_content %}
+
+<div class="seg-tip" id="segTip">
+  <div class="st-name" id="stName"></div>
+  <div class="st-dur" id="stDur"></div>
+  <div class="st-status" id="stStatus"></div>
+  <div class="st-hint">click to open console</div>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi-card health">
+    <div class="circular-progress">
+      <svg viewBox="0 0 60 60">
+        <circle class="circle-bg" cx="30" cy="30" r="24"></circle>
+        <circle class="circle-progress" id="healthCircle" cx="30" cy="30" r="24"
+          style="stroke-dasharray:150.796;stroke-dashoffset:150.796;"></circle>
+      </svg>
+      <div class="progress-text">
+        <span class="progress-value" id="health-val" style="color:var(--green)">0</span>
+        <span class="progress-unit">%</span>
+      </div>
+    </div>
+    <div>
+      <div class="kpi-title">Health Score</div>
+      <div class="kpi-sub">Pipeline health index</div>
+      <span class="kpi-badge red" id="health-badge">⚠ No data</span>
+    </div>
+  </div>
+
+  <div class="kpi-card success-rate">
+    <div class="circular-progress">
+      <svg viewBox="0 0 60 60">
+        <circle class="circle-bg" cx="30" cy="30" r="24"></circle>
+        <circle class="circle-progress" id="rateCircle" cx="30" cy="30" r="24"
+          style="stroke-dasharray:150.796;stroke-dashoffset:150.796;"></circle>
+      </svg>
+      <div class="progress-text">
+        <span class="progress-value" id="rate-val" style="color:var(--blue)">0</span>
+        <span class="progress-unit">%</span>
+      </div>
+    </div>
+    <div>
+      <div class="kpi-title">Success Rate</div>
+      <div class="kpi-sub">Last 10 builds</div>
+      <span class="kpi-badge red" id="rate-badge">⚠ No data</span>
+    </div>
+  </div>
+</div>
+
+<div class="timeline-card">
+  <div class="timeline-hdr">
+    <div>
+      <div class="timeline-title">Build History</div>
+      <div class="timeline-sub">Hover a segment = stage name · click row = console log</div>
+    </div>
+    <div class="tl-right">
+      <span class="tl-badge-run" id="runningBadge" style="display:none;"></span>
+      <button class="show-more-btn" id="showMoreBtn" onclick="toggleShowMore()" style="display:none;">Show more ↓</button>
+    </div>
+  </div>
+
+  <div class="tl-col-header">
+    <span>Build</span>
+    <span></span>
+    <span>Stages</span>
+    <span>Result</span>
+  </div>
+
+  <div id="buildTimeline">
+    <div class="build-row" style="pointer-events:none;">
+      <div>
+        <div class="skeleton" style="height:13px;width:40px;margin-bottom:5px;"></div>
+        <div class="skeleton" style="height:9px;width:65px;"></div>
+      </div>
+      <div class="skeleton" style="height:10px;width:10px;border-radius:50%;"></div>
+      <div style="display:flex;gap:3px;align-items:center;flex:1;">
+        <div class="skeleton" style="height:8px;flex:1;border-radius:4px;"></div>
+        <div class="skeleton" style="height:8px;flex:1;border-radius:4px;"></div>
+        <div class="skeleton" style="height:8px;flex:1;border-radius:4px;"></div>
+        <div class="skeleton" style="height:8px;flex:1;border-radius:4px;"></div>
+        <div class="skeleton" style="height:8px;flex:1;border-radius:4px;"></div>
+        <div class="skeleton" style="height:8px;flex:1;border-radius:4px;"></div>
+      </div>
+      <div class="skeleton" style="height:24px;width:80px;border-radius:6px;"></div>
+    </div>
+  </div>
+</div>
+
+<div class="charts-grid pipeline-charts-grid">
+  <div class="chart-card pipeline-stat-card">
+    <div class="pipeline-stat-label">Avg Build Duration</div>
+    <div class="pipeline-stat-value pipeline-stat-accent" id="avgDurationValue">—</div>
+    <div class="pipeline-stat-sub">seconds (last 20 builds)</div>
+  </div>
+
+  <div class="chart-card pipeline-stat-card">
+    <div class="pipeline-stat-label">Test Coverage</div>
+    <div class="pipeline-stat-value pipeline-stat-blue" id="coverageValue">—</div>
+    <div class="pipeline-stat-sub">% line coverage average</div>
+  </div>
+
+  <div class="chart-card pipeline-stage-card">
+    <div class="pipeline-section-title">Failure Rate by Stage</div>
+    <div id="stageFailureChart" class="pipeline-stage-chart">
+      <div style="height:8px;background:var(--bg3);border-radius:4px;flex:1;"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="{{ url_for('static', filename='js/kpis_pipeline.js') }}"></script>
+<script src="{{ url_for('static', filename='js/overview.js') }}"></script>
 {% endblock %}

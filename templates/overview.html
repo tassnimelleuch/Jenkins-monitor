@@ -11,7 +11,10 @@
 <button class="btn btn-export" onclick="exportPDF()">Export PDF</button>
 <button class="btn btn-export" onclick="toggleChat()">AI Assistant</button>
 {% endblock %}
-
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
+{% endblock %}
 {% block page_content %}
 
 <div id="disconnectedBanner" class="disconnected-banner">
@@ -207,4 +210,7 @@
         <button class="send-btn" onclick="send()">➤</button>
     </div>
 </div>
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/overview.js') }}"></script>
+{% endblock %}
 {% endblock %}
