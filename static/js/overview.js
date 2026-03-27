@@ -159,8 +159,7 @@ function triggerBuild() {
         'Are you sure you want to trigger a new build for <strong>django-pipeline</strong>?',
         async () => {
             try {
-                const res  = await fetch('/jenkins/api/build', { method: 'POST' });
-                const data = await res.json();
+                const { data } = await apiTriggerBuild();
                 if (data.queued) {
                     showToast('✅ Build queued — watch Active Builds');
                     startPolling(5000);
@@ -186,8 +185,7 @@ function confirmAbort(buildNumber) {
         'Are you sure you want to abort build <strong>#' + buildNumber + '</strong>?',
         async () => {
             try {
-                const res  = await fetch('/jenkins/api/abort/' + buildNumber, { method: 'POST' });
-                const data = await res.json();
+                const { data } = await apiAbortBuild(buildNumber);
                 if (data.aborted) {
                     showToast('Build #' + buildNumber + ' aborted');
                     const line = document.getElementById('bl-' + buildNumber);
@@ -368,4 +366,3 @@ document.addEventListener('DOMContentLoaded', () => {
     startPolling(30000);
     setInterval(pollRunningStages, 2000);
 });
-

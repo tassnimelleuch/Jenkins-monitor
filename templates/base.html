@@ -17,23 +17,7 @@
     {% include 'partials/sidebar.html' %}
 
     <main class="main">
-        <header class="topbar">
-            <div class="pipe-icon">⚙</div>
-
-            <div>
-                <div class="pipe-name">django-pipeline</div>
-                <div class="pipe-meta">
-                    Branch:&nbsp;<span class="branch-tag">main</span>&nbsp;·&nbsp;Build&nbsp;<span class="build-tag" id="latestBuildTag">#—</span>
-                </div>
-            </div>
-
-            <div class="topbar-actions">
-                {% block topbar_actions %}
-                <button class="btn btn-green" id="startStopBtn" onclick="toggleBuild()">▶ Start Build</button>
-                <button class="btn btn-export" onclick="exportPDF()">↓ Export PDF</button>
-                {% endblock %}
-            </div>
-        </header>
+        {% include 'partials/navbar.html' %}
 
         <div class="page">
             {% block page_content %}{% endblock %}

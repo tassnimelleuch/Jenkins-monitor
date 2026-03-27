@@ -20,43 +20,7 @@
 </div>
 
 <div class="kpi-row">
-  <div class="kpi-card health">
-    <div class="circular-progress">
-      <svg viewBox="0 0 60 60">
-        <circle class="circle-bg" cx="30" cy="30" r="24"></circle>
-        <circle class="circle-progress" id="healthCircle" cx="30" cy="30" r="24"
-          style="stroke-dasharray:150.796;stroke-dashoffset:150.796;"></circle>
-      </svg>
-      <div class="progress-text">
-        <span class="progress-value" id="health-val" style="color:var(--green)">0</span>
-        <span class="progress-unit">%</span>
-      </div>
-    </div>
-    <div>
-      <div class="kpi-title">Health Score</div>
-      <div class="kpi-sub">Pipeline health index</div>
-      <span class="kpi-badge red" id="health-badge">⚠ No data</span>
-    </div>
-  </div>
-
-  <div class="kpi-card success-rate">
-    <div class="circular-progress">
-      <svg viewBox="0 0 60 60">
-        <circle class="circle-bg" cx="30" cy="30" r="24"></circle>
-        <circle class="circle-progress" id="rateCircle" cx="30" cy="30" r="24"
-          style="stroke-dasharray:150.796;stroke-dashoffset:150.796;"></circle>
-      </svg>
-      <div class="progress-text">
-        <span class="progress-value" id="rate-val" style="color:var(--blue)">0</span>
-        <span class="progress-unit">%</span>
-      </div>
-    </div>
-    <div>
-      <div class="kpi-title">Success Rate</div>
-      <div class="kpi-sub">Last 10 builds</div>
-      <span class="kpi-badge red" id="rate-badge">⚠ No data</span>
-    </div>
-  </div>
+  {% include 'partials/kpi_cards.html' %}
 </div>
 
 <div class="timeline-card">
@@ -123,6 +87,5 @@
 
 {% block extra_js %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="{{ url_for('static', filename='js/kpis_pipeline.js') }}"></script>
-<script src="{{ url_for('static', filename='js/overview.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pipeline_kpis.js') }}"></script>
 {% endblock %}

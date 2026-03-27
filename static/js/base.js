@@ -46,6 +46,19 @@ function showToast(msg,cls=''){
   setTimeout(()=>t.classList.remove('show'),3000);
 }
 
+// Shared pipeline actions
+async function apiTriggerBuild() {
+  const res = await fetch('/jenkins/api/build', { method: 'POST' });
+  const data = await res.json();
+  return { ok: res.ok, data };
+}
+
+async function apiAbortBuild(buildNumber) {
+  const res = await fetch('/jenkins/api/abort/' + buildNumber, { method: 'POST' });
+  const data = await res.json();
+  return { ok: res.ok, data };
+}
+
 // ── PDF Export
 function exportPDF(){
   const {jsPDF}=window.jspdf;
@@ -293,4 +306,3 @@ function segCls(status){
     if(status === 'IN_PROGRESS') return 'run';
     return 'idle';
 }
-

@@ -231,8 +231,7 @@ function confirmAbort(buildNumber) {
     'Are you sure you want to abort build <strong>#' + buildNumber + '</strong>?',
     async () => {
       try {
-        const res = await fetch('/jenkins/api/abort/' + buildNumber, { method: 'POST' });
-        const data = await res.json();
+        const { data } = await apiAbortBuild(buildNumber);
 
         if (data.aborted) {
           showToast('Build #' + buildNumber + ' aborted');
@@ -272,8 +271,7 @@ function triggerBuild() {
     'Trigger a new build for <strong>django-pipeline</strong>?',
     async () => {
       try {
-        const res = await fetch('/jenkins/api/build', { method: 'POST' });
-        const data = await res.json();
+        const { data } = await apiTriggerBuild();
 
         if (data.queued) {
           showToast('✅ Build queued — watching for updates');

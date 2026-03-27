@@ -1,0 +1,37 @@
+<div class="kpi-card health">
+    <div class="circular-progress">
+        <svg viewBox="0 0 60 60">
+            <circle class="circle-bg" cx="30" cy="30" r="24"></circle>
+            <circle class="circle-progress" id="healthCircle" cx="30" cy="30" r="24"
+                    stroke-dasharray="150.796" stroke-dashoffset="150.796"></circle>
+        </svg>
+        <div class="progress-text">
+            <span class="progress-value" id="health-val" style="color:var(--green)">0</span>
+            <span class="progress-unit">%</span>
+        </div>
+    </div>
+    <div>
+        <div class="kpi-title">Health Score</div>
+        <div class="kpi-sub">Pipeline health indicator</div>
+        <div class="kpi-badge red" id="health-badge">⚠ No data</div>
+    </div>
+</div>
+
+<div class="kpi-card success-rate">
+    <div class="circular-progress">
+        <svg viewBox="0 0 60 60">
+            <circle class="circle-bg" cx="30" cy="30" r="24"></circle>
+            <circle class="circle-progress" id="rateCircle" cx="30" cy="30" r="24"
+                    stroke-dasharray="150.796" stroke-dashoffset="150.796"></circle>
+        </svg>
+        <div class="progress-text">
+            <span class="progress-value" id="rate-val" style="color:var(--blue)">0</span>
+            <span class="progress-unit">%</span>
+        </div>
+    </div>
+    <div>
+        <div class="kpi-title">Success Rate</div>
+        <div class="kpi-sub">Recent build success ratio</div>
+        <div class="kpi-badge red" id="rate-badge">⚠ No data</div>
+    </div>
+</div>
