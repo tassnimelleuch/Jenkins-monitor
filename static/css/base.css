@@ -124,3 +124,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .toast.show{opacity:1;transform:translateY(0);}
 .toast.abort-toast{background:var(--red);}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+
+  a {
+    text-decoration: none;
+  }

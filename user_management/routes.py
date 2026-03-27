@@ -8,7 +8,7 @@ from services.access_service import admin_required
 @admin_required
 def manage_users():
     return render_template(
-        'user_management/manage_users.html',
+        '/manage_users.html',
         pending=[u for u in users if u['status'] == 'pending'],
         approved=[u for u in users if u['status'] == 'approved' and u['role'] != 'admin'],
         rejected=[u for u in users if u['status'] == 'rejected'],

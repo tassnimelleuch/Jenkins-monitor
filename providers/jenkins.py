@@ -1,3 +1,4 @@
+#providers are external service connectors
 import logging
 import requests
 from flask import current_app
@@ -47,7 +48,6 @@ def check_connection():
         return resp.status_code == 200
     except requests.exceptions.ConnectionError:
         return False
-
 
 def get_all_builds():
     try:

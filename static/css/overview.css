@@ -130,22 +130,6 @@
     font-family: 'JetBrains Mono', monospace;
     margin-bottom: 8px;
 }
-.btr-console {
-    display: flex; align-items: center; gap: 5px;
-    padding: 5px 9px; border-radius: 7px;
-    background: var(--accent); color: #fff;
-    font-size: 11px; font-weight: 700;
-    text-decoration: none;
-    transition: filter .15s;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    width: 100%; justify-content: center;
-}
-.btr-console:hover { filter: brightness(1.1); }
-.btr-console svg {
-    width: 11px; height: 11px;
-    stroke: currentColor; fill: none;
-    stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
-}
 
 /* ── CHARTS ── */
 .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}

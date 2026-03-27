@@ -1,67 +1,5 @@
-// ─────────────────────────────────────────────
-// POLLING
-// ─────────────────────────────────────────────
-let _polling = null;
-function startPolling(ms) {
-    if (_polling) clearInterval(_polling);
-    _polling = setInterval(() => {
-        checkStatus();
-        loadKPIs();
-    }, ms);
-}
 
-// ─────────────────────────────────────────────
-// BROWSER NOTIFICATIONS
-// ─────────────────────────────────────────────
-const _notifiedBuilds = new Set();
-
-function requestNotificationPermission() {
-    if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
-    }
-}
-
-function notifyBuildFinished(build) {
-    if (_notifiedBuilds.has(build.number)) return;
-    _notifiedBuilds.add(build.number);
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const icons = { SUCCESS: '✅', FAILURE: '❌', ABORTED: '⊘' };
-    const dur   = build.duration ? Math.round(build.duration / 1000) : 0;
-    const m = Math.floor(dur / 60), s = dur % 60;
-    new Notification(
-        (icons[build.result] || '●') + ' Build #' + build.number + ' — ' + build.result,
-        { body: 'Finished in ' + m + 'm ' + String(s).padStart(2,'0') + 's' }
-    );
-}
-
-// ─────────────────────────────────────────────
-// CONFIRMATION MODAL
-// ─────────────────────────────────────────────
-function showConfirm(title, body, onYes, onNo) {
-    const old = document.getElementById('_confirmModal');
-    if (old) old.remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = '_confirmModal';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
-    overlay.innerHTML = `
-        <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:18px;padding:28px 28px 22px;width:340px;box-shadow:0 24px 60px rgba(0,0,0,.7);">
-            <div style="font-size:16px;font-weight:800;margin-bottom:8px;">${title}</div>
-            <div style="font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:22px;">${body}</div>
-            <div style="display:flex;gap:10px;justify-content:flex-end;">
-                <button id="_cNo"  style="padding:8px 18px;border-radius:9px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">Cancel</button>
-                <button id="_cYes" style="padding:8px 18px;border-radius:9px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">Confirm</button>
-            </div>
-        </div>`;
-    document.body.appendChild(overlay);
-    document.getElementById('_cYes').onclick = () => { overlay.remove(); onYes(); };
-    document.getElementById('_cNo').onclick  = () => { overlay.remove(); if (onNo) onNo(); };
-    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); if (onNo) onNo(); }});
-}
-
-// ─────────────────────────────────────────────
-// 2. LOAD KPIs
-// ─────────────────────────────────────────────
+// LOAD KPIs
 let _prevRunningNumbers = new Set();
 let _avgDurationMs      = 60000;
 
@@ -99,9 +37,7 @@ async function loadKPIs() {
     }
 }
 
-// ─────────────────────────────────────────────
-// 3. CIRCULAR PROGRESS
-// ─────────────────────────────────────────────
+//CIRCULAR PROGRESS
 function updateCircle(cardCls, pct, valId, badgeId) {
     const card = document.querySelector('.kpi-card.' + cardCls);
     if (!card) return;
@@ -117,9 +53,7 @@ function updateCircle(cardCls, pct, valId, badgeId) {
     }
 }
 
-// ─────────────────────────────────────────────
-// 4. ACTIVE BUILDS
-// ─────────────────────────────────────────────
+// ACTIVE BUILDS
 let _activeTimers = {};
 
 function updateActiveBuilds(runningCount, builds) {
@@ -218,9 +152,7 @@ function updateActiveBuilds(runningCount, builds) {
     });
 }
 
-// ─────────────────────────────────────────────
-// 5. TRIGGER BUILD
-// ─────────────────────────────────────────────
+//TRIGGER BUILD
 function triggerBuild() {
     showConfirm(
         '▶ Start Build',
@@ -243,14 +175,11 @@ function triggerBuild() {
     );
 }
 
-// keep same button behavior from your old page
 function toggleBuild() {
     triggerBuild();
 }
 
-// ─────────────────────────────────────────────
-// 6. ABORT BUILD
-// ─────────────────────────────────────────────
+// ABORT BUILD
 function confirmAbort(buildNumber) {
     showConfirm(
         '⊘ Abort Build #' + buildNumber,
@@ -283,9 +212,7 @@ function confirmAbort(buildNumber) {
     );
 }
 
-// ─────────────────────────────────────────────
-// 7. BAR CHART
-// ─────────────────────────────────────────────
+// BAR CHART
 function renderBarChart(builds) {
     const wrap   = document.getElementById('barsWrap');
     const sumRow = document.getElementById('buildSummaryRow');
@@ -318,13 +245,7 @@ function renderBarChart(builds) {
                     <div class="btr-result">${b.result || 'RUNNING'}</div>
                 </div>
                 <div class="btr-dur">${mins}m ${secs}s</div>
-                <a class="btr-console" href="/jenkins/console/${b.number}" target="_blank">
-                    <svg viewBox="0 0 24 24">
-                        <polyline points="4 17 10 11 4 5"/>
-                        <line x1="12" y1="19" x2="20" y2="19"/>
-                    </svg>
-                    View Console
-                </a>
+                
             </div>`;
 
         return '<div class="bar-col">'
@@ -335,9 +256,7 @@ function renderBarChart(builds) {
     }).join('');
 }
 
-// ─────────────────────────────────────────────
-// 8. SVG TREND CHART
-// ─────────────────────────────────────────────
+// SVG TREND CHART
 function renderTrendChart(builds) {
     const sorted = [...builds].reverse();
     const n      = sorted.length;
@@ -426,40 +345,6 @@ function renderTrendChart(builds) {
         }
     }
 }
-
-// ─────────────────────────────────────────────
-// 9. CLEAR DASHBOARD
-// ─────────────────────────────────────────────
-function clearDashboard() {
-    ['sv-total','sv-success','sv-failed','sv-aborted'].forEach(id => {
-        const el = document.getElementById(id); if (el) el.textContent = '--';
-    });
-    ['health','success-rate'].forEach(cls => {
-        const card = document.querySelector('.kpi-card.' + cls); if (!card) return;
-        const c = card.querySelector('.circle-progress'); if (c) c.style.strokeDashoffset = '150.796';
-    });
-    const hv = document.getElementById('health-val'); if (hv) hv.textContent = '0';
-    const rv = document.getElementById('rate-val');   if (rv) rv.textContent = '0';
-    ['health-badge','rate-badge'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) { el.className = 'kpi-badge red'; el.textContent = '⚠ No data'; }
-    });
-    const c = document.getElementById('activeBuildLines');
-    if (c) c.innerHTML = '<div class="no-builds">No active builds — Jenkins is disconnected</div>';
-    const b = document.getElementById('activeCountBadge'); if (b) b.textContent = '0 running';
-    const w = document.getElementById('barsWrap');
-    if (w) w.innerHTML = '<div class="no-builds" style="width:100%;text-align:center;">No build data available</div>';
-    const s = document.getElementById('buildSummaryRow'); if (s) s.innerHTML = '';
-}
-
-function segCls(status){
-    if(status === 'SUCCESS') return 'done';
-    if(status === 'FAILED') return 'fail';
-    if(status === 'ABORTED') return 'abrt';
-    if(status === 'IN_PROGRESS') return 'run';
-    return 'idle';
-}
-
 // Fast stage updater — only updates squares on running rows
 async function pollRunningStages() {
   try {
@@ -483,3 +368,4 @@ document.addEventListener('DOMContentLoaded', () => {
     startPolling(30000);
     setInterval(pollRunningStages, 2000);
 });
+
