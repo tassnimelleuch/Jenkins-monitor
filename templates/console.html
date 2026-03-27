@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Build #{{ build_number }} — Console</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/console.css') }}">
+</head>
+<body class="console-page">
+
+  <div class="topbar">
+    <a class="back-btn" href="javascript:window.close()">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      Close
+    </a>
+
+    <div class="tb-center">
+      <div class="tb-title">Build #{{ build_number }} — Console Output</div>
+      <div class="tb-sub">{{ username }} · {{ role }}</div>
+    </div>
+
+    <div class="tb-right">
+      <div class="live-indicator" id="liveIndicator">
+        <div class="live-dot"></div>
+        <span class="live-label">LIVE</span>
+      </div>
+
+      <span class="tb-badge badge-running" id="resultBadge">● Fetching...</span>
+
+      <button class="theme-btn" id="themeBtn" onclick="toggleTheme()"></button>
+
+      <button class="scroll-btn" onclick="scrollToBottom()">
+        <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+        Bottom
+      </button>
+    </div>
+  </div>
+
+  <div class="log-wrap">
+    <div class="log-box">
+      <div class="log-header">
+        <div class="dot r"></div>
+        <div class="dot y"></div>
+        <div class="dot g"></div>
+        <div class="log-header-title">build-#{{ build_number }}.log</div>
+        <div class="log-lines" id="lineCount">0 lines</div>
+      </div>
+
+      <div class="log-body">
+        <table class="log-table">
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="logBottom"></div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/base.js') }}"></script>
+  <script>
+    const BUILD_NUMBER = {{ build_number|tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='js/console.js') }}"></script>
+</body>
+</html>
