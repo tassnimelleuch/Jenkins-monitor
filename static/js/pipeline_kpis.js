@@ -276,7 +276,7 @@ function renderStageFailureChart(failureRateByStage) {
   const container = document.getElementById('stageFailureChart');
   if (!container) return;
 
-  const entries = Object.entries(failureRateByStage).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const entries = Object.entries(failureRateByStage).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
   if (!entries.length) {
     container.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px;font-size:12px;">No stage data available</div>';
@@ -291,15 +291,11 @@ function renderStageFailureChart(failureRateByStage) {
   const labels = entries.map(e => e[0]);
   const values = entries.map(e => e[1]);
 
-  const bgColors = values.map(v => v > 50 ? 'rgba(226,75,74,0.75)' : v > 25 ? 'rgba(186,117,23,0.75)' : 'rgba(99,153,34,0.75)');
-  const borderColors = values.map(v => v > 50 ? '#E24B4A' : v > 25 ? '#BA7517' : '#639922');
+  const bgColors = values.map(v => v > 50 ? '#ff4560' : v > 25 ? '#ff4560' : '#ff4560' );
+  const borderColors = values.map(v => v > 50 ? '#ff4560' : v > 25 ?'#ff4560;' : '#ff4560' );
 
   container.innerHTML = `
-    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:11px;color:var(--text2);">
-      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;background:#E24B4A;display:inline-block;"></span>High (&gt;50%)</span>
-      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;background:#BA7517;display:inline-block;"></span>Medium (25–50%)</span>
-      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;background:#639922;display:inline-block;"></span>Low (&lt;25%)</span>
-    </div>
+
     <div style="position:relative;width:100%;height:${Math.max(180, entries.length * 40 + 40)}px;">
       <canvas id="stageChartCanvas"></canvas>
     </div>`;
@@ -342,7 +338,7 @@ function renderStageFailureChart(failureRateByStage) {
       scales: {
         x: {
           min: 0,
-          max: 100,
+          max: 50,
           grid: { color: gridColor, drawTicks: false },
           border: { display: false },
           ticks: {
