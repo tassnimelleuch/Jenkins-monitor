@@ -177,38 +177,6 @@ function toggleBuild() {
     triggerBuild();
 }
 
-// ABORT BUILD
-function confirmAbort(buildNumber) {
-    showConfirm(
-        '⊘ Abort Build #' + buildNumber,
-        'Are you sure you want to abort build <strong>#' + buildNumber + '</strong>?',
-        async () => {
-            try {
-                const { data } = await apiAbortBuild(buildNumber);
-                if (data.aborted) {
-                    showToast('Build #' + buildNumber + ' aborted');
-                    const line = document.getElementById('bl-' + buildNumber);
-                    if (line) {
-                        const fill  = line.querySelector('.bl-progress-fill');
-                        const stage = line.querySelector('.bl-stage');
-                        if (fill)  { fill.style.background = 'var(--orange)'; fill.style.boxShadow = 'none'; }
-                        if (stage)  stage.textContent = 'Aborting...';
-                    }
-                    if (_activeTimers[buildNumber]) {
-                        clearInterval(_activeTimers[buildNumber]);
-                        delete _activeTimers[buildNumber];
-                    }
-                    setTimeout(checkStatus, 2000);
-                } else {
-                    showToast('Failed to abort: ' + (data.error || 'unknown'), 'abort-toast');
-                }
-            } catch (e) {
-                showToast('Network error during abort', 'abort-toast');
-            }
-        }
-    );
-}
-
 // SVG TREND CHART
 function renderTrendChart(builds) {
     const sorted = [...builds].reverse();

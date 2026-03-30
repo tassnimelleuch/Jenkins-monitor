@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-kpis-url="{{ url_for('overview.kpis') }}"{% endblock %}
+{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-kpis-url="{{ url_for('overview.kpis') }}" data-page="pipeline-kpis"{% endblock %}
 
 {% block page_content %}
 
@@ -66,17 +66,7 @@
 </div>
 
 <div class="charts-grid pipeline-charts-grid">
-  <div class="chart-card pipeline-stat-card">
-    <div class="pipeline-stat-label">Avg Build Duration</div>
-    <div class="pipeline-stat-value pipeline-stat-accent" id="avgDurationValue">—</div>
-    <div class="pipeline-stat-sub">seconds (last 20 builds)</div>
-  </div>
 
-  <div class="chart-card pipeline-stat-card">
-    <div class="pipeline-stat-label">Test Coverage</div>
-    <div class="pipeline-stat-value pipeline-stat-blue" id="coverageValue">—</div>
-    <div class="pipeline-stat-sub">% line coverage average</div>
-  </div>
 
   <div class="chart-card pipeline-stage-card">
     <div class="pipeline-section-title">Failure Rate by Stage</div>
