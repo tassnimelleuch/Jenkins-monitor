@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from 'partials/kpi_cards.html' import stat_row %}
+{% from 'partials/kpi_cards.html' import stat_row, latest_builds_chart %}
 
 {% block title %}Pipeline KPIs — Jenkins Monitor{% endblock %}
 
@@ -65,8 +65,8 @@
   </div>
 </div>
 
-<div class="charts-grid pipeline-charts-grid">
-
+<div class="pipeline-charts-grid">
+  {{ latest_builds_chart() }}
 
   <div class="chart-card pipeline-stage-card">
     <div class="pipeline-section-title">Failure Rate by Stage</div>
@@ -74,11 +74,26 @@
       <div style="height:8px;background:var(--bg3);border-radius:4px;flex:1;"></div>
     </div>
   </div>
-</div>
 
+  <div class="chart-card pipeline-stat-card">
+    <div class="pipeline-stat-label">Avg Build Duration</div>
+    <div class="pipeline-stat-value pipeline-stat-accent" id="avgDurationValue">—</div>
+    <div class="pipeline-stat-sub">seconds (last 20 builds)</div>
+  </div>
+
+  <div class="chart-card pipeline-stat-card">
+    <div class="pipeline-stat-label">Test Coverage</div>
+    <div class="pipeline-stat-value pipeline-stat-blue" id="coverageValue">—</div>
+    <div class="pipeline-stat-sub">% line coverage average</div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="{{ url_for('static', filename='js/pipeline_kpis.js') }}"></script>
+<script src ="{{ url_for('static', filename='js/base.js') }}"></script>
+{% endblock %}
+
+{% block extra_markup %}
 {% endblock %}

@@ -251,7 +251,64 @@ function openConsole(num) {
   window.open('/jenkins/console/' + num, '_blank');
 }
 
+// ── Latest Builds Chart (shared)
+function renderLatestBuildsChart(builds) {
+  const wrap   = document.getElementById('barsWrap');
+  const sumRow = document.getElementById('buildSummaryRow');
+  if (!wrap) return;
+
+  const sorted = [...builds].reverse();
+  const maxDur = Math.max(...sorted.map(b => b.duration || 1));
+  const pass   = builds.filter(b => b.result === 'SUCCESS').length;
+  const fail   = builds.filter(b => b.result === 'FAILURE').length;
+  const abrt   = builds.filter(b => b.result === 'ABORTED').length;
+
+  if (sumRow) {
+    sumRow.innerHTML =
+      '<div class="bstat pass"><div class="bstat-dot"></div>' + pass + ' Pass</div>' +
+      '<div class="bstat fail"><div class="bstat-dot"></div>' + fail + ' Fail</div>' +
+      '<div class="bstat abrt"><div class="bstat-dot"></div>' + abrt + ' Aborted</div>';
+  }
+
+  wrap.innerHTML = sorted.map(b => {
+    const dur  = b.duration || 0;
+    const mins = Math.floor(dur / 60000);
+    const secs = Math.floor((dur % 60000) / 1000);
+    const pct  = Math.max(5, Math.round((dur / maxDur) * 100));
+    const cls  = b.result === 'SUCCESS' ? 'pass' : b.result === 'FAILURE' ? 'fail' : 'abrt';
+
+    const richTooltip =
+      `<div class="bar-tooltip-rich">
+          <div class="btr-top">
+              <div class="btr-num">#${b.number}</div>
+              <div class="btr-result">${b.result || 'RUNNING'}</div>
+          </div>
+          <div class="btr-dur">${mins}m ${secs}s</div>
+          
+      </div>`;
+
+    return '<div class="bar-col">'
+      + richTooltip
+      + '<div class="bar ' + cls + '" style="height:' + pct + '%"></div>'
+      + '<div class="bar-lbl">#' + b.number + '</div>'
+      + '</div>';
+  }).join('');
+}
+
 // ── Shared Stat Row
+async function getOverviewKpis() {
+  const url = document.body.dataset.kpisUrl;
+  if (!url) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('KPI fetch failed');
+    return await res.json();
+  } catch (e) {
+    console.error('KPI fetch error:', e);
+    return null;
+  }
+}
+
 function updateStatRow(data) {
   const map = {
     'sv-total': data.total_builds,
@@ -274,20 +331,13 @@ function clearStatRow() {
 }
 
 async function loadStatRow() {
-  const url = document.body.dataset.kpisUrl;
-  if (!url) return;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Stat row fetch failed');
-    const data = await res.json();
-    if (!data.connected) {
-      clearStatRow();
-      return;
-    }
-    updateStatRow(data);
-  } catch (e) {
-    console.error('Stat row error:', e);
+  const data = await getOverviewKpis();
+  if (!data) return;
+  if (!data.connected) {
+    clearStatRow();
+    return;
   }
+  updateStatRow(data);
 }
 
 
@@ -426,4 +476,20 @@ function renderBarChart(builds) {
             + '<div class="bar-lbl">#' + b.number + '</div>'
             + '</div>';
     }).join('');
+}
+
+//CIRCULAR PROGRESS
+function updateCircle(cardCls, pct, valId, badgeId) {
+    const card = document.querySelector('.kpi-card.' + cardCls);
+    if (!card) return;
+    const c = card.querySelector('.circle-progress');
+    const v = document.getElementById(valId);
+    const b = document.getElementById(badgeId);
+    if (c) c.style.strokeDashoffset = 150.796 * (1 - pct / 100);
+    if (v) v.textContent = Math.round(pct);
+    if (b) {
+        if (pct >= 80)      { b.className = 'kpi-badge green'; b.textContent = '↑ Excellent'; }
+        else if (pct >= 50) { b.className = 'kpi-badge blue';  b.textContent = '~ Fair'; }
+        else                { b.className = 'kpi-badge red';   b.textContent = '↓ Poor'; }
+    }
 }

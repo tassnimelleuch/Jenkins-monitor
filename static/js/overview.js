@@ -36,21 +36,6 @@ async function loadKPIs() {
     }
 }
 
-//CIRCULAR PROGRESS
-function updateCircle(cardCls, pct, valId, badgeId) {
-    const card = document.querySelector('.kpi-card.' + cardCls);
-    if (!card) return;
-    const c = card.querySelector('.circle-progress');
-    const v = document.getElementById(valId);
-    const b = document.getElementById(badgeId);
-    if (c) c.style.strokeDashoffset = 150.796 * (1 - pct / 100);
-    if (v) v.textContent = Math.round(pct);
-    if (b) {
-        if (pct >= 80)      { b.className = 'kpi-badge green'; b.textContent = '↑ Excellent'; }
-        else if (pct >= 50) { b.className = 'kpi-badge blue';  b.textContent = '~ Fair'; }
-        else                { b.className = 'kpi-badge red';   b.textContent = '↓ Poor'; }
-    }
-}
 
 // ACTIVE BUILDS
 let _activeTimers = {};

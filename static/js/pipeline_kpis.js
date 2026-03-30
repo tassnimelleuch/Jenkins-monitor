@@ -418,6 +418,13 @@ async function loadPipelineKPIs() {
     updateCircle('rateCircle', 'rate-val', 'rate-badge', rate);
 
     _allBuilds = data.builds;
+    if (typeof renderLatestBuildsChart === 'function' && typeof getOverviewKpis === 'function') {
+      const kpis = await getOverviewKpis();
+      if (kpis && kpis.connected) {
+        const trendFinished = (kpis.build_trend || []).filter(b => b.result !== null);
+        renderLatestBuildsChart(trendFinished);
+      }
+    }
     renderTimeline();
     renderCharts(data);
 
