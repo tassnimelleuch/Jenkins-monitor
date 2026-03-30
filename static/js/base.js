@@ -251,6 +251,45 @@ function openConsole(num) {
   window.open('/jenkins/console/' + num, '_blank');
 }
 
+// ── Shared Stat Row
+function updateStatRow(data) {
+  const map = {
+    'sv-total': data.total_builds,
+    'sv-success': data.successful,
+    'sv-failed': data.failed,
+    'sv-aborted': data.aborted,
+  };
+  Object.entries(map).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value ?? '--';
+  });
+}
+
+function clearStatRow() {
+  ['sv-total', 'sv-success', 'sv-failed', 'sv-aborted'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '--';
+  });
+}
+
+async function loadStatRow() {
+  const url = document.body.dataset.kpisUrl;
+  if (!url) return;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Stat row fetch failed');
+    const data = await res.json();
+    if (!data.connected) {
+      clearStatRow();
+      return;
+    }
+    updateStatRow(data);
+  } catch (e) {
+    console.error('Stat row error:', e);
+  }
+}
+
 
 async function loadLatestBuild() {
   try {
@@ -278,9 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // CLEAR DASHBOARD
 function clearDashboard() {
-    ['sv-total','sv-success','sv-failed','sv-aborted'].forEach(id => {
-        const el = document.getElementById(id); if (el) el.textContent = '--';
-    });
+    clearStatRow();
     ['health','success-rate'].forEach(cls => {
         const card = document.querySelector('.kpi-card.' + cls); if (!card) return;
         const c = card.querySelector('.circle-progress'); if (c) c.style.strokeDashoffset = '150.796';

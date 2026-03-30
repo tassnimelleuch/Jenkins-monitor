@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'partials/kpi_cards.html' import stat_row %}
 
 {% block title %}Pipeline KPIs — Jenkins Monitor{% endblock %}
 
@@ -8,7 +9,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}"{% endblock %}
+{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-kpis-url="{{ url_for('overview.kpis') }}"{% endblock %}
 
 {% block page_content %}
 
@@ -18,6 +19,8 @@
   <div class="st-status" id="stStatus"></div>
   <div class="st-hint">click to open console</div>
 </div>
+
+{{ stat_row() }}
 
 <div class="kpi-row">
   {% include 'partials/kpi_cards.html' %}

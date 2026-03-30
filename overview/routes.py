@@ -5,7 +5,7 @@ from services.dashboard_service import get_kpis
 from providers.jenkins import check_connection, get_console_log
 
 
-@overview_bp.route('/dashboard')
+@overview_bp.route('/overview')
 @role_required('admin', 'dev', 'qa')
 def dashboard():
     return render_template(

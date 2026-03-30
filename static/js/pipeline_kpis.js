@@ -485,8 +485,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   _slowHandle = setInterval(() => {
     if (!_pollHandle) loadPipelineKPIs();
+    if (typeof loadStatRow === 'function') loadStatRow();
   }, SLOW_POLL_MS);
 
   setInterval(pollRunningStages, 2000);
+  if (typeof loadStatRow === 'function') loadStatRow();
   loadPipelineKPIs();
 });

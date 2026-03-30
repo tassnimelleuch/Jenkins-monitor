@@ -1,3 +1,57 @@
+{% macro stat_row() %}
+<div class="stat-row">
+    <div class="stat-card total">
+        <div class="stat-icon">
+            <svg viewBox="0 0 24 24">
+                <path d="M3 3h18v18H3z"></path>
+            </svg>
+        </div>
+        <div>
+            <div class="stat-label">Total Builds</div>
+            <div class="stat-value" id="sv-total">--</div>
+        </div>
+    </div> 
+
+    <div class="stat-card success">
+        <div class="stat-icon">
+            <svg viewBox="0 0 24 24">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+        </div>
+        <div>
+            <div class="stat-label">Successful</div>
+            <div class="stat-value" id="sv-success">--</div>
+        </div>
+    </div>
+
+    <div class="stat-card failed">
+        <div class="stat-icon">
+            <svg viewBox="0 0 24 24">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </div>
+        <div>
+            <div class="stat-label">Failed</div>
+            <div class="stat-value" id="sv-failed">--</div>
+        </div>
+    </div>
+
+    <div class="stat-card aborted">
+        <div class="stat-icon">
+            <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="9"></circle>
+                <line x1="8" y1="8" x2="16" y2="16"></line>
+            </svg>
+        </div>
+        <div>
+            <div class="stat-label">Aborted</div>
+            <div class="stat-value" id="sv-aborted">--</div>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
 <div class="kpi-card health">
     <div class="circular-progress">
         <svg viewBox="0 0 60 60">

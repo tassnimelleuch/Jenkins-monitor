@@ -11,10 +11,9 @@ async function loadKPIs() {
 
         if (d.avg_duration_ms) _avgDurationMs = d.avg_duration_ms;
 
-        document.getElementById('sv-total').textContent   = d.total_builds ?? '--';
-        document.getElementById('sv-success').textContent = d.successful   ?? '--';
-        document.getElementById('sv-failed').textContent  = d.failed       ?? '--';
-        document.getElementById('sv-aborted').textContent = d.aborted      ?? '--';
+        if (typeof updateStatRow === 'function') {
+            updateStatRow(d);
+        }
 
         updateCircle('health',       d.health_score ?? 0, 'health-val', 'health-badge');
         updateCircle('success-rate', d.success_rate ?? 0, 'rate-val',   'rate-badge');
