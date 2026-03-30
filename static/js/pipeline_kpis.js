@@ -225,46 +225,6 @@ function toggleShowMore() {
   renderTimeline();
 }
 
-function confirmAbort(buildNumber) {
-  showConfirm(
-    '⊘ Abort Build #' + buildNumber,
-    'Are you sure you want to abort build <strong>#' + buildNumber + '</strong>?',
-    async () => {
-      try {
-        const { data } = await apiAbortBuild(buildNumber);
-
-        if (data.aborted) {
-          showToast('Build #' + buildNumber + ' aborted');
-
-          const row = document.getElementById('brow-' + buildNumber);
-          if (row) {
-            const resultSpan = row.querySelector('.br-result');
-            if (resultSpan) {
-              resultSpan.className = 'br-result abrt';
-              resultSpan.textContent = '⊘ Aborted';
-            }
-            const durEl = document.getElementById('brdur-' + buildNumber);
-            if (durEl) durEl.textContent = 'Build aborted';
-            const abortBtn = row.querySelector('.br-abort');
-            if (abortBtn) abortBtn.style.display = 'none';
-          }
-
-          if (_activeTimers[buildNumber]) {
-            clearInterval(_activeTimers[buildNumber]);
-            delete _activeTimers[buildNumber];
-          }
-
-          setTimeout(loadPipelineKPIs, 2000);
-        } else {
-          showToast('Failed to abort: ' + (data.error || 'unknown'), 'abort-toast');
-        }
-      } catch (e) {
-        showToast('Network error during abort', 'abort-toast');
-      }
-    }
-  );
-}
-
 function triggerBuild() {
   showConfirm(
     '▶ Start Build',

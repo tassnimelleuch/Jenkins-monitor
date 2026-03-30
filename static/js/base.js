@@ -343,3 +343,87 @@ function segCls(status){
     if(status === 'IN_PROGRESS') return 'run';
     return 'idle';
 }
+//confirm abort
+function confirmAbort(buildNumber) {
+  showConfirm(
+    '⊘ Abort Build #' + buildNumber,
+    'Are you sure you want to abort build <strong>#' + buildNumber + '</strong>?',
+    async () => {
+      try {
+        const { data } = await apiAbortBuild(buildNumber);
+
+        if (data.aborted) {
+          showToast('Build #' + buildNumber + ' aborted');
+
+          const row = document.getElementById('brow-' + buildNumber);
+          if (row) {
+            const resultSpan = row.querySelector('.br-result');
+            if (resultSpan) {
+              resultSpan.className = 'br-result abrt';
+              resultSpan.textContent = '⊘ Aborted';
+            }
+            const durEl = document.getElementById('brdur-' + buildNumber);
+            if (durEl) durEl.textContent = 'Build aborted';
+            const abortBtn = row.querySelector('.br-abort');
+            if (abortBtn) abortBtn.style.display = 'none';
+          }
+
+          if (_activeTimers[buildNumber]) {
+            clearInterval(_activeTimers[buildNumber]);
+            delete _activeTimers[buildNumber];
+          }
+
+          setTimeout(loadPipelineKPIs, 2000);
+        } else {
+          showToast('Failed to abort: ' + (data.error || 'unknown'), 'abort-toast');
+        }
+      } catch (e) {
+        showToast('Network error during abort', 'abort-toast');
+      }
+    }
+  );
+}
+
+// BAR CHART 
+function renderBarChart(builds) {
+    const wrap   = document.getElementById('barsWrap');
+    const sumRow = document.getElementById('buildSummaryRow');
+    if (!wrap) return;
+
+    const sorted = [...builds].reverse();
+    const maxDur = Math.max(...sorted.map(b => b.duration || 1));
+    const pass   = builds.filter(b => b.result === 'SUCCESS').length;
+    const fail   = builds.filter(b => b.result === 'FAILURE').length;
+    const abrt   = builds.filter(b => b.result === 'ABORTED').length;
+
+    if (sumRow) {
+        sumRow.innerHTML =
+            '<div class="bstat pass"><div class="bstat-dot"></div>' + pass + ' Pass</div>' +
+            '<div class="bstat fail"><div class="bstat-dot"></div>' + fail + ' Fail</div>' +
+            '<div class="bstat abrt"><div class="bstat-dot"></div>' + abrt + ' Aborted</div>';
+    }
+
+    wrap.innerHTML = sorted.map(b => {
+        const dur  = b.duration || 0;
+        const mins = Math.floor(dur / 60000);
+        const secs = Math.floor((dur % 60000) / 1000);
+        const pct  = Math.max(5, Math.round((dur / maxDur) * 100));
+        const cls  = b.result === 'SUCCESS' ? 'pass' : b.result === 'FAILURE' ? 'fail' : 'abrt';
+
+        const richTooltip =
+            `<div class="bar-tooltip-rich">
+                <div class="btr-top">
+                    <div class="btr-num">#${b.number}</div>
+                    <div class="btr-result">${b.result || 'RUNNING'}</div>
+                </div>
+                <div class="btr-dur">${mins}m ${secs}s</div>
+                
+            </div>`;
+
+        return '<div class="bar-col">'
+            + richTooltip
+            + '<div class="bar ' + cls + '" style="height:' + pct + '%"></div>'
+            + '<div class="bar-lbl">#' + b.number + '</div>'
+            + '</div>';
+    }).join('');
+}

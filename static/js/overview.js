@@ -209,50 +209,6 @@ function confirmAbort(buildNumber) {
     );
 }
 
-// BAR CHART
-function renderBarChart(builds) {
-    const wrap   = document.getElementById('barsWrap');
-    const sumRow = document.getElementById('buildSummaryRow');
-    if (!wrap) return;
-
-    const sorted = [...builds].reverse();
-    const maxDur = Math.max(...sorted.map(b => b.duration || 1));
-    const pass   = builds.filter(b => b.result === 'SUCCESS').length;
-    const fail   = builds.filter(b => b.result === 'FAILURE').length;
-    const abrt   = builds.filter(b => b.result === 'ABORTED').length;
-
-    if (sumRow) {
-        sumRow.innerHTML =
-            '<div class="bstat pass"><div class="bstat-dot"></div>' + pass + ' Pass</div>' +
-            '<div class="bstat fail"><div class="bstat-dot"></div>' + fail + ' Fail</div>' +
-            '<div class="bstat abrt"><div class="bstat-dot"></div>' + abrt + ' Aborted</div>';
-    }
-
-    wrap.innerHTML = sorted.map(b => {
-        const dur  = b.duration || 0;
-        const mins = Math.floor(dur / 60000);
-        const secs = Math.floor((dur % 60000) / 1000);
-        const pct  = Math.max(5, Math.round((dur / maxDur) * 100));
-        const cls  = b.result === 'SUCCESS' ? 'pass' : b.result === 'FAILURE' ? 'fail' : 'abrt';
-
-        const richTooltip =
-            `<div class="bar-tooltip-rich">
-                <div class="btr-top">
-                    <div class="btr-num">#${b.number}</div>
-                    <div class="btr-result">${b.result || 'RUNNING'}</div>
-                </div>
-                <div class="btr-dur">${mins}m ${secs}s</div>
-                
-            </div>`;
-
-        return '<div class="bar-col">'
-            + richTooltip
-            + '<div class="bar ' + cls + '" style="height:' + pct + '%"></div>'
-            + '<div class="bar-lbl">#' + b.number + '</div>'
-            + '</div>';
-    }).join('');
-}
-
 // SVG TREND CHART
 function renderTrendChart(builds) {
     const sorted = [...builds].reverse();
