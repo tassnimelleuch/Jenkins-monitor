@@ -6,3 +6,4 @@ dotenv
 requests
 azure-identity 
 azure-mgmt-containerservice
+kubernetes

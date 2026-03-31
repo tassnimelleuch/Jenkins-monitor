@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% from 'partials/kpi_cards.html' import stat_row, latest_builds_chart %}
+
+{% block title %}Deployment KPIs — Jenkins Monitor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/deployment_kpis.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
+{% endblock %}
+
+{% block body_attrs %}data-deployment-kpis-url="{{ url_for('deployment_kpis.deployment_kpis_cluster') }}" data-page="deployment-kpis"{% endblock %}
+
+{% block page_content %}
+
+<div class="deploy-head">
+  <div>
+  </div>
+</div>
+
+<div class="stat-row deploy-stat-row">
+  <div class="stat-card total namespaces">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 4h16v6H4z"></path>
+        <path d="M4 14h7v6H4z"></path>
+        <path d="M13 14h7v6h-7z"></path>
+      </svg>
+    </div>
+    <div>
+      <div class="stat-label">Namespaces</div>
+      <div class="stat-value" id="namespacesTotal">--</div>
+    </div>
+  </div>
+
+  <div class="stat-card total">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+        <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+        <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+        <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+      </svg>
+    </div>
+    <div>
+      <div class="stat-label">Pods</div>
+      <div class="stat-value" id="podsTotal">--</div>
+    </div>
+  </div>
+
+  <div class="stat-card success">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 6h16M4 12h10M4 18h7"></path>
+      </svg>
+    </div>
+    <div>
+      <div class="stat-label">ReplicaSets</div>
+      <div class="stat-value" id="rsTotal">--</div>
+    </div>
+  </div>
+
+  <div class="stat-card aborted">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 7h16v10H4z"></path>
+        <path d="M7 7V5h10v2"></path>
+      </svg>
+    </div>
+    <div>
+      <div class="stat-label">PVCs</div>
+      <div class="stat-value" id="pvcsTotal">--</div>
+    </div>
+  </div>
+</div>
+
+<div class="deploy-grid">
+  <div class="chart-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Pods by Namespace</div>
+        <div class="chart-sub">Top namespaces by pod count</div>
+      </div>
+      <div class="cbadge" id="podsNsBadge">Total —</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="podsNsChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card ns-blue">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">ReplicaSets by Namespace</div>
+        <div class="chart-sub">Workload controllers by namespace</div>
+      </div>
+      <div class="cbadge cbadge-g" id="rsNsBadge">Total —</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="rsNsChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card ">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">PVCs by Namespace</div>
+        <div class="chart-sub">Persistent storage usage</div>
+      </div>
+      <div class="cbadge cbadge-o" id="pvcsNsBadge">Total —</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="pvcsNsChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card full">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Pods by Phase</div>
+        <div class="chart-sub">Cluster health snapshot</div>
+      </div>
+      <div class="cbadge cbadge-b" id="podsPhaseBadge">Total —</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="podsPhaseChart"></canvas>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="{{ url_for('static', filename='js/deployment_kpis.js') }}"></script>
+{% endblock %}
