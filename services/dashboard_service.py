@@ -4,6 +4,8 @@ from providers.jenkins import (
     get_running_builds,
     get_health_score,
     get_stages,
+    get_coverage_percent,
+    get_test_report,
 )
 
 
@@ -81,6 +83,38 @@ def get_pipeline_kpis():
         failures = stage_failures.get(stage_name, 0)
         failure_rate_by_stage[stage_name] = round((failures / count * 100), 1) if count > 0 else 0
 
+    finished_recent = finished[:20]
+    trend_builds = list(reversed(finished_recent))
+    coverage_trend = []
+    junit_trend = []
+    coverage_vals = []
+    for b in trend_builds:
+        num = b.get('number')
+        coverage = get_coverage_percent(num) if num else None
+        if coverage is not None:
+            coverage_vals.append(coverage)
+        coverage_trend.append({
+            'number': num,
+            'coverage': coverage,
+        })
+
+        report = get_test_report(num) if num else None
+        if report:
+            junit_trend.append({
+                'number': num,
+                **report,
+            })
+        else:
+            junit_trend.append({
+                'number': num,
+                'total': None,
+                'passed': None,
+                'failed': None,
+                'skipped': None,
+            })
+
+    avg_test_coverage = round(sum(coverage_vals) / len(coverage_vals), 1) if coverage_vals else None
+
     return {
         'connected': True,
         'builds': builds_data,
@@ -88,4 +122,7 @@ def get_pipeline_kpis():
         'avg_duration_seconds': avg_duration,
         'failure_rate_by_stage': failure_rate_by_stage,
         'build_durations': [(b['number'], b['duration']) for b in finished[-20:]],
+        'avg_test_coverage': avg_test_coverage,
+        'coverage_trend': coverage_trend,
+        'junit_trend': junit_trend,
     }

@@ -75,12 +75,33 @@
     </div>
   </div>
 
-
-  <div class="chart-card pipeline-stat-card">
-    <div class="pipeline-stat-label">Test Coverage</div>
-    <div class="pipeline-stat-value pipeline-stat-blue" id="coverageValue">—</div>
-    <div class="pipeline-stat-sub">% line coverage average</div>
+  <div class="chart-card pipeline-coverage-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Coverage Trend</div>
+        <div class="chart-sub">Line coverage per build</div>
+      </div>
+      <div class="cbadge cbadge-g" id="coverageAvgBadge">Avg —%</div>
+    </div>
+    <div class="chart-area pipeline-chart-area">
+      <canvas id="coverageTrendChart"></canvas>
+    </div>
   </div>
+
+  <div class="chart-card pipeline-junit-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">JUnit Results</div>
+        <div class="chart-sub">Passed vs failed per build</div>
+      </div>
+      <div class="cbadge" id="junitTotalBadge">Total —</div>
+    </div>
+    <div class="chart-area pipeline-chart-area">
+      <canvas id="junitTrendChart"></canvas>
+    </div>
+  </div>
+
+  
 </div>
 {% endblock %}
 

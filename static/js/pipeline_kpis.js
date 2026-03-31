@@ -259,16 +259,33 @@ function renderCharts(data) {
     const displayText = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
     const el = document.getElementById('avgDurationValue');
     if (el) el.textContent = displayText;
+    const avgEl = document.getElementById('latestBuildsAvg');
+    if (avgEl) avgEl.textContent = `Avg: ${displayText}`;
   }
 
   if (data.avg_test_coverage !== undefined) {
-    const coverage = data.avg_test_coverage || 0;
+    const coverage = data.avg_test_coverage;
     const el = document.getElementById('coverageValue');
-    if (el) el.textContent = coverage.toFixed(1);
+    const badge = document.getElementById('coverageAvgBadge');
+    if (coverage === null || coverage === undefined) {
+      if (el) el.textContent = '—';
+      if (badge) badge.textContent = 'Avg —%';
+    } else {
+      if (el) el.textContent = coverage.toFixed(1);
+      if (badge) badge.textContent = `Avg ${coverage.toFixed(1)}%`;
+    }
   }
 
   if (data.failure_rate_by_stage && Object.keys(data.failure_rate_by_stage).length > 0) {
     renderStageFailureChart(data.failure_rate_by_stage);
+  }
+
+  if (Array.isArray(data.coverage_trend)) {
+    renderCoverageTrend(data.coverage_trend);
+  }
+
+  if (Array.isArray(data.junit_trend)) {
+    renderJUnitTrend(data.junit_trend);
   }
 }
 
@@ -356,6 +373,217 @@ function renderStageFailureChart(failureRateByStage) {
             font: { size: 12, weight: '500' },
             padding: 6
           }
+        }
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' }
+    }
+  });
+}
+
+function renderCoverageTrend(coverageTrend) {
+  const canvas = document.getElementById('coverageTrendChart');
+  if (!canvas) return;
+  const container = canvas.parentElement;
+
+  const points = coverageTrend
+    .filter(p => typeof p.coverage === 'number')
+    .map(p => ({ label: `#${p.number}`, value: p.coverage }));
+
+  if (!points.length) {
+    if (window._coverageChart) {
+      window._coverageChart.destroy();
+      window._coverageChart = null;
+    }
+    canvas.style.display = 'none';
+    if (!container.querySelector('.chart-empty')) {
+      const empty = document.createElement('div');
+      empty.className = 'chart-empty';
+      empty.textContent = 'No coverage data available';
+      container.appendChild(empty);
+    }
+    return;
+  }
+
+  canvas.style.display = 'block';
+  const existingEmpty = container.querySelector('.chart-empty');
+  if (existingEmpty) existingEmpty.remove();
+
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#9c9a92' : '#73726c';
+  const lineColor = '#3ab8f8';
+  const fillColor = 'rgba(58,184,248,0.18)';
+
+  if (window._coverageChart) {
+    window._coverageChart.destroy();
+    window._coverageChart = null;
+  }
+
+  window._coverageChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: points.map(p => p.label),
+      datasets: [{
+        data: points.map(p => p.value),
+        borderColor: lineColor,
+        backgroundColor: fillColor,
+        fill: true,
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 4,
+        pointBackgroundColor: lineColor,
+        pointBorderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => ` ${ctx.raw.toFixed(1)}% coverage` },
+          backgroundColor: isDark ? '#2c2c2a' : '#fff',
+          titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
+          bodyColor: textColor,
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+          borderWidth: 0.5,
+          padding: 10,
+          cornerRadius: 8
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: gridColor, drawTicks: false },
+          border: { display: false },
+          ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 6 }
+        },
+        y: {
+          min: 0,
+          max: 100,
+          grid: { color: gridColor, drawTicks: false },
+          border: { display: false },
+          ticks: {
+            color: textColor,
+            font: { size: 10 },
+            callback: v => v + '%',
+            stepSize: 25
+          }
+        }
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' }
+    }
+  });
+}
+
+function renderJUnitTrend(junitTrend) {
+  const canvas = document.getElementById('junitTrendChart');
+  if (!canvas) return;
+  const container = canvas.parentElement;
+
+  const points = junitTrend
+    .filter(p => typeof p.total === 'number')
+    .map(p => ({
+      label: `#${p.number}`,
+      passed: p.passed || 0,
+      failed: p.failed || 0,
+      skipped: p.skipped || 0
+    }));
+
+  if (!points.length) {
+    if (window._junitChart) {
+      window._junitChart.destroy();
+      window._junitChart = null;
+    }
+    canvas.style.display = 'none';
+    if (!container.querySelector('.chart-empty')) {
+      const empty = document.createElement('div');
+      empty.className = 'chart-empty';
+      empty.textContent = 'No JUnit data available';
+      container.appendChild(empty);
+    }
+    const totalBadge = document.getElementById('junitTotalBadge');
+    if (totalBadge) totalBadge.textContent = 'Total —';
+    return;
+  }
+
+  canvas.style.display = 'block';
+  const existingEmpty = container.querySelector('.chart-empty');
+  if (existingEmpty) existingEmpty.remove();
+
+  const total = points.reduce((sum, p) => sum + p.passed + p.failed + p.skipped, 0);
+  const totalBadge = document.getElementById('junitTotalBadge');
+  if (totalBadge) totalBadge.textContent = `Total ${total}`;
+
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#9c9a92' : '#73726c';
+
+  if (window._junitChart) {
+    window._junitChart.destroy();
+    window._junitChart = null;
+  }
+
+  window._junitChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: points.map(p => p.label),
+      datasets: [
+        {
+          label: 'Passed',
+          data: points.map(p => p.passed),
+          backgroundColor: 'rgba(0,219,160,0.75)',
+          borderRadius: 4,
+          borderSkipped: false
+        },
+        {
+          label: 'Failed',
+          data: points.map(p => p.failed),
+          backgroundColor: 'rgba(255,69,96,0.8)',
+          borderRadius: 4,
+          borderSkipped: false
+        },
+        {
+          label: 'Skipped',
+          data: points.map(p => p.skipped),
+          backgroundColor: 'rgba(255,140,66,0.7)',
+          borderRadius: 4,
+          borderSkipped: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: textColor, boxWidth: 10, boxHeight: 10, padding: 12 }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.raw}`
+          },
+          backgroundColor: isDark ? '#2c2c2a' : '#fff',
+          titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
+          bodyColor: textColor,
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+          borderWidth: 0.5,
+          padding: 10,
+          cornerRadius: 8
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { display: false },
+          border: { display: false },
+          ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 6 }
+        },
+        y: {
+          stacked: true,
+          grid: { color: gridColor, drawTicks: false },
+          border: { display: false },
+          ticks: { color: textColor, font: { size: 10 } }
         }
       },
       animation: { duration: 600, easing: 'easeOutQuart' }

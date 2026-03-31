@@ -1,5 +1,6 @@
 #providers are external service connectors
 import logging
+import xml.etree.ElementTree as ET
 import requests
 from flask import current_app
 
@@ -21,6 +22,43 @@ def _get_base():
 
 def _get_root():
     return current_app.config['JENKINS_URL'].rstrip('/')
+
+
+def _get_artifact_paths():
+    coverage = current_app.config.get('JENKINS_COVERAGE_ARTIFACT', 'coverage.xml')
+    junit = current_app.config.get('JENKINS_JUNIT_ARTIFACT', 'junit-results.xml')
+    return coverage, junit
+
+
+def _get_text(url, timeout=8):
+    try:
+        resp = requests.get(
+            url,
+            auth=_get_auth(),
+            timeout=timeout
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.text
+    except Exception as e:
+        logger.warning(f'[Jenkins] Text fetch error: {e}')
+        return None
+
+def _get_json(url, timeout=8):
+    try:
+        resp = requests.get(
+            url,
+            auth=_get_auth(),
+            timeout=timeout
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.warning(f'[Jenkins] JSON fetch error: {e}')
+        return None
 
 
 def _get_crumb_header():
@@ -187,3 +225,181 @@ def get_running_stages():
             'stages': stages,
         })
     return result
+
+
+def _normalize_pct(value):
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v <= 1:
+        v *= 100
+    return round(v, 1)
+
+
+def _extract_coverage_percent(data):
+    if not isinstance(data, (dict, list)):
+        return None
+
+    def extract_from_dict(d):
+        for key in ('percentage', 'ratio'):
+            if key in d:
+                return _normalize_pct(d.get(key))
+        if 'covered' in d and 'total' in d and d.get('total'):
+            return _normalize_pct(d.get('covered') / d.get('total') * 100)
+        return None
+
+    def search(obj, depth=0):
+        if depth > 4:
+            return None
+        if isinstance(obj, dict):
+            for key in ('lineCoverage', 'line_coverage', 'line', 'lines'):
+                if key in obj:
+                    val = obj.get(key)
+                    if isinstance(val, dict):
+                        pct = extract_from_dict(val)
+                        if pct is not None:
+                            return pct
+                    else:
+                        pct = _normalize_pct(val)
+                        if pct is not None:
+                            return pct
+
+            name = str(obj.get('name', '')).lower()
+            if name in ('line', 'lines', 'line coverage', 'linecoverage'):
+                pct = extract_from_dict(obj)
+                if pct is not None:
+                    return pct
+
+            if 'results' in obj:
+                res = obj.get('results')
+                pct = search(res, depth + 1)
+                if pct is not None:
+                    return pct
+
+            if 'elements' in obj:
+                pct = search(obj.get('elements'), depth + 1)
+                if pct is not None:
+                    return pct
+
+            for v in obj.values():
+                pct = search(v, depth + 1)
+                if pct is not None:
+                    return pct
+        elif isinstance(obj, list):
+            for item in obj:
+                pct = search(item, depth + 1)
+                if pct is not None:
+                    return pct
+        return None
+
+    return search(data)
+
+
+def get_coverage_percent(build_number):
+    endpoints = (
+        'coverage/api/json',
+        'cobertura/api/json',
+        'jacoco/api/json',
+    )
+    for ep in endpoints:
+        data = _get_json(f'{_get_base()}/{build_number}/{ep}')
+        pct = _extract_coverage_percent(data)
+        if pct is not None:
+            return pct
+    coverage_path, _ = _get_artifact_paths()
+    xml_text = _get_text(f'{_get_base()}/{build_number}/artifact/{coverage_path}')
+    pct = _extract_coverage_percent_from_xml(xml_text) if xml_text else None
+    if pct is not None:
+        return pct
+    return None
+
+
+def get_test_report(build_number):
+    data = _get_json(f'{_get_base()}/{build_number}/artifact/coverage.xml')
+    if not data:
+        _, junit_path = _get_artifact_paths()
+        xml_text = _get_text(f'{_get_base()}/{build_number}/artifact/{junit_path}')
+        return _extract_junit_from_xml(xml_text) if xml_text else None
+    total = data.get('totalCount')
+    failed = data.get('failCount', 0)
+    skipped = data.get('skipCount', 0)
+    if total is None:
+        return None
+    passed = max(total - failed - skipped, 0)
+    return {
+        'total': total,
+        'passed': passed,
+        'failed': failed,
+        'skipped': skipped,
+    }
+
+
+def _extract_coverage_percent_from_xml(xml_text):
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return None
+
+    # Cobertura: <coverage line-rate="0.83" branch-rate="...">
+    line_rate = root.attrib.get('line-rate')
+    if line_rate is not None:
+        return _normalize_pct(line_rate)
+
+    # JaCoCo report: <report><counter type="LINE" missed="" covered=""></counter>
+    counters = root.findall('.//counter')
+    for c in counters:
+        if c.attrib.get('type') == 'LINE':
+            missed = c.attrib.get('missed')
+            covered = c.attrib.get('covered')
+            try:
+                missed = int(missed)
+                covered = int(covered)
+            except (TypeError, ValueError):
+                continue
+            total = missed + covered
+            if total > 0:
+                return round(covered / total * 100, 1)
+
+    # Fallback: try to find any line coverage ratio in text nodes
+    return None
+
+
+def _extract_junit_from_xml(xml_text):
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return None
+
+    def parse_suite(node):
+        try:
+            tests = int(node.attrib.get('tests', 0))
+            failures = int(node.attrib.get('failures', 0))
+            errors = int(node.attrib.get('errors', 0))
+            skipped = int(node.attrib.get('skipped', 0))
+        except (TypeError, ValueError):
+            return 0, 0, 0, 0
+        return tests, failures, errors, skipped
+
+    total = failed = skipped = 0
+    if root.tag == 'testsuite':
+        tests, failures, errors, skip = parse_suite(root)
+        total += tests
+        failed += failures + errors
+        skipped += skip
+    elif root.tag == 'testsuites':
+        for suite in root.findall('.//testsuite'):
+            tests, failures, errors, skip = parse_suite(suite)
+            total += tests
+            failed += failures + errors
+            skipped += skip
+
+    if total <= 0:
+        return None
+    passed = max(total - failed - skipped, 0)
+    return {
+        'total': total,
+        'passed': passed,
+        'failed': failed,
+        'skipped': skipped,
+    }

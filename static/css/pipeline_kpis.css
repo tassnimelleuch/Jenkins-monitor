@@ -264,3 +264,32 @@ body[data-page="pipeline-kpis"] .kpi-row {
 .pipeline-charts-grid > * {
   min-width: 0;
 }
+.pipeline-chart-area{
+  height:190px;
+}
+.chart-empty{
+  text-align:center;
+  color:var(--text2);
+  padding:20px;
+  font-size:12px;
+}
+.pipeline-coverage-card .cbadge,
+.pipeline-junit-card .cbadge{
+  background:var(--bg3);
+  border:1px solid var(--border);
+  color:var(--text2);
+}
+
+body[data-page="pipeline-kpis"] .latest-builds-avg{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  color:var(--text2);
+  font-family:'JetBrains Mono',monospace;
+  background:var(--bg3);
+  border:1px solid var(--border);
+  padding:6px 10px;
+  border-radius:10px;
+  white-space:nowrap;
+}
