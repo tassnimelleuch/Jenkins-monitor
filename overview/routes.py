@@ -3,7 +3,7 @@ from overview import overview_bp
 from services.access_service import role_required
 from services.dashboard_service import get_kpis
 from providers.jenkins import check_connection, get_console_log
-
+from services.azure_service import get_connection_status
 
 @overview_bp.route('/overview')
 @role_required('admin', 'dev', 'qa')
@@ -51,3 +51,9 @@ def latest_build():
     return jsonify({
         'build_number': kpis.get('last_build_number')
     })
+
+@overview_bp.route('/azure/api/status', methods=['GET'])
+def azure_status():
+    result = get_connection_status()
+    status_code = 200 if result['connected'] else 503
+    return jsonify(result), status_code

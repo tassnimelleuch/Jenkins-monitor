@@ -113,6 +113,7 @@ function startPolling(ms) {
     if (_polling) clearInterval(_polling);
     _polling = setInterval(() => {
         checkStatus();
+        checkAzureStatus();
         loadKPIs();
     }, ms);
 }
@@ -186,8 +187,8 @@ function toggleTheme() {
 }
 
 // Refresh button with spin
-function doRefresh() {
-  const b = document.getElementById('refBtn');
+function doRefresh(btn) {
+  const b = btn || document.getElementById('refBtn');
   if (b) b.classList.add('spin');
   setTimeout(() => window.location.reload(), 700);
 }
@@ -205,8 +206,8 @@ async function checkStatus() {
     if (!res.ok) throw new Error('status request failed');
 
     const data = await res.json();
-    const dot  = document.getElementById('statusDot');
-    const val  = document.getElementById('statusVal');
+    const dot  = document.getElementById('jenkinsStatusDot');
+    const val  = document.getElementById('jenkinsStatusVal');
 
     if (!dot || !val) return;
 
@@ -220,14 +221,47 @@ async function checkStatus() {
       val.className   = 'ji-val error';
     }
   } catch (e) {
-    const dot = document.getElementById('statusDot');
-    const val = document.getElementById('statusVal');
+    const dot = document.getElementById('jenkinsStatusDot');
+    const val = document.getElementById('jenkinsStatusVal');
     if (dot) dot.classList.add('pulse-dot-error');
     if (val) {
       val.textContent = 'Unreachable';
       val.className   = 'ji-val error';
     }
     console.error('Jenkins status error:', e);
+  }
+}
+
+// azure connection status
+async function checkAzureStatus() {
+  try {
+    const res = await fetch('/jenkins/azure/api/status');
+    const data = await res.json().catch(() => ({ connected: false }));
+    const dot = document.getElementById('azureStatusDot');
+    const val = document.getElementById('azureStatusVal');
+
+    if (!dot || !val) return;
+
+    if (data.connected) {
+      dot.classList.remove('pulse-dot-error');
+      val.textContent = 'Connected';
+      val.className = 'ji-val ok';
+    } else {
+      dot.classList.add('pulse-dot-error');
+      val.textContent = 'Disconnected';
+      val.className = 'ji-val error';
+    }
+  } catch (e) {
+    const dot = document.getElementById('azureStatusDot');
+    const val = document.getElementById('azureStatusVal');
+
+    if (dot) dot.classList.add('pulse-dot-error');
+    if (val) {
+      val.textContent = 'Unreachable';
+      val.className = 'ji-val error';
+    }
+
+    console.error('Azure status error:', e);
   }
 }
 
@@ -359,6 +393,7 @@ async function loadLatestBuild() {
 
 document.addEventListener('DOMContentLoaded', () => {
   checkStatus();
+  checkAzureStatus();
   loadLatestBuild();
 });
 

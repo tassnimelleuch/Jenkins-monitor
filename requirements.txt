@@ -4,3 +4,5 @@ Flask-Login
 Flask-Bcrypt
 dotenv
 requests
+azure-identity 
+azure-mgmt-containerservice

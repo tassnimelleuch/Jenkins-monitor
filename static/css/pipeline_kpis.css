@@ -2,11 +2,6 @@
 .kpi-card:nth-child(1) { animation-delay: .04s; }
 .kpi-card:nth-child(2) { animation-delay: .09s; }
 
-body[data-page="pipeline-kpis"] .kpi-row {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: 100%;
-}
-
 .timeline-card{
   background:var(--bg2);
   border:1px solid var(--border);

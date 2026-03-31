@@ -1,0 +1,57 @@
+import logging
+from azure.identity import DefaultAzureCredential
+from azure.core.exceptions import AzureError
+from azure.mgmt.containerservice import ContainerServiceClient
+from flask import current_app
+
+logger = logging.getLogger(__name__)
+
+
+def _get_credential():
+    return DefaultAzureCredential()
+
+
+def _get_subscription_id():
+    return current_app.config['AZURE_SUBSCRIPTION_ID']
+
+
+def _get_resource_group():
+    return current_app.config['AKS_RESOURCE_GROUP']
+
+
+def _get_cluster_name():
+    return current_app.config['AKS_CLUSTER_NAME']
+
+
+def check_connection():
+    try:
+        credential = _get_credential()
+        client = ContainerServiceClient(
+            credential,
+            _get_subscription_id()
+        )
+
+        cluster = client.managed_clusters.get(
+            _get_resource_group(),
+            _get_cluster_name()
+        )
+
+        return {
+            'connected': True,
+            'cluster_name': cluster.name,
+            'location': cluster.location,
+            'provisioning_state': getattr(cluster, 'provisioning_state', None),
+        }
+
+    except AzureError as e:
+        logger.warning(f'[Azure] Connection error: {e}')
+        return {
+            'connected': False,
+            'message': str(e)
+        }
+    except Exception as e:
+        logger.warning(f'[Azure] Unexpected connection error: {e}')
+        return {
+            'connected': False,
+            'message': str(e)
+        }
