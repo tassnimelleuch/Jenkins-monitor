@@ -3,14 +3,17 @@ from kubernetes import client, config
 
 
 def _load_kube_config():
-    cfg_path = os.getenv("KUBE_CONFIG_PATH", "~/.kube/aks-config")
-    config.load_kube_config(config_file=os.path.expanduser(cfg_path))
+    cfg_path = os.path.expanduser(
+        os.getenv("KUBECONFIG", os.getenv("KUBE_CONFIG_PATH", "~/.kube/aks-config"))
+    )
+    config.load_kube_config(config_file=cfg_path)
+    return cfg_path
 
 
-def _count_by_namespace(items, namespace_attr="metadata"):
+def _count_by_namespace(items):
     counts = {}
     for item in items:
-        ns = getattr(getattr(item, namespace_attr), "namespace", "default")
+        ns = getattr(item.metadata, "namespace", "default") or "default"
         counts[ns] = counts.get(ns, 0) + 1
     return counts
 
@@ -24,7 +27,7 @@ def _count_pods_by_phase(pods):
 
 
 def get_cluster_snapshot():
-    _load_kube_config()
+    cfg = _load_kube_config()
     v1 = client.CoreV1Api()
     apps = client.AppsV1Api()
 
@@ -32,7 +35,10 @@ def get_cluster_snapshot():
     replica_sets = apps.list_replica_set_for_all_namespaces(watch=False).items
     pvcs = v1.list_persistent_volume_claim_for_all_namespaces(watch=False).items
 
+    kube_system_pods = v1.list_namespaced_pod(namespace="kube-system", watch=False).items
+
     return {
+        "config_source": cfg,
         "pods_total": len(pods),
         "replica_sets_total": len(replica_sets),
         "pvcs_total": len(pvcs),
@@ -40,4 +46,6 @@ def get_cluster_snapshot():
         "pods_by_namespace": _count_by_namespace(pods),
         "replica_sets_by_namespace": _count_by_namespace(replica_sets),
         "pvcs_by_namespace": _count_by_namespace(pvcs),
+        "kube_system_pods_total": len(kube_system_pods),
+        "kube_system_pod_names": sorted(p.metadata.name for p in kube_system_pods),
     }
