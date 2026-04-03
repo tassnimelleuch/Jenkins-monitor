@@ -170,8 +170,10 @@ function renderTimeline() {
   const running = _allBuilds.filter(b => b.result === null);
   const finished = _allBuilds.filter(b => b.result !== null);
 
-  badge.style.display = running.length ? 'inline-flex' : 'none';
-  if (running.length) badge.textContent = '● ' + running.length + ' running';
+  if (badge) {
+    badge.style.display = running.length ? 'inline-flex' : 'none';
+    if (running.length) badge.textContent = '● ' + running.length + ' running';
+  }
 
   const finishedToShow = _showingAll ? finished : finished.slice(0, INITIAL_SHOW);
   const toRender = [...running, ...finishedToShow];
@@ -180,13 +182,15 @@ function renderTimeline() {
     ? toRender.map(buildRowHtml).join('')
     : '<div class="tl-empty">No builds found.</div>';
 
-  if (finished.length > INITIAL_SHOW) {
-    btn.style.display = 'block';
-    btn.textContent = _showingAll
-      ? 'Show less ↑'
-      : 'Show more ↓  (' + (finished.length - INITIAL_SHOW) + ' more)';
-  } else {
-    btn.style.display = 'none';
+  if (btn) {
+    if (finished.length > INITIAL_SHOW) {
+      btn.style.display = 'block';
+      btn.textContent = _showingAll
+        ? 'Show less ↑'
+        : 'Show more ↓  (' + (finished.length - INITIAL_SHOW) + ' more)';
+    } else {
+      btn.style.display = 'none';
+    }
   }
 
   startRunningTimers(running);
@@ -308,8 +312,8 @@ function renderStageFailureChart(failureRateByStage) {
   const labels = entries.map(e => e[0]);
   const values = entries.map(e => e[1]);
 
-  const bgColors = values.map(v => v > 50 ? '#ff4560' : v > 25 ? '#ff4560' : '#ff4560' );
-  const borderColors = values.map(v => v > 50 ? '#ff4560' : v > 25 ?'#ff4560;' : '#ff4560' );
+  const bgColors = values.map(v => (v > 50 ? '#ff4560' : v > 25 ? '#ff9f43' : '#00dba0'));
+  const borderColors = values.map(v => (v > 50 ? '#ff4560' : v > 25 ? '#ff9f43' : '#00dba0'));
 
   container.innerHTML = `
 
@@ -597,9 +601,10 @@ async function pollRunningStages() {
 
     data.forEach(b => {
       const strip = document.querySelector('#brow-' + b.number + ' .stage-strip');
-      if (!strip || !b.stages.length) return;
+      const stages = Array.isArray(b.stages) ? b.stages : [];
+      if (!strip || !stages.length) return;
 
-      strip.innerHTML = b.stages.map(st => {
+      strip.innerHTML = stages.map(st => {
         const cls = segCls(st.status);
         const name = (st.name || 'Stage').replace(/"/g, '&quot;');
         const tipDur = fmtDur(st.duration_ms) || '';
@@ -683,3 +688,135 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof loadStatRow === 'function') loadStatRow();
   loadPipelineKPIs();
 });
+
+
+// ── VM metrics polling ────────────────────────────────────────────────────────
+const VM_METRICS_URL = document.body.dataset.vmMetricsUrl || '/api/vm-metrics';
+let vmCpuChart = null;
+let vmRamChart = null;
+
+function colorForPct(pct) {
+  if (pct > 85) return '#e05c5c';
+  if (pct > 65) return '#e0a85c';
+  return '#5cb85c';
+}
+
+function setGauge(barId, cardId, pct) {
+  const bar = document.getElementById(barId);
+  const card = document.getElementById(cardId);
+  if (!bar || pct == null) return;
+  bar.style.width = Math.min(pct, 100) + '%';
+  bar.style.background = colorForPct(pct);
+  if (card) card.classList.toggle('warn', pct > 85);
+}
+
+async function loadVmMetrics() {
+  try {
+    const res = await fetch(VM_METRICS_URL);
+    const d = await res.json();
+    if (!d.connected) return;
+
+    // KPI values
+    const cpu = d.cpu_pct;
+    const ram = d.ram_pct;
+    const disk = d.disk_pct;
+
+    const cpuEl = document.getElementById('vmCpu');
+    const ramEl = document.getElementById('vmRam');
+    const diskEl = document.getElementById('vmDisk');
+    if (cpuEl) cpuEl.textContent = cpu != null ? cpu + '%' : '--';
+    if (ramEl) ramEl.textContent = ram != null ? ram + '%' : '--';
+    if (diskEl) diskEl.textContent = disk != null ? disk + '%' : '--';
+
+    if (d.ram_used_gb && d.ram_total_gb) {
+      const ramDetail = document.getElementById('vmRamDetail');
+      if (ramDetail) {
+        ramDetail.textContent = `${d.ram_used_gb} / ${d.ram_total_gb} GB`;
+      }
+    }
+
+    setGauge('vmCpuBar',  'vmCpuCard',  cpu);
+    setGauge('vmRamBar',  'vmRamCard',  ram);
+    setGauge('vmDiskBar', 'vmDiskCard', disk);
+
+    // Sparkline history
+    if (d.cpu_history?.length && window.Chart) {
+      const labels = d.cpu_history.map(([ts]) =>
+        new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+      );
+      const values = d.cpu_history.map(([, v]) => parseFloat(v.toFixed(1)));
+      const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+      const cpuAvgBadge = document.getElementById('vmCpuAvgBadge');
+      if (cpuAvgBadge) cpuAvgBadge.textContent = `Avg ${avg}%`;
+
+      const ctx = document.getElementById('vmCpuChart')?.getContext('2d');
+      if (!ctx) return;
+      if (vmCpuChart) vmCpuChart.destroy();
+      vmCpuChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            borderColor: '#5cb85c',
+            backgroundColor: 'rgba(92,184,92,0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: true,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 6 }, grid: { display: false } },
+            y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }
+          }
+        }
+      });
+    }
+    if (d.ram_history?.length && window.Chart) {
+      const labels = d.ram_history.map(([ts]) =>
+        new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+      );
+      const values = d.ram_history.map(([, v]) => parseFloat(v.toFixed(1)));
+      const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+      const ramAvgBadge = document.getElementById('vmRamAvgBadge');
+      if (ramAvgBadge) ramAvgBadge.textContent = `Avg ${avg}%`;
+
+      const ctx = document.getElementById('vmRamChart')?.getContext('2d');
+      if (!ctx) return;
+      if (vmRamChart) vmRamChart.destroy();
+      vmRamChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            borderColor: '#3ab8f8',
+            backgroundColor: 'rgba(58,184,248,0.12)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: true,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 6 }, grid: { display: false } },
+            y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('VM metrics fetch failed', e);
+  }
+}
+
+// Poll every 30 s
+loadVmMetrics();
+setInterval(loadVmMetrics, 30_000);

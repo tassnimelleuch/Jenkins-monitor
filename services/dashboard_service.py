@@ -8,6 +8,16 @@ from providers.jenkins import (
     get_test_report,
 )
 
+DEPLOY_STAGE = 'Deploy to AKS'
+ROLLOUT_STAGE = 'Wait for AKS Rollout'
+
+
+def _stage_status_map(stages):
+    return {
+        (s.get('name') or '').strip(): (s.get('status') or '').strip().upper()
+        for s in (stages or [])
+    }
+
 
 def get_kpis():
     all_builds = get_all_builds()
@@ -53,7 +63,7 @@ def get_pipeline_kpis():
         return {'connected': False}
 
     builds_data = []
-    for b in all_builds[:50]:
+    for b in all_builds:
         num = b.get('number')
         stages = get_stages(num) if num else []
         builds_data.append({
@@ -115,6 +125,21 @@ def get_pipeline_kpis():
 
     avg_test_coverage = round(sum(coverage_vals) / len(coverage_vals), 1) if coverage_vals else None
 
+    successful_deployments = 0
+    total_finished_builds = len(finished)
+
+    for b in finished:
+        stage_map = _stage_status_map(b.get('stages', []))
+        deploy_ok = stage_map.get(DEPLOY_STAGE) == 'SUCCESS'
+        rollout_ok = stage_map.get(ROLLOUT_STAGE) == 'SUCCESS'
+
+        if deploy_ok and rollout_ok:
+            successful_deployments += 1
+
+    deployment_rate = round(
+        (successful_deployments / total_finished_builds) * 100, 1
+    ) if total_finished_builds > 0 else 0
+
     return {
         'connected': True,
         'builds': builds_data,
@@ -125,4 +150,9 @@ def get_pipeline_kpis():
         'avg_test_coverage': avg_test_coverage,
         'coverage_trend': coverage_trend,
         'junit_trend': junit_trend,
+        'deployment_frequency': {
+            'successful': successful_deployments,
+            'total': total_finished_builds,
+            'rate': deployment_rate,
+        },
     }

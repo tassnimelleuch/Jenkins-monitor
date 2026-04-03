@@ -123,6 +123,289 @@ function renderDiskChart(key, canvasId, labels, values, colors) {
   });
 }
 
+// ── AKS metrics ─────────────────────────────────────────────────────────────
+const CLUSTER_METRICS_URL = document.body.dataset.clusterMetricsUrl || '/jenkins/api/cluster-metrics';
+let aksCpuChart = null;
+let aksRamChart = null;
+let aksCpuNsChart = null;
+let aksRamNsChart = null;
+
+function colorForPct(pct) {
+  if (pct > 85) return '#e05c5c';
+  if (pct > 65) return '#e0a85c';
+  return '#5cb85c';
+}
+
+function setGauge(barId, cardId, pct) {
+  const bar = document.getElementById(barId);
+  const card = document.getElementById(cardId);
+  if (!bar || pct == null) return;
+  bar.style.width = Math.min(pct, 100) + '%';
+  bar.style.background = colorForPct(pct);
+  if (card) card.classList.toggle('warn', pct > 85);
+}
+
+function renderSparkline(canvasId, labels, values, color, fill, chartRefSetter) {
+  const ctx = document.getElementById(canvasId)?.getContext('2d');
+  if (!ctx) return;
+  const existing = chartRefSetter();
+  if (existing) existing.destroy();
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: color,
+        backgroundColor: fill,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6 }, grid: { display: false } },
+        y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }
+      }
+    }
+  });
+  return chart;
+}
+
+function renderNamespaceSeriesChart(canvasId, seriesMap, chartRef, palette, opts = {}) {
+  const ctx = document.getElementById(canvasId)?.getContext('2d');
+  if (!ctx) return chartRef;
+
+  const entries = Object.entries(seriesMap || {}).filter(([, v]) => Array.isArray(v) && v.length);
+  if (!entries.length) {
+    const wrap = document.getElementById(canvasId)?.parentElement;
+    if (wrap && !wrap.querySelector('.chart-empty')) {
+      const empty = document.createElement('div');
+      empty.className = 'chart-empty';
+      empty.textContent = 'No namespace metrics available';
+      wrap.appendChild(empty);
+    }
+    return chartRef;
+  }
+  const wrap = document.getElementById(canvasId)?.parentElement;
+  const existing = wrap?.querySelector('.chart-empty');
+  if (existing) existing.remove();
+
+  const [, firstSeries] = entries[0];
+  const labels = firstSeries.map(([ts]) =>
+    new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+  );
+
+  const datasets = entries.slice(0, 8).map(([ns, points], i) => {
+    const color = palette[i % palette.length];
+    return {
+      label: ns,
+      data: points.map(([, v]) => parseFloat(v.toFixed(2))),
+      borderColor: color,
+      backgroundColor: color + '33',
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: false
+    };
+  });
+
+  if (chartRef) chartRef.destroy();
+  const unit = opts.unit || '%';
+  const max = opts.max ?? null;
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: getCssVar('--text2'), boxWidth: 10, boxHeight: 10 }
+        }
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6 }, grid: { display: false } },
+        y: {
+          min: 0,
+          max: max,
+          ticks: { callback: v => v + unit }
+        }
+      }
+    }
+  });
+}
+
+async function loadClusterMetrics() {
+  try {
+    const res = await fetch(CLUSTER_METRICS_URL);
+    const d = await res.json();
+    if (!d.connected) return;
+
+    const cpu = d.node_cpu_pct;
+    const ram = d.node_ram_pct;
+
+    const cpuEl = document.getElementById('aksCpu');
+    const ramEl = document.getElementById('aksRam');
+    if (cpuEl) cpuEl.textContent = cpu != null ? cpu + '%' : '--';
+    if (ramEl) ramEl.textContent = ram != null ? ram + '%' : '--';
+
+    setGauge('aksCpuBar', 'aksCpuCard', cpu);
+    setGauge('aksRamBar', 'aksRamCard', ram);
+
+    if (d.node_cpu_history?.length && window.Chart) {
+      const labels = d.node_cpu_history.map(([ts]) =>
+        new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+      );
+      const values = d.node_cpu_history.map(([, v]) => parseFloat(v.toFixed(1)));
+      const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+      const badge = document.getElementById('aksCpuAvgBadge');
+      if (badge) badge.textContent = `Avg ${avg}%`;
+      aksCpuChart = renderSparkline(
+        'aksCpuChart',
+        labels,
+        values,
+        '#5cb85c',
+        'rgba(92,184,92,0.12)',
+        () => aksCpuChart
+      );
+    }
+
+    if (d.node_ram_history?.length && window.Chart) {
+      const labels = d.node_ram_history.map(([ts]) =>
+        new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+      );
+      const values = d.node_ram_history.map(([, v]) => parseFloat(v.toFixed(1)));
+      const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+      const badge = document.getElementById('aksRamAvgBadge');
+      if (badge) badge.textContent = `Avg ${avg}%`;
+      aksRamChart = renderSparkline(
+        'aksRamChart',
+        labels,
+        values,
+        '#3ab8f8',
+        'rgba(58,184,248,0.12)',
+        () => aksRamChart
+      );
+    }
+
+    if (window.Chart) {
+      const palette = [
+        '#5cb85c', '#3ab8f8', '#ff9f43', '#ff4560',
+        '#7c6fff', '#00dba0', '#f5c542', '#a855f7'
+      ];
+      if (d.namespace_cpu_history) {
+        aksCpuNsChart = renderNamespaceSeriesChart(
+          'aksCpuNsChart',
+          d.namespace_cpu_history,
+          aksCpuNsChart,
+          palette,
+          { unit: '%', max: 100 }
+        );
+      }
+      if (d.namespace_ram_history) {
+        aksRamNsChart = renderNamespaceSeriesChart(
+          'aksRamNsChart',
+          d.namespace_ram_history,
+          aksRamNsChart,
+          palette,
+          { unit: 'GB', max: null }
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('Cluster metrics fetch failed', e);
+  }
+}
+
+function renderDeploymentFrequencyChart(freq) {
+  const successful = freq?.successful ?? 0;
+  const total = freq?.total ?? 0;
+  const other = Math.max(total - successful, 0);
+
+  const badge = document.getElementById('deployFreqBadge');
+  if (badge) badge.textContent = `${successful} / ${total}`;
+
+  renderDoughnutChart(
+    'deployFreq',
+    'deployFreqChart',
+    ['Successful Deployments', 'Other Builds'],
+    [successful, other],
+    [getCssVar('--green'), getCssVar('--border')]
+  );
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return '--';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '--';
+  return d.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatSizeMB(sizeMb) {
+  if (sizeMb == null || Number.isNaN(Number(sizeMb))) return '--';
+  return `${Number(sizeMb).toFixed(1)} MB`;
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value ?? '--';
+}
+
+function renderLatestImageArtifact(latestImage) {
+  const badge = document.getElementById('latestImageBadge');
+  const resultEl = document.getElementById('latestImageResult');
+
+  if (!latestImage || Object.keys(latestImage).length === 0) {
+    setText('latestImageBuild', '--');
+    setText('latestImageName', '--');
+    setText('latestImageTag', '--');
+    setText('latestImageSize', '--');
+    setText('latestImageResult', '--');
+    setText('latestImageTimestamp', '--');
+    if (badge) badge.textContent = 'Unavailable';
+    if (resultEl) {
+      resultEl.classList.remove('success-text', 'fail-text', 'neutral-text');
+    }
+    return;
+  }
+
+  const buildNumber = latestImage.build_number ?? '--';
+  const imageName = latestImage.image_name || '--';
+  const tag = latestImage.tag || '--';
+  const sizeMb = latestImage.size_mb;
+  const result = latestImage.result || '--';
+  const timestamp = latestImage.timestamp || null;
+
+  setText('latestImageBuild', `#${buildNumber}`);
+  setText('latestImageName', imageName);
+  setText('latestImageTag', tag);
+  setText('latestImageSize', formatSizeMB(sizeMb));
+  setText('latestImageResult', result);
+  setText('latestImageTimestamp', formatTimestamp(timestamp));
+
+  if (badge) {
+    badge.textContent = tag !== '--' ? tag : 'Latest Build';
+  }
+
+  if (resultEl) {
+    resultEl.classList.remove('success-text', 'fail-text', 'neutral-text');
+    if (result === 'SUCCESS') resultEl.classList.add('success-text');
+    else if (result === 'FAILURE') resultEl.classList.add('fail-text');
+    else resultEl.classList.add('neutral-text');
+  }
+}
+
 async function loadDeploymentKpis() {
   const url = document.body.dataset.deploymentKpisUrl;
   if (!url) return;
@@ -162,6 +445,7 @@ async function loadDeploymentKpis() {
 
     renderBarChart('podsNs', 'podsNsChart', podsNs.labels, podsNs.values, getCssVar('--accent'));
     renderBarChart('rsNs', 'rsNsChart', rsNs.labels, rsNs.values, getCssVar('--blue'));
+
     const pvcColors = [
       getCssVar('--orange'),
       getCssVar('--yellow'),
@@ -179,6 +463,8 @@ async function loadDeploymentKpis() {
       getCssVar('--accent')
     ];
     renderDiskChart('podsPhase', 'podsPhaseChart', podsPhase.labels, podsPhase.values, phaseColors);
+    renderDeploymentFrequencyChart(data.deployment_frequency || {});
+    renderLatestImageArtifact(data.latest_image || {});
 
   } catch (e) {
     console.error('Deployment KPIs error:', e);
@@ -187,4 +473,6 @@ async function loadDeploymentKpis() {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadDeploymentKpis();
+  loadClusterMetrics();
+  setInterval(loadClusterMetrics, 30000);
 });

@@ -13,3 +13,4 @@ class Config:
     AZURE_SUBSCRIPTION_ID = os.getenv('AZURE_SUBSCRIPTION_ID')
     AKS_RESOURCE_GROUP    = os.getenv('AKS_RESOURCE_GROUP')
     AKS_CLUSTER_NAME      = os.getenv('AKS_CLUSTER_NAME')
+    PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")

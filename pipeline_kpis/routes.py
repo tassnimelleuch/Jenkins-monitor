@@ -4,7 +4,7 @@ from services.access_service import role_required
 from services.dashboard_service import get_pipeline_kpis
 from providers.jenkins import get_running_stages, trigger_build, abort_build
 from models import get_pending_count
-
+from services.metrics_service import get_vm_metrics
 
 @pipeline_kpis_bp.route('/pipeline_kpis')
 @role_required('admin', 'dev', 'qa')
@@ -45,3 +45,8 @@ def abort(build_number):
     if success:
         return jsonify({'aborted': True, 'message': message})
     return jsonify({'aborted': False, 'error': message}), 500
+
+@pipeline_kpis_bp.route('/api/vm-metrics')
+def vm_metrics_api():
+    from flask import jsonify
+    return jsonify(get_vm_metrics())

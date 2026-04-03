@@ -4,6 +4,10 @@ import xml.etree.ElementTree as ET
 import requests
 from flask import current_app
 
+from collections import defaultdict
+from datetime import datetime, timezone
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -402,4 +406,124 @@ def _extract_junit_from_xml(xml_text):
         'passed': passed,
         'failed': failed,
         'skipped': skipped,
+    }
+
+DEPLOY_STAGE = 'Deploy to AKS'
+ROLLOUT_STAGE = 'Wait for AKS Rollout'
+
+
+def _stage_status_map(stages):
+    return {
+        (s.get('name') or '').strip(): (s.get('status') or '').strip().upper()
+        for s in (stages or [])
+    }
+
+
+def _day_key(timestamp_ms):
+    if not timestamp_ms:
+        return None
+    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    return dt.strftime('%Y-%m-%d')
+
+
+def get_pipeline_kpis():
+    all_builds = get_all_builds()
+    if all_builds is None:
+        return {'connected': False}
+
+    builds_data = []
+    for b in all_builds[:50]:
+        num = b.get('number')
+        stages = get_stages(num) if num else []
+        builds_data.append({
+            'number': num,
+            'result': b.get('result'),
+            'duration': b.get('duration', 0) // 1000 if b.get('duration') else 0,
+            'timestamp': b.get('timestamp', 0),
+            'stages': stages,
+        })
+
+    finished = [b for b in builds_data if b['result'] is not None]
+
+    durations = [b['duration'] for b in finished if b['duration'] > 0]
+    avg_duration = round(sum(durations) / len(durations)) if durations else 0
+
+    stage_failures = {}
+    stage_totals = {}
+    for b in finished:
+        for stage in b.get('stages', []):
+            stage_name = stage.get('name', 'Unknown')
+            stage_totals[stage_name] = stage_totals.get(stage_name, 0) + 1
+            if stage.get('status') == 'FAILED':
+                stage_failures[stage_name] = stage_failures.get(stage_name, 0) + 1
+
+    failure_rate_by_stage = {}
+    for stage_name, count in stage_totals.items():
+        failures = stage_failures.get(stage_name, 0)
+        failure_rate_by_stage[stage_name] = round((failures / count * 100), 1) if count > 0 else 0
+
+    finished_recent = finished[:20]
+    trend_builds = list(reversed(finished_recent))
+    coverage_trend = []
+    junit_trend = []
+    coverage_vals = []
+
+    for b in trend_builds:
+        num = b.get('number')
+        coverage = get_coverage_percent(num) if num else None
+        if coverage is not None:
+            coverage_vals.append(coverage)
+
+        coverage_trend.append({
+            'number': num,
+            'coverage': coverage,
+        })
+
+        report = get_test_report(num) if num else None
+        if report:
+            junit_trend.append({
+                'number': num,
+                **report,
+            })
+        else:
+            junit_trend.append({
+                'number': num,
+                'total': None,
+                'passed': None,
+                'failed': None,
+                'skipped': None,
+            })
+
+    avg_test_coverage = round(sum(coverage_vals) / len(coverage_vals), 1) if coverage_vals else None
+
+    # ── ONE deployment metric: successful deployment frequency ──
+    successful_deployments_per_day = defaultdict(int)
+
+    for b in finished:
+        stage_map = _stage_status_map(b.get('stages', []))
+        deploy_ok = stage_map.get(DEPLOY_STAGE) == 'SUCCESS'
+        rollout_ok = stage_map.get(ROLLOUT_STAGE) == 'SUCCESS'
+
+        if deploy_ok and rollout_ok:
+            day = _day_key(b.get('timestamp'))
+            if day:
+                successful_deployments_per_day[day] += 1
+
+    successful_deployment_frequency = [
+        {'date': day, 'count': count}
+        for day, count in sorted(successful_deployments_per_day.items())
+    ]
+
+    return {
+        'connected': True,
+        'builds': builds_data,
+        'health_score': get_health_score(),
+        'avg_duration_seconds': avg_duration,
+        'failure_rate_by_stage': failure_rate_by_stage,
+        'build_durations': [(b['number'], b['duration']) for b in finished[-20:]],
+        'avg_test_coverage': avg_test_coverage,
+        'coverage_trend': coverage_trend,
+        'junit_trend': junit_trend,
+
+        'successful_deployment_frequency': successful_deployment_frequency,
     }

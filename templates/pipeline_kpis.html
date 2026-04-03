@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-kpis-url="{{ url_for('overview.kpis') }}" data-page="pipeline-kpis"{% endblock %}
+{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-kpis-url="{{ url_for('overview.kpis') }}" data-vm-metrics-url="{{ url_for('pipeline_kpis.vm_metrics_api') }}" data-page="pipeline-kpis"{% endblock %}
 
 {% block page_content %}
 
@@ -102,12 +102,72 @@
 
   
 </div>
+
+<div class="pipeline-metrics-grid">
+  <div class="chart-card vm-metric-card" id="vmCpuCard">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">VM CPU Usage</div>
+        <div class="chart-sub">Jenkins host utilization</div>
+      </div>
+      <div class="cbadge cbadge-g" id="vmCpuAvgBadge">Avg —%</div>
+    </div>
+    <div class="vm-metric-top">
+      <div class="vm-metric-value" id="vmCpu">--</div>
+      <div class="vm-metric-unit">%</div>
+    </div>
+    <div class="gauge-bar">
+      <div class="gauge-fill" id="vmCpuBar" style="width:0%"></div>
+    </div>
+    <div class="chart-area vm-metric-chart">
+      <canvas id="vmCpuChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card vm-metric-card" id="vmRamCard">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">VM RAM Usage</div>
+        <div class="chart-sub">Memory pressure</div>
+      </div>
+      <div class="cbadge cbadge-b" id="vmRamAvgBadge">Avg —%</div>
+    </div>
+    <div class="vm-metric-top">
+      <div class="vm-metric-value" id="vmRam">--</div>
+      <div class="vm-metric-unit">%</div>
+      <div class="vm-metric-detail" id="vmRamDetail"></div>
+    </div>
+    <div class="gauge-bar">
+      <div class="gauge-fill" id="vmRamBar" style="width:0%"></div>
+    </div>
+    <div class="chart-area vm-metric-chart">
+      <canvas id="vmRamChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card vm-metric-card" id="vmDiskCard">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">VM Disk Usage</div>
+        <div class="chart-sub">Root volume</div>
+      </div>
+      <div class="cbadge cbadge-o" id="vmDiskAvgBadge">Current</div>
+    </div>
+    <div class="vm-metric-top">
+      <div class="vm-metric-value" id="vmDisk">--</div>
+      <div class="vm-metric-unit">%</div>
+    </div>
+    <div class="gauge-bar">
+      <div class="gauge-fill" id="vmDiskBar" style="width:0%"></div>
+    </div>
+    <div class="vm-metric-note">Disk history not available</div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="{{ url_for('static', filename='js/pipeline_kpis.js') }}"></script>
-<script src ="{{ url_for('static', filename='js/base.js') }}"></script>
 {% endblock %}
 
 {% block extra_markup %}

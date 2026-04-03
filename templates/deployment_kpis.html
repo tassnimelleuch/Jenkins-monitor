@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from 'partials/kpi_cards.html' import stat_row, latest_builds_chart %}
+{# No KPI card macros needed on this page #}
 
 {% block title %}Deployment KPIs — Jenkins Monitor{% endblock %}
 
@@ -8,14 +8,9 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-deployment-kpis-url="{{ url_for('deployment_kpis.deployment_kpis_cluster') }}" data-page="deployment-kpis"{% endblock %}
+{% block body_attrs %}data-deployment-kpis-url="{{ url_for('deployment_kpis.deployment_kpis_cluster') }}" data-cluster-metrics-url="{{ url_for('deployment_kpis.cluster_metrics_api') }}" data-page="deployment-kpis"{% endblock %}
 
 {% block page_content %}
-
-<div class="deploy-head">
-  <div>
-  </div>
-</div>
 
 <div class="stat-row deploy-stat-row">
   <div class="stat-card total namespaces">
@@ -71,6 +66,7 @@
       <div class="stat-value" id="pvcsTotal">--</div>
     </div>
   </div>
+
 </div>
 
 <div class="deploy-grid">
@@ -112,8 +108,10 @@
       <canvas id="pvcsNsChart"></canvas>
     </div>
   </div>
+</div>
 
-  <div class="chart-card full">
+<div class="deploy-grid deploy-grid-split">
+  <div class="chart-card">
     <div class="chart-hdr">
       <div>
         <div class="chart-title">Pods by Phase</div>
@@ -123,6 +121,126 @@
     </div>
     <div class="chart-area deploy-chart-area">
       <canvas id="podsPhaseChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Deployment Frequency</div>
+        <div class="chart-sub">Successful deployments across Jenkins builds</div>
+      </div>
+      <div class="cbadge cbadge-g" id="deployFreqBadge">--</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="deployFreqChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="deploy-artifact-row">
+  <div class="chart-card artifact-card full">
+    <div class="chart-hdr">
+      <div class="artifact-title-wrap">
+        <div class="artifact-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M9.5 4.5h2v2h-2zM12.5 4.5h2v2h-2zM15.5 4.5h2v2h-2zM9.5 7.5h2v2h-2zM15.5 7.5h2v2h-2z"></path>
+            <path d="M4 10.5h14.5a2.5 2.5 0 0 1 2.5 2.5v2a4.5 4.5 0 0 1-4.5 4.5H9a5 5 0 0 1-5-5v-4z"></path>
+            <path d="M7.5 19.5h3"></path>
+          </svg>
+        </div>
+        <div>
+          <div class="chart-title">Latest Image Artifact</div>
+          <div class="chart-sub">Docker image details from the latest Jenkins build</div>
+        </div>
+      </div>
+      <div class="cbadge cbadge-b" id="latestImageBadge">Loading...</div>
+    </div>
+
+    <div class="artifact-details-grid">
+      <div class="artifact-detail-item">
+        <div class="artifact-label">Build Number</div>
+        <div class="artifact-value" id="latestImageBuild">--</div>
+      </div>
+
+      <div class="artifact-detail-item">
+        <div class="artifact-label">Build Result</div>
+        <div class="artifact-value" id="latestImageResult">--</div>
+      </div>
+
+      <div class="artifact-detail-item full">
+        <div class="artifact-label">Image Name</div>
+        <div class="artifact-value artifact-mono" id="latestImageName">--</div>
+      </div>
+
+      <div class="artifact-detail-item">
+        <div class="artifact-label">Tag</div>
+        <div class="artifact-value artifact-mono" id="latestImageTag">--</div>
+      </div>
+
+      <div class="artifact-detail-item">
+        <div class="artifact-label">Size</div>
+        <div class="artifact-value" id="latestImageSize">--</div>
+      </div>
+
+      <div class="artifact-detail-item full">
+        <div class="artifact-label">Timestamp</div>
+        <div class="artifact-value" id="latestImageTimestamp">--</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="deploy-metrics-grid">
+  <div class="chart-card full">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">CPU by Namespace</div>
+        <div class="chart-sub">30-min CPU usage % per namespace</div>
+      </div>
+      <div class="cbadge cbadge-g" id="nsCpuBadge">Live</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="aksCpuNsChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card full">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Memory by Namespace</div>
+        <div class="chart-sub">30-min RAM usage (GB) per namespace</div>
+      </div>
+      <div class="cbadge cbadge-b" id="nsRamBadge">Live</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="aksRamNsChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Node CPU</div>
+        <div class="chart-sub">Cluster-wide CPU usage</div>
+      </div>
+      <div class="cbadge" id="aksCpuAvgBadge">Avg —%</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="aksCpuChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Node RAM</div>
+        <div class="chart-sub">Cluster-wide memory usage</div>
+      </div>
+      <div class="cbadge cbadge-b" id="aksRamAvgBadge">Avg —%</div>
+    </div>
+    <div class="chart-area deploy-chart-area">
+      <canvas id="aksRamChart"></canvas>
     </div>
   </div>
 </div>
