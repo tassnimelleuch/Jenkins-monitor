@@ -16,7 +16,6 @@ def _now_range(minutes=30):
 def get_vm_metrics():
     """CPU and RAM for the Azure VM running Jenkins."""
     try:
-        # node_exporter job must be named 'jenkins-vm' in prometheus.yml
         cpu = query(
             '100 - (avg by(instance) (rate(node_cpu_seconds_total'
             '{mode="idle", job="jenkins-vm"}[5m])) * 100)'
@@ -48,6 +47,23 @@ def get_vm_metrics():
             '/ node_memory_MemTotal_bytes{job="jenkins-vm"}) * 100)',
             start, end, step="60s"
         )
+        net_rx_history = query_range(
+            'sum by(instance) (rate(node_network_receive_bytes_total'
+            '{job="jenkins-vm",device!~"lo|docker.*|veth.*|br-.*"}[5m]))'
+            ' / 1024 / 1024',
+            start, end, step="60s"
+        )
+        net_tx_history = query_range(
+            'sum by(instance) (rate(node_network_transmit_bytes_total'
+            '{job="jenkins-vm",device!~"lo|docker.*|veth.*|br-.*"}[5m]))'
+            ' / 1024 / 1024',
+            start, end, step="60s"
+        )
+        disk_used_pct_history = query_range(
+            '100 - ((node_filesystem_avail_bytes{job="jenkins-vm",mountpoint="/"} '
+            '/ node_filesystem_size_bytes{job="jenkins-vm",mountpoint="/"}) * 100)',
+            start, end, step="60s"
+        )
 
         return {
             "connected": True,
@@ -58,6 +74,9 @@ def get_vm_metrics():
             "disk_pct": round(disk_used_pct, 1) if disk_used_pct else None,
             "cpu_history": cpu_history,
             "ram_history": ram_history,
+            "net_rx_history": net_rx_history,
+            "net_tx_history": net_tx_history,
+            "disk_used_pct_history": disk_used_pct_history,
         }
     except Exception as e:
         logger.error("get_vm_metrics error: %s", e)
@@ -79,7 +98,7 @@ def get_cluster_metrics():
         )
         pod_cpu = query(
             'sum(rate(container_cpu_usage_seconds_total'
-            '{namespace!="",container!="POD",container!=""}[5m])) * 100'
+            '{namespace!="",container!="POD",container!="",cpu="total"}[5m])) * 100'
         )
         pod_ram_used = query(
             'sum(container_memory_working_set_bytes'
@@ -93,6 +112,17 @@ def get_cluster_metrics():
         node_count = query('count(kube_node_info)')
 
         start, end = _now_range(30)
+
+        def _first_series(label, queries):
+            for q, lbl in queries:
+                data = query_range_series(q, start, end, step="60s", label=lbl)
+                if data:
+                    logger.debug("_first_series[%s] matched query: %.120s", label, q)
+                    return data
+                logger.debug("_first_series[%s] no data for query: %.120s", label, q)
+            logger.warning("_first_series[%s] all queries returned empty", label)
+            return {}
+
         node_cpu_history = query_range(
             'sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))'
             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100',
@@ -103,40 +133,54 @@ def get_cluster_metrics():
             ' / (sum(node_memory_MemTotal_bytes) or sum(kube_node_status_capacity_memory_bytes))) * 100',
             start, end, step="60s"
         )
-        ns_cpu_history = {}
-        ns_ram_history = {}
 
+        # ── Namespace CPU ──────────────────────────────────────────────────────
+        # cpu="total" is emitted by cAdvisor on AKS — filter it to avoid
+        # double-counting and ensure the label is present for grouping.
         ns_cpu_queries = [
+            # ✅ Primary: native namespace label + cpu="total" filter (AKS / cAdvisor)
+            ('sum by (namespace) (rate(container_cpu_usage_seconds_total'
+             '{namespace!="",container!="POD",container!="",cpu="total"}[5m]))'
+             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100',
+             "namespace"),
+            # Fallback: native namespace label, no cpu filter
             ('sum by (namespace) (rate(container_cpu_usage_seconds_total'
              '{namespace!="",container!="POD",container!=""}[5m]))'
-             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100', "namespace"),
-            ('sum by (kubernetes_namespace) (rate(container_cpu_usage_seconds_total'
-             '{kubernetes_namespace!="",container!="POD",container!=""}[5m]))'
-             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100', "kubernetes_namespace"),
+             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100',
+             "namespace"),
+            # Fallback: recording rules (kube-prometheus-stack)
+            ('sum by (namespace) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate)'
+             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100',
+             "namespace"),
+            ('sum by (namespace) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate)'
+             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100',
+             "namespace"),
+            # Fallback: join via kube_pod_info (cpu="total")
+            ('sum by (namespace) (rate(container_cpu_usage_seconds_total'
+             '{container!="POD",container!="",cpu="total"}[5m])'
+             ' * on(pod) group_left(namespace) kube_pod_info)'
+             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100',
+             "namespace"),
+            # Fallback: join via kube_pod_info (no cpu filter)
             ('sum by (namespace) (rate(container_cpu_usage_seconds_total'
              '{container!="POD",container!=""}[5m])'
              ' * on(pod) group_left(namespace) kube_pod_info)'
-             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100', "namespace"),
-            ('sum by (namespace) (rate(label_replace(container_cpu_usage_seconds_total'
-             '{container!="POD",container!=""}[5m],"pod","$1","pod_name","(.*)") )'
-             ' * on(pod) group_left(namespace) kube_pod_info)'
-             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100', "namespace"),
-            ('sum by (namespace) (rate(label_replace(container_cpu_usage_seconds_total'
-             '{container!="POD",container!=""}[5m],"pod","$1","kubernetes_pod_name","(.*)") )'
-             ' * on(pod) group_left(namespace) kube_pod_info)'
-             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100', "namespace"),
+             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100',
+             "namespace"),
+            # Fallback: kubernetes_namespace label variant
+            ('sum by (kubernetes_namespace) (rate(container_cpu_usage_seconds_total'
+             '{kubernetes_namespace!="",container!="POD",container!="",cpu="total"}[5m]))'
+             ' / (sum(machine_cpu_cores) or sum(kube_node_status_capacity_cpu_cores)) * 100',
+             "kubernetes_namespace"),
         ]
 
-        for q, lbl in ns_cpu_queries:
-            ns_cpu_history = query_range_series(q, start, end, step="60s", label=lbl)
-            if ns_cpu_history:
-                break
-
+        # ── Namespace RAM ──────────────────────────────────────────────────────
         ns_ram_queries = [
             ('sum by (namespace) (container_memory_working_set_bytes'
              '{namespace!="",container!="POD",container!=""}) / 1e9', "namespace"),
             ('sum by (kubernetes_namespace) (container_memory_working_set_bytes'
-             '{kubernetes_namespace!="",container!="POD",container!=""}) / 1e9', "kubernetes_namespace"),
+             '{kubernetes_namespace!="",container!="POD",container!=""}) / 1e9',
+             "kubernetes_namespace"),
             ('sum by (namespace) (container_memory_working_set_bytes'
              '{container!="POD",container!=""}'
              ' * on(pod) group_left(namespace) kube_pod_info) / 1e9', "namespace"),
@@ -148,10 +192,56 @@ def get_cluster_metrics():
              ' * on(pod) group_left(namespace) kube_pod_info) / 1e9', "namespace"),
         ]
 
-        for q, lbl in ns_ram_queries:
-            ns_ram_history = query_range_series(q, start, end, step="60s", label=lbl)
-            if ns_ram_history:
-                break
+        # ── Namespace Network ──────────────────────────────────────────────────
+        ns_net_queries = [
+            ('sum by (namespace) (rate(container_network_receive_bytes_total'
+             '{namespace!="",pod!="",interface!~"lo"}[5m])'
+             ' + rate(container_network_transmit_bytes_total'
+             '{namespace!="",pod!="",interface!~"lo"}[5m])) / 1024 / 1024',
+             "namespace"),
+            ('sum by (kubernetes_namespace) (rate(container_network_receive_bytes_total'
+             '{kubernetes_namespace!="",pod!="",interface!~"lo"}[5m])'
+             ' + rate(container_network_transmit_bytes_total'
+             '{kubernetes_namespace!="",pod!="",interface!~"lo"}[5m])) / 1024 / 1024',
+             "kubernetes_namespace"),
+            ('sum by (namespace) ((rate(container_network_receive_bytes_total'
+             '{pod!=""}[5m]) + rate(container_network_transmit_bytes_total'
+             '{pod!=""}[5m])) * on(pod) group_left(namespace) kube_pod_info) / 1024 / 1024',
+             "namespace"),
+            ('sum by (namespace) ((rate(label_replace(container_network_receive_bytes_total'
+             '{pod_name!=""}[5m],"pod","$1","pod_name","(.*)") )'
+             ' + rate(label_replace(container_network_transmit_bytes_total'
+             '{pod_name!=""}[5m],"pod","$1","pod_name","(.*)") ))'
+             ' * on(pod) group_left(namespace) kube_pod_info) / 1024 / 1024',
+             "namespace"),
+        ]
+
+        # ── Namespace Disk ─────────────────────────────────────────────────────
+        ns_disk_queries = [
+            ('sum by (namespace) (container_fs_usage_bytes'
+             '{namespace!=""}) / 1e9', "namespace"),
+            ('sum by (namespace) (node_namespace_pod_container:container_fs_usage_bytes) / 1e9',
+             "namespace"),
+            ('sum by (namespace) (container_fs_usage_bytes'
+             '{namespace!="",container!="POD",container!=""}) / 1e9', "namespace"),
+            ('sum by (kubernetes_namespace) (container_fs_usage_bytes'
+             '{kubernetes_namespace!="",container!="POD",container!=""}) / 1e9',
+             "kubernetes_namespace"),
+            ('sum by (namespace) (container_fs_usage_bytes'
+             '{container!="POD",container!=""} * on(pod) group_left(namespace) kube_pod_info) / 1e9',
+             "namespace"),
+            ('sum by (namespace) (label_replace(container_fs_usage_bytes'
+             '{container!="POD",container!=""},"pod","$1","pod_name","(.*)")'
+             ' * on(pod) group_left(namespace) kube_pod_info) / 1e9', "namespace"),
+            ('sum by (namespace) (kubelet_volume_stats_used_bytes) / 1e9', "namespace"),
+            ('sum by (namespace) (kubelet_volume_stats_used_bytes{namespace!=""}) / 1e9',
+             "namespace"),
+        ]
+
+        ns_cpu_history  = _first_series("cpu",  ns_cpu_queries)
+        ns_ram_history  = _first_series("ram",  ns_ram_queries)
+        ns_net_history  = _first_series("net",  ns_net_queries)
+        ns_disk_history = _first_series("disk", ns_disk_queries)
 
         return {
             "connected": True,
@@ -166,6 +256,8 @@ def get_cluster_metrics():
             "node_ram_history": node_ram_history,
             "namespace_cpu_history": ns_cpu_history,
             "namespace_ram_history": ns_ram_history,
+            "namespace_net_history": ns_net_history,
+            "namespace_disk_history": ns_disk_history,
         }
     except Exception as e:
         logger.error("get_cluster_metrics error: %s", e)

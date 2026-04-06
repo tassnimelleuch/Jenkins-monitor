@@ -1,4 +1,4 @@
-.deploy-stat-row{grid-template-columns:repeat(6,minmax(0,1fr));margin-bottom:10px;gap:8px;}
+.deploy-stat-row{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:10px;gap:8px;}
 .deploy-stat-row .stat-card{padding:12px 14px;}
 .deploy-stat-row .stat-value{display:flex;align-items:center;gap:8px;}
 .deploy-stat-row .stat-card.namespaces::after{background:var(--blue);}

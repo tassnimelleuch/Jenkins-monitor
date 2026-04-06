@@ -2,6 +2,10 @@ const INITIAL_SHOW = 5;
 const POLL_MS = 5000;
 const SLOW_POLL_MS = 30000;
 
+function getCssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 let _allBuilds = [];
 let _showingAll = false;
 let _avgDurationMs = 120000;
@@ -694,20 +698,86 @@ document.addEventListener('DOMContentLoaded', () => {
 const VM_METRICS_URL = document.body.dataset.vmMetricsUrl || '/api/vm-metrics';
 let vmCpuChart = null;
 let vmRamChart = null;
+let vmNetChart = null;
+let vmDiskChart = null;
 
-function colorForPct(pct) {
-  if (pct > 85) return '#e05c5c';
-  if (pct > 65) return '#e0a85c';
-  return '#5cb85c';
+function formatTimeLabel(ts) {
+  return new Date(ts * 1000).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
-function setGauge(barId, cardId, pct) {
-  const bar = document.getElementById(barId);
-  const card = document.getElementById(cardId);
-  if (!bar || pct == null) return;
-  bar.style.width = Math.min(pct, 100) + '%';
-  bar.style.background = colorForPct(pct);
-  if (card) card.classList.toggle('warn', pct > 85);
+function renderVmLineChart(canvasId, series, chartRef, opts = {}) {
+  const ctx = document.getElementById(canvasId)?.getContext('2d');
+  if (!ctx) return chartRef;
+  if (chartRef) chartRef.destroy();
+
+  const labels = (series?.labels || []).map(formatTimeLabel);
+  const datasets = (series?.datasets || []).map(ds => ({
+    label: ds.label,
+    data: ds.values,
+    borderColor: ds.color,
+    backgroundColor: ds.fill || `${ds.color}22`,
+    borderWidth: 2,
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    tension: 0.25,
+    fill: !!ds.fillArea
+  }));
+
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: getCssVar('--text2'),
+            boxWidth: 10,
+            boxHeight: 10
+          }
+        },
+        tooltip: {
+          enabled: true,
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label(context) {
+              const value = context.raw;
+              const unit = opts.unit || '';
+              return `${context.dataset.label}: ${value}${unit}`;
+            }
+          }
+        },
+        decimation: { enabled: true, algorithm: 'lttb' }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: getCssVar('--text2'), maxTicksLimit: 10, autoSkip: true }
+        },
+        y: {
+          min: opts.min ?? 0,
+          max: opts.max ?? undefined,
+          grid: { color: getCssVar('--border') },
+          ticks: {
+            color: getCssVar('--text2'),
+            callback: v => `${v}${opts.unit || ''}`
+          }
+        }
+      }
+    }
+  });
+}
+
+function avg(values = []) {
+  if (!values.length) return null;
+  return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
 }
 
 async function loadVmMetrics() {
@@ -716,101 +786,63 @@ async function loadVmMetrics() {
     const d = await res.json();
     if (!d.connected) return;
 
-    // KPI values
-    const cpu = d.cpu_pct;
-    const ram = d.ram_pct;
-    const disk = d.disk_pct;
-
-    const cpuEl = document.getElementById('vmCpu');
-    const ramEl = document.getElementById('vmRam');
-    const diskEl = document.getElementById('vmDisk');
-    if (cpuEl) cpuEl.textContent = cpu != null ? cpu + '%' : '--';
-    if (ramEl) ramEl.textContent = ram != null ? ram + '%' : '--';
-    if (diskEl) diskEl.textContent = disk != null ? disk + '%' : '--';
-
-    if (d.ram_used_gb && d.ram_total_gb) {
-      const ramDetail = document.getElementById('vmRamDetail');
-      if (ramDetail) {
-        ramDetail.textContent = `${d.ram_used_gb} / ${d.ram_total_gb} GB`;
-      }
-    }
-
-    setGauge('vmCpuBar',  'vmCpuCard',  cpu);
-    setGauge('vmRamBar',  'vmRamCard',  ram);
-    setGauge('vmDiskBar', 'vmDiskCard', disk);
-
-    // Sparkline history
-    if (d.cpu_history?.length && window.Chart) {
-      const labels = d.cpu_history.map(([ts]) =>
-        new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
-      );
+    if (d.cpu_history?.length) {
+      const labels = d.cpu_history.map(([ts]) => ts);
       const values = d.cpu_history.map(([, v]) => parseFloat(v.toFixed(1)));
-      const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
-      const cpuAvgBadge = document.getElementById('vmCpuAvgBadge');
-      if (cpuAvgBadge) cpuAvgBadge.textContent = `Avg ${avg}%`;
-
-      const ctx = document.getElementById('vmCpuChart')?.getContext('2d');
-      if (!ctx) return;
-      if (vmCpuChart) vmCpuChart.destroy();
-      vmCpuChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [{
-            data: values,
-            borderColor: '#5cb85c',
-            backgroundColor: 'rgba(92,184,92,0.1)',
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.3,
-            fill: true,
-          }]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { maxTicksLimit: 6 }, grid: { display: false } },
-            y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }
-          }
-        }
-      });
-    }
-    if (d.ram_history?.length && window.Chart) {
-      const labels = d.ram_history.map(([ts]) =>
-        new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+      const badge = document.getElementById('vmCpuBadge');
+      if (badge) badge.textContent = `Avg ${avg(values)}%`;
+      vmCpuChart = renderVmLineChart(
+        'vmCpuChart',
+        { labels, datasets: [{ label: 'CPU', values, color: '#5cb85c', fillArea: true }] },
+        vmCpuChart,
+        { unit: '%', min: 0, max: 100 }
       );
-      const values = d.ram_history.map(([, v]) => parseFloat(v.toFixed(1)));
-      const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
-      const ramAvgBadge = document.getElementById('vmRamAvgBadge');
-      if (ramAvgBadge) ramAvgBadge.textContent = `Avg ${avg}%`;
+    }
 
-      const ctx = document.getElementById('vmRamChart')?.getContext('2d');
-      if (!ctx) return;
-      if (vmRamChart) vmRamChart.destroy();
-      vmRamChart = new Chart(ctx, {
-        type: 'line',
-        data: {
+    if (d.ram_history?.length) {
+      const labels = d.ram_history.map(([ts]) => ts);
+      const values = d.ram_history.map(([, v]) => parseFloat(v.toFixed(1)));
+      const badge = document.getElementById('vmRamBadge');
+      if (badge) badge.textContent = `Avg ${avg(values)}%`;
+      vmRamChart = renderVmLineChart(
+        'vmRamChart',
+        { labels, datasets: [{ label: 'RAM', values, color: '#3ab8f8', fillArea: true }] },
+        vmRamChart,
+        { unit: '%', min: 0, max: 100 }
+      );
+    }
+
+    if (d.net_rx_history?.length || d.net_tx_history?.length) {
+      const labels = (d.net_rx_history?.length ? d.net_rx_history : d.net_tx_history).map(([ts]) => ts);
+      const rxValues = (d.net_rx_history || []).map(([, v]) => parseFloat(v.toFixed(2)));
+      const txValues = (d.net_tx_history || []).map(([, v]) => parseFloat(v.toFixed(2)));
+      const badge = document.getElementById('vmNetBadge');
+      if (badge) badge.textContent = 'Live';
+      vmNetChart = renderVmLineChart(
+        'vmNetChart',
+        {
           labels,
-          datasets: [{
-            data: values,
-            borderColor: '#3ab8f8',
-            backgroundColor: 'rgba(58,184,248,0.12)',
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.3,
-            fill: true,
-          }]
+          datasets: [
+            { label: 'RX', values: rxValues, color: '#5cb85c' },
+            { label: 'TX', values: txValues, color: '#ff9f43' }
+          ]
         },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { maxTicksLimit: 6 }, grid: { display: false } },
-            y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }
-          }
-        }
-      });
+        vmNetChart,
+        { unit: ' MB/s', min: 0 }
+      );
+    }
+
+    if (d.disk_used_pct_history?.length) {
+      const labels = d.disk_used_pct_history.map(([ts]) => ts);
+      const values = d.disk_used_pct_history.map(([, v]) => parseFloat(v.toFixed(1)));
+      const badge = document.getElementById('vmDiskBadge');
+      if (badge) badge.textContent = `Avg ${avg(values)}%`;
+      vmDiskChart = renderVmLineChart(
+        'vmDiskChart',
+        { labels, datasets: [{ label: 'Disk Used', values, color: '#ff9f43', fillArea: true }] },
+        vmDiskChart,
+        { unit: '%', min: 0, max: 100 }
+      );
     }
   } catch (e) {
     console.warn('VM metrics fetch failed', e);

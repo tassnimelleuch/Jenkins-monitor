@@ -192,7 +192,7 @@
 </div>
 
 <div class="deploy-metrics-grid">
-  <div class="chart-card full">
+  <div class="chart-card">
     <div class="chart-hdr">
       <div>
         <div class="chart-title">CPU by Namespace</div>
@@ -205,7 +205,7 @@
     </div>
   </div>
 
-  <div class="chart-card full">
+  <div class="chart-card">
     <div class="chart-hdr">
       <div>
         <div class="chart-title">Memory by Namespace</div>
@@ -221,26 +221,26 @@
   <div class="chart-card">
     <div class="chart-hdr">
       <div>
-        <div class="chart-title">Node CPU</div>
-        <div class="chart-sub">Cluster-wide CPU usage</div>
+        <div class="chart-title">Network by Namespace</div>
+        <div class="chart-sub">Inbound + outbound (MB/s)</div>
       </div>
-      <div class="cbadge" id="aksCpuAvgBadge">Avg —%</div>
+      <div class="cbadge cbadge-g" id="nsNetBadge">Live</div>
     </div>
     <div class="chart-area deploy-chart-area">
-      <canvas id="aksCpuChart"></canvas>
+      <canvas id="aksNetNsChart"></canvas>
     </div>
   </div>
 
   <div class="chart-card">
     <div class="chart-hdr">
       <div>
-        <div class="chart-title">Node RAM</div>
-        <div class="chart-sub">Cluster-wide memory usage</div>
+        <div class="chart-title">Disk by Namespace</div>
+        <div class="chart-sub">Filesystem usage (GB)</div>
       </div>
-      <div class="cbadge cbadge-b" id="aksRamAvgBadge">Avg —%</div>
+      <div class="cbadge cbadge-o" id="nsDiskBadge">Live</div>
     </div>
     <div class="chart-area deploy-chart-area">
-      <canvas id="aksRamChart"></canvas>
+      <canvas id="aksDiskNsChart"></canvas>
     </div>
   </div>
 </div>

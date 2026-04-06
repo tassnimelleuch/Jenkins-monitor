@@ -125,56 +125,10 @@ function renderDiskChart(key, canvasId, labels, values, colors) {
 
 // ── AKS metrics ─────────────────────────────────────────────────────────────
 const CLUSTER_METRICS_URL = document.body.dataset.clusterMetricsUrl || '/jenkins/api/cluster-metrics';
-let aksCpuChart = null;
-let aksRamChart = null;
 let aksCpuNsChart = null;
 let aksRamNsChart = null;
-
-function colorForPct(pct) {
-  if (pct > 85) return '#e05c5c';
-  if (pct > 65) return '#e0a85c';
-  return '#5cb85c';
-}
-
-function setGauge(barId, cardId, pct) {
-  const bar = document.getElementById(barId);
-  const card = document.getElementById(cardId);
-  if (!bar || pct == null) return;
-  bar.style.width = Math.min(pct, 100) + '%';
-  bar.style.background = colorForPct(pct);
-  if (card) card.classList.toggle('warn', pct > 85);
-}
-
-function renderSparkline(canvasId, labels, values, color, fill, chartRefSetter) {
-  const ctx = document.getElementById(canvasId)?.getContext('2d');
-  if (!ctx) return;
-  const existing = chartRefSetter();
-  if (existing) existing.destroy();
-  const chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data: values,
-        borderColor: color,
-        backgroundColor: fill,
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.3,
-        fill: true,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { maxTicksLimit: 6 }, grid: { display: false } },
-        y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }
-      }
-    }
-  });
-  return chart;
-}
+let aksNetNsChart = null;
+let aksDiskNsChart = null;
 
 function renderNamespaceSeriesChart(canvasId, seriesMap, chartRef, palette, opts = {}) {
   const ctx = document.getElementById(canvasId)?.getContext('2d');
@@ -246,53 +200,6 @@ async function loadClusterMetrics() {
     const d = await res.json();
     if (!d.connected) return;
 
-    const cpu = d.node_cpu_pct;
-    const ram = d.node_ram_pct;
-
-    const cpuEl = document.getElementById('aksCpu');
-    const ramEl = document.getElementById('aksRam');
-    if (cpuEl) cpuEl.textContent = cpu != null ? cpu + '%' : '--';
-    if (ramEl) ramEl.textContent = ram != null ? ram + '%' : '--';
-
-    setGauge('aksCpuBar', 'aksCpuCard', cpu);
-    setGauge('aksRamBar', 'aksRamCard', ram);
-
-    if (d.node_cpu_history?.length && window.Chart) {
-      const labels = d.node_cpu_history.map(([ts]) =>
-        new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
-      );
-      const values = d.node_cpu_history.map(([, v]) => parseFloat(v.toFixed(1)));
-      const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
-      const badge = document.getElementById('aksCpuAvgBadge');
-      if (badge) badge.textContent = `Avg ${avg}%`;
-      aksCpuChart = renderSparkline(
-        'aksCpuChart',
-        labels,
-        values,
-        '#5cb85c',
-        'rgba(92,184,92,0.12)',
-        () => aksCpuChart
-      );
-    }
-
-    if (d.node_ram_history?.length && window.Chart) {
-      const labels = d.node_ram_history.map(([ts]) =>
-        new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
-      );
-      const values = d.node_ram_history.map(([, v]) => parseFloat(v.toFixed(1)));
-      const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
-      const badge = document.getElementById('aksRamAvgBadge');
-      if (badge) badge.textContent = `Avg ${avg}%`;
-      aksRamChart = renderSparkline(
-        'aksRamChart',
-        labels,
-        values,
-        '#3ab8f8',
-        'rgba(58,184,248,0.12)',
-        () => aksRamChart
-      );
-    }
-
     if (window.Chart) {
       const palette = [
         '#5cb85c', '#3ab8f8', '#ff9f43', '#ff4560',
@@ -312,6 +219,24 @@ async function loadClusterMetrics() {
           'aksRamNsChart',
           d.namespace_ram_history,
           aksRamNsChart,
+          palette,
+          { unit: 'GB', max: null }
+        );
+      }
+      if (d.namespace_net_history) {
+        aksNetNsChart = renderNamespaceSeriesChart(
+          'aksNetNsChart',
+          d.namespace_net_history,
+          aksNetNsChart,
+          palette,
+          { unit: ' MB/s', max: null }
+        );
+      }
+      if (d.namespace_disk_history) {
+        aksDiskNsChart = renderNamespaceSeriesChart(
+          'aksDiskNsChart',
+          d.namespace_disk_history,
+          aksDiskNsChart,
           palette,
           { unit: 'GB', max: null }
         );

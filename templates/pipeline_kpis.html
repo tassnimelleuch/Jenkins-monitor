@@ -103,64 +103,57 @@
   
 </div>
 
-<div class="pipeline-metrics-grid">
-  <div class="chart-card vm-metric-card" id="vmCpuCard">
+<div class="vm-metrics-grid">
+  <div class="chart-card">
     <div class="chart-hdr">
       <div>
-        <div class="chart-title">VM CPU Usage</div>
-        <div class="chart-sub">Jenkins host utilization</div>
+        <div class="chart-title">VM CPU</div>
+        <div class="chart-sub">CPU usage over time</div>
       </div>
-      <div class="cbadge cbadge-g" id="vmCpuAvgBadge">Avg —%</div>
+      <div class="cbadge" id="vmCpuBadge">--</div>
     </div>
-    <div class="vm-metric-top">
-      <div class="vm-metric-value" id="vmCpu">--</div>
-      <div class="vm-metric-unit">%</div>
-    </div>
-    <div class="gauge-bar">
-      <div class="gauge-fill" id="vmCpuBar" style="width:0%"></div>
-    </div>
-    <div class="chart-area vm-metric-chart">
+    <div class="chart-area vm-chart-area">
       <canvas id="vmCpuChart"></canvas>
     </div>
   </div>
 
-  <div class="chart-card vm-metric-card" id="vmRamCard">
+  <div class="chart-card">
     <div class="chart-hdr">
       <div>
-        <div class="chart-title">VM RAM Usage</div>
-        <div class="chart-sub">Memory pressure</div>
+        <div class="chart-title">VM RAM</div>
+        <div class="chart-sub">Memory usage over time</div>
       </div>
-      <div class="cbadge cbadge-b" id="vmRamAvgBadge">Avg —%</div>
+      <div class="cbadge cbadge-b" id="vmRamBadge">--</div>
     </div>
-    <div class="vm-metric-top">
-      <div class="vm-metric-value" id="vmRam">--</div>
-      <div class="vm-metric-unit">%</div>
-      <div class="vm-metric-detail" id="vmRamDetail"></div>
-    </div>
-    <div class="gauge-bar">
-      <div class="gauge-fill" id="vmRamBar" style="width:0%"></div>
-    </div>
-    <div class="chart-area vm-metric-chart">
+    <div class="chart-area vm-chart-area">
       <canvas id="vmRamChart"></canvas>
     </div>
   </div>
 
-  <div class="chart-card vm-metric-card" id="vmDiskCard">
+  <div class="chart-card">
     <div class="chart-hdr">
       <div>
-        <div class="chart-title">VM Disk Usage</div>
-        <div class="chart-sub">Root volume</div>
+        <div class="chart-title">VM Network Traffic</div>
+        <div class="chart-sub">Inbound and outbound traffic</div>
       </div>
-      <div class="cbadge cbadge-o" id="vmDiskAvgBadge">Current</div>
+      <div class="cbadge cbadge-g" id="vmNetBadge">--</div>
     </div>
-    <div class="vm-metric-top">
-      <div class="vm-metric-value" id="vmDisk">--</div>
-      <div class="vm-metric-unit">%</div>
+    <div class="chart-area vm-chart-area">
+      <canvas id="vmNetChart"></canvas>
     </div>
-    <div class="gauge-bar">
-      <div class="gauge-fill" id="vmDiskBar" style="width:0%"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">VM Disk Space</div>
+        <div class="chart-sub">Disk usage over time</div>
+      </div>
+      <div class="cbadge cbadge-o" id="vmDiskBadge">--</div>
     </div>
-    <div class="vm-metric-note">Disk history not available</div>
+    <div class="chart-area vm-chart-area">
+      <canvas id="vmDiskChart"></canvas>
+    </div>
   </div>
 </div>
 {% endblock %}
