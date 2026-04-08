@@ -391,10 +391,44 @@ async function loadLatestBuild() {
   }
 }
 
+async function loadGitHubBadge() {
+  try {
+    const res = await fetch('/api/github');
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    if (!data.connected) return;
+
+    const commits = data.commits || [];
+    const latestSha = commits[0] && commits[0].sha ? commits[0].sha : null;
+    if (!latestSha) return;
+
+    const seenSha = localStorage.getItem('gh-last-seen');
+    let newCount = 0;
+    if (seenSha) {
+      for (const c of commits) {
+        if (c.sha === seenSha) break;
+        newCount += 1;
+      }
+    }
+
+    const badge = document.getElementById('ghBadge');
+    if (!badge) return;
+    if (newCount > 0) {
+      badge.textContent = String(newCount);
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (e) {
+    console.error('GitHub badge fetch failed', e);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   checkStatus();
   checkAzureStatus();
   loadLatestBuild();
+  loadGitHubBadge();
 });
 
 

@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+
+{% block title %}GitHub — Jenkins Monitor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/github.css') }}">
+{% endblock %}
+
+{% block body_attrs %}data-github-url="{{ url_for('github.github_api') }}" data-page="github"{% endblock %}
+
+{% block page_content %}
+<div class="gh-hero">
+  <div>
+    <div class="gh-title">GitHub Repo</div>
+    <div class="gh-sub" id="ghRepoName">Loading...</div>
+  </div>
+  <a class="gh-link" id="ghRepoLink" href="#" target="_blank" rel="noopener">Open Repository</a>
+</div>
+
+<div class="gh-grid single">
+  <div class="gh-card">
+    <div class="gh-card-title">Repository</div>
+    <div class="gh-meta" id="ghRepoDesc">—</div>
+    <div class="gh-stats">
+      <div class="gh-stat">
+        <div class="gh-stat-label">Stars</div>
+        <div class="gh-stat-val" id="ghStars">--</div>
+      </div>
+      <div class="gh-stat">
+        <div class="gh-stat-label">Forks</div>
+        <div class="gh-stat-val" id="ghForks">--</div>
+      </div>
+      <div class="gh-stat">
+        <div class="gh-stat-label">Open Issues</div>
+        <div class="gh-stat-val" id="ghIssues">--</div>
+      </div>
+    </div>
+    <div class="gh-row">
+      <span>Default Branch</span>
+      <span id="ghBranch">—</span>
+    </div>
+    <div class="gh-row">
+      <span>Primary Language</span>
+      <span id="ghLang">—</span>
+    </div>
+    <div class="gh-row">
+      <span>Updated</span>
+      <span id="ghUpdated">—</span>
+    </div>
+
+    <div class="gh-divider"></div>
+    <div class="gh-card-title">Latest Code Changes</div>
+    <div class="gh-commits" id="ghCommits">
+      <div class="gh-empty">Loading commits...</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/github.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+
+{% block title %}SonarCloud Scan — Jenkins Monitor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sonarcloud.css') }}">
+{% endblock %}
+
+{% block body_attrs %}data-sonar-url="{{ url_for('sonarcloud.sonarcloud_api') }}" data-page="sonarcloud"{% endblock %}
+
+{% block page_content %}
+<div class="sonar-hero">
+  <div>
+    <div class="sonar-title">SonarCloud Scan</div>
+    <div class="sonar-sub" id="sonarProjectKey">Project: —</div>
+  </div>
+  <div class="sonar-gate-pill" id="sonarGatePill">Checking...</div>
+  <div class="sonar-banner" id="sonarBanner" style="display:none;"></div>
+</div>
+
+<div class="stat-row sonar-stat-row">
+  <div class="stat-card failed">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="8" y1="8" x2="16" y2="16"/><line x1="16" y1="8" x2="8" y2="16"/></svg>
+    </div>
+    <div>
+      <div class="stat-label">Bugs</div>
+      <div class="stat-value" id="sonarBugs">--</div>
+    </div>
+  </div>
+  <div class="stat-card aborted">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 3l9 4.5v9L12 21 3 16.5v-9z"/><path d="M12 3v18"/></svg>
+    </div>
+    <div>
+      <div class="stat-label">Vulnerabilities</div>
+      <div class="stat-value" id="sonarVulnerabilities">--</div>
+    </div>
+  </div>
+  <div class="stat-card total">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="4"/><circle cx="16" cy="16" r="4"/><path d="M12 12l4-4"/></svg>
+    </div>
+    <div>
+      <div class="stat-label">Code Smells</div>
+      <div class="stat-value" id="sonarSmells">--</div>
+    </div>
+  </div>
+  <div class="stat-card success">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16v6H4z"/><path d="M8 14h8"/><path d="M10 18h4"/></svg>
+    </div>
+    <div>
+      <div class="stat-label">Security Hotspots</div>
+      <div class="stat-value" id="sonarHotspots">--</div>
+    </div>
+  </div>
+</div>
+
+<div class="sonar-grid">
+  <div class="sonar-card">
+    <div class="sonar-label">Coverage</div>
+    <div class="sonar-value" id="sonarCoverage">--</div>
+    <div class="sonar-help">Line coverage</div>
+  </div>
+  <div class="sonar-card">
+    <div class="sonar-label">Duplications</div>
+    <div class="sonar-value" id="sonarDupes">--</div>
+    <div class="sonar-help">Duplicated lines density</div>
+  </div>
+  <div class="sonar-card">
+    <div class="sonar-label">Lines of Code</div>
+    <div class="sonar-value" id="sonarNcloc">--</div>
+    <div class="sonar-help">ncloc</div>
+  </div>
+  <div class="sonar-card">
+    <div class="sonar-label">Quality Gate</div>
+    <div class="sonar-value" id="sonarGateStatus">--</div>
+    <div class="sonar-help" id="sonarGateMeta">Conditions —</div>
+  </div>
+</div>
+
+<div class="sonar-conditions-card">
+  <div class="sonar-section-title">Quality Gate Conditions</div>
+  <div class="sonar-cond-list" id="sonarConditions">
+    <div class="sonar-empty">Loading conditions...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/sonarcloud.js') }}"></script>
+{% endblock %}

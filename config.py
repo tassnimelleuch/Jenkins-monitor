@@ -14,3 +14,12 @@ class Config:
     AKS_RESOURCE_GROUP    = os.getenv('AKS_RESOURCE_GROUP')
     AKS_CLUSTER_NAME      = os.getenv('AKS_CLUSTER_NAME')
     PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
+
+    SONARCLOUD_BASE_URL = os.getenv("SONARCLOUD_BASE_URL", "https://sonarcloud.io/api")
+    SONARCLOUD_PROJECT_KEY = os.getenv("SONARCLOUD_PROJECT_KEY", "tassnimelleuch_Django-app")
+    SONARCLOUD_TOKEN = os.getenv("SONARCLOUD_TOKEN")
+
+    GITHUB_API_URL = os.getenv("GITHUB_API_URL", "https://api.github.com")
+    GITHUB_OWNER = os.getenv("GITHUB_OWNER")
+    GITHUB_REPO = os.getenv("GITHUB_REPO")
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")

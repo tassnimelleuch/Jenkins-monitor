@@ -2,6 +2,7 @@ def get_sidebar_items(role):
     items = [
         {'label': 'Overview', 'endpoint': 'overview.dashboard'},
         {'label': 'Pipeline KPIs', 'endpoint': 'pipeline_kpis.pipeline_kpis'},
+        {'label': 'SonarCloud Scan', 'endpoint': 'sonarcloud.dashboard'},
     ]
 
     if role == 'admin':
