@@ -11,6 +11,7 @@ def get_connection_status():
             'cluster_name': result.get('cluster_name'),
             'location': result.get('location'),
             'provisioning_state': result.get('provisioning_state'),
+            'power_state': result.get('power_state'),
             'message': result.get('message'),
         }
     }

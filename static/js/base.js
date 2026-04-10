@@ -225,7 +225,7 @@ async function checkStatus() {
     const val = document.getElementById('jenkinsStatusVal');
     if (dot) dot.classList.add('pulse-dot-error');
     if (val) {
-      val.textContent = 'Unreachable';
+      val.textContent = 'Discionnected';
       val.className   = 'ji-val error';
     }
     console.error('Jenkins status error:', e);
@@ -236,13 +236,15 @@ async function checkStatus() {
 async function checkAzureStatus() {
   try {
     const res = await fetch('/jenkins/azure/api/status');
+    if (!res.ok) throw new Error('azure status request failed');
     const data = await res.json().catch(() => ({ connected: false }));
     const dot = document.getElementById('azureStatusDot');
     const val = document.getElementById('azureStatusVal');
 
     if (!dot || !val) return;
 
-    if (data.connected) {
+    const connected = data && data.connected === true;
+    if (connected) {
       dot.classList.remove('pulse-dot-error');
       val.textContent = 'Connected';
       val.className = 'ji-val ok';

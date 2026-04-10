@@ -17,6 +17,7 @@ def _get_headers():
     headers = {
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'Jenkins-Monitor',
     }
     token = _get_token()
     if token:
@@ -50,3 +51,8 @@ def get_commits(owner, repo, per_page=8):
     url = f"{_get_base_url()}/repos/{owner}/{repo}/commits"
     params = {'per_page': per_page}
     return _get_json(url, params=params)
+
+
+def get_commit(owner, repo, sha):
+    url = f"{_get_base_url()}/repos/{owner}/{repo}/commits/{sha}"
+    return _get_json(url)

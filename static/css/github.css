@@ -54,6 +54,20 @@
   border:1px solid var(--border);
   border-radius:12px;
 }
+.gh-commit-failing{
+  border-color:#f3b6ad;
+  background:linear-gradient(180deg, #fff6f4 0%, var(--bg3) 75%);
+  box-shadow:0 8px 18px rgba(180, 35, 24, 0.12);
+}
+.gh-commit-failing .gh-commit-msg{
+  color:#8a1c12;
+}
+.gh-commit-failing .gh-commit-sha{
+  color:#b42318;
+}
+.gh-commit-failing .gh-meta{
+  color:#7a2e27;
+}
 .gh-commit-sha{
   min-width:58px;
   font-family:'JetBrains Mono',monospace;
@@ -66,6 +80,49 @@
 .gh-commit-meta{font-size:10.5px;color:var(--text2);}
 .gh-commit-link{font-size:10.5px;color:var(--accent);text-decoration:none;}
 .gh-empty{font-size:11px;color:var(--text2);}
+
+.gh-culprit{
+  color:#b42318;
+  font-weight:800;
+  background:#ffefe8;
+  border:1px solid #f7c5b8;
+  padding:6px 8px;
+  border-radius:10px;
+}
+.gh-commit-failing .gh-culprit{
+  background:#ffe4dd;
+  border-color:#f2a79a;
+}
+.gh-commit-list{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin:8px 0 12px;
+}
+.gh-commit-item{
+  display:grid;
+  grid-template-columns:70px 1fr auto;
+  gap:8px;
+  align-items:center;
+  font-size:11px;
+  color:var(--text2);
+  padding:6px 8px;
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:10px;
+}
+.gh-commit-item .gh-commit-sha{
+  min-width:0;
+  font-size:10.5px;
+}
+.gh-commit-item .gh-commit-msg{
+  font-weight:600;
+  margin:0;
+}
+.gh-commit-author{
+  font-weight:700;
+  color:var(--text1);
+}
 
 @media (max-width: 1000px){
   .gh-grid{grid-template-columns:1fr;}

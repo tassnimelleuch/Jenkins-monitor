@@ -10,6 +10,11 @@ function fmtDate(val) {
   return d.toLocaleString();
 }
 
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
 function renderCommits(container, commits) {
   if (!container) return;
   if (!commits || commits.length === 0) {
@@ -38,10 +43,13 @@ async function loadGitHub() {
 
   try {
     const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`GitHub API returned ${res.status}`);
+    }
     const data = await res.json();
 
     if (!data.connected) {
-      document.getElementById('ghRepoName').textContent = data.message || 'GitHub unavailable';
+      setText('ghRepoName', data.message || 'GitHub unavailable');
       renderCommits(document.getElementById('ghCommits'), []);
       return;
     }
@@ -49,27 +57,80 @@ async function loadGitHub() {
     const repo = data.repo_info || {};
     const full = repo.full_name || `${data.owner}/${data.repo}`;
 
-    document.getElementById('ghRepoName').textContent = full;
-    document.getElementById('ghRepoDesc').textContent = repo.description || '—';
-    document.getElementById('ghStars').textContent = fmtNum(repo.stars);
-    document.getElementById('ghForks').textContent = fmtNum(repo.forks);
-    document.getElementById('ghIssues').textContent = fmtNum(repo.open_issues);
-    document.getElementById('ghBranch').textContent = repo.default_branch || '—';
-    document.getElementById('ghLang').textContent = repo.language || '—';
-    document.getElementById('ghUpdated').textContent = fmtDate(repo.updated_at);
+    const repoDataMissing = !repo || (
+      repo.stars == null &&
+      repo.forks == null &&
+      repo.open_issues == null &&
+      !repo.updated_at
+    );
+
+    setText('ghRepoName', full);
+    setText(
+      'ghRepoDesc',
+      repoDataMissing
+      ? 'Repository data unavailable.'
+      : (repo.description || '—')
+    );
+    setText('ghStars', fmtNum(repo.stars));
+    setText('ghForks', fmtNum(repo.forks));
+    setText('ghIssues', fmtNum(repo.open_issues));
+    setText('ghBranch', repo.default_branch || '—');
+    setText('ghLang', repo.language || '—');
+    setText('ghUpdated', fmtDate(repo.updated_at));
 
     const link = document.getElementById('ghRepoLink');
     if (link && repo.html_url) link.href = repo.html_url;
 
     renderCommits(document.getElementById('ghCommits'), data.commits || []);
+    try {
+      renderFailingCommit(data);
+    } catch (e) {
+      const container = document.getElementById('ghFailingCommit');
+      if (container) {
+        container.innerHTML = '<div class="gh-empty">Failed to render failed commit.</div>';
+      }
+    }
 
     if (Array.isArray(data.commits) && data.commits[0] && data.commits[0].sha) {
       localStorage.setItem('gh-last-seen', data.commits[0].sha);
     }
   } catch (e) {
-    document.getElementById('ghRepoName').textContent = 'Failed to load GitHub data';
+    setText('ghRepoName', 'Failed to load GitHub data');
     renderCommits(document.getElementById('ghCommits'), []);
   }
+}
+function renderFailingCommit(data) {
+  const container = document.getElementById('ghFailingCommit');
+  if (!container) return;
+
+  const fc = data.failing_commit;
+  if (!fc || !fc.commit) {
+    container.innerHTML = '<div class="gh-empty">No failed build commit found.</div>';
+    return;
+  }
+
+  const c = fc.commit;
+
+  const ghUser =
+    c.author_login ||
+    c.committer_login ||
+    (c.author_name ? c.author_name.replace(/\s+/g, '') : null);
+
+  const displayMsg = (c.message || 'No commit message').split('\n')[0];
+
+  container.innerHTML = `
+    <div class="gh-commit gh-commit-failing">
+      <div class="gh-commit-top">
+        <a href="${c.html_url}" target="_blank" rel="noopener" class="gh-sha">${c.short_sha || '--'}</a>
+        <span class="gh-stat-val">Build #${fc.build_number}</span>
+      </div>
+      <div class="gh-commit-msg">${displayMsg}</div>
+      <div class="gh-meta">
+        ${ghUser ? `GitHub user: @${ghUser}` : 'GitHub user: Unknown'}
+      </div>
+      ${fc.build_url ? `<div class="gh-meta"><a href="${fc.build_url}" target="_blank" rel="noopener">Open failed Jenkins build</a></div>` : ''}
+    </div>
+  `;
 }
 
 document.addEventListener('DOMContentLoaded', loadGitHub);

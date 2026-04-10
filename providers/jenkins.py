@@ -365,7 +365,6 @@ def _extract_coverage_percent_from_xml(xml_text):
             if total > 0:
                 return round(covered / total * 100, 1)
 
-    # Fallback: try to find any line coverage ratio in text nodes
     return None
 
 
@@ -527,3 +526,96 @@ def get_pipeline_kpis():
 
         'successful_deployment_frequency': successful_deployment_frequency,
     }
+
+
+def get_build_info(build_number):
+    return _get_json(
+        f'{_get_base()}/{build_number}/api/json?tree='
+        'number,result,timestamp,duration,url,'
+        'actions[lastBuiltRevision[SHA1,branch[name]],parameters[name,value]],'
+        'changeSets[items[commitId,msg,author[fullName]]],'
+        'culprits[fullName,absoluteUrl]'
+    )
+
+
+def extract_build_commit_sha(build_info):
+    if not isinstance(build_info, dict):
+        return None
+
+    actions = build_info.get('actions') or []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+
+        rev = action.get('lastBuiltRevision') or {}
+        sha = rev.get('SHA1')
+        if sha:
+            return sha
+
+        for param in action.get('parameters') or []:
+            if param.get('name') == 'GIT_COMMIT' and param.get('value'):
+                return param.get('value')
+
+    change_sets = build_info.get('changeSets') or []
+    for cs in change_sets:
+        for item in cs.get('items') or []:
+            sha = item.get('commitId')
+            if sha:
+                return sha
+
+    return None
+
+
+def extract_build_commits(build_info, limit=5):
+    if not isinstance(build_info, dict):
+        return []
+
+    commits = []
+    seen = set()
+    change_sets = build_info.get('changeSets') or []
+    for cs in change_sets:
+        for item in cs.get('items') or []:
+            sha = item.get('commitId')
+            if not sha or sha in seen:
+                continue
+            seen.add(sha)
+            commits.append({
+                'sha': sha,
+                'message': item.get('msg'),
+                'author_name': (item.get('author') or {}).get('fullName'),
+            })
+            if len(commits) >= limit:
+                return commits
+    return commits
+
+
+def extract_build_culprits(build_info, limit=3):
+    if not isinstance(build_info, dict):
+        return []
+
+    culprits = []
+    seen = set()
+    for c in build_info.get('culprits') or []:
+        name = c.get('fullName')
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        culprits.append({
+            'full_name': name,
+            'url': c.get('absoluteUrl'),
+        })
+        if len(culprits) >= limit:
+            break
+    return culprits
+
+
+def get_last_failed_build(builds=None):
+    if builds is None:
+        builds = get_all_builds()
+    if not builds:
+        return None
+
+    for b in builds:
+        if b.get('result') == 'FAILURE':
+            return b
+    return None

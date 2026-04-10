@@ -36,11 +36,22 @@ def check_connection():
             _get_cluster_name()
         )
 
+        provisioning_state = getattr(cluster, 'provisioning_state', None)
+        power_state = getattr(cluster, 'power_state', None)
+        power_code = getattr(power_state, 'code', None) if power_state else None
+
+        connected = True
+        if provisioning_state and str(provisioning_state).lower() != 'succeeded':
+            connected = False
+        if power_code and str(power_code).lower() != 'running':
+            connected = False
+
         return {
-            'connected': True,
+            'connected': connected,
             'cluster_name': cluster.name,
             'location': cluster.location,
-            'provisioning_state': getattr(cluster, 'provisioning_state', None),
+            'provisioning_state': provisioning_state,
+            'power_state': power_code,
         }
 
     except AzureError as e:
