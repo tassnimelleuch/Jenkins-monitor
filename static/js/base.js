@@ -1,3 +1,103 @@
+//prometheus data
+function getCssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function formatTimeLabel(tsSeconds) {
+  return new Date(tsSeconds * 1000).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function avgValue(values = [], digits = 1) {
+  if (!values.length) return null;
+  const sum = values.reduce((a, b) => a + b, 0);
+  return (sum / values.length).toFixed(digits);
+}
+
+function avgFromSeriesMap(seriesMap, digits = 1) {
+  const values = [];
+  Object.values(seriesMap || {}).forEach(points => {
+    if (!Array.isArray(points)) return;
+    points.forEach(([, v]) => {
+      const num = Number(v);
+      if (!Number.isNaN(num)) values.push(num);
+    });
+  });
+  return avgValue(values, digits);
+}
+
+function applyLineDefaults(datasets, opts = {}) {
+  const tension = opts.tension ?? 0.25;
+  return (datasets || []).map(ds => {
+    const borderColor = ds.borderColor || ds.color;
+    const backgroundColor = ds.backgroundColor ?? (borderColor ? `${borderColor}22` : undefined);
+    return {
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension,
+      fill: false,
+      ...ds,
+      borderColor,
+      backgroundColor
+    };
+  });
+}
+
+function buildLineChart(ctx, labels, datasets, opts = {}) {
+  const unit = opts.unit || '';
+  const min = opts.min ?? 0;
+  const max = opts.max ?? undefined;
+  const maxTicksLimit = opts.maxTicksLimit ?? 10;
+  const legendPosition = opts.legendPosition || 'bottom';
+  const showLegend = opts.showLegend !== false;
+  const enableDecimation = opts.decimation !== false;
+
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: showLegend ? {
+          position: legendPosition,
+          labels: { color: getCssVar('--text2'), boxWidth: 10, boxHeight: 10 }
+        } : { display: false },
+        tooltip: {
+          enabled: true,
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label(context) {
+              const value = context.raw;
+              return `${context.dataset.label}: ${value}${unit}`;
+            }
+          }
+        },
+        decimation: enableDecimation ? { enabled: true, algorithm: 'lttb' } : { enabled: false }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: getCssVar('--text2'), maxTicksLimit, autoSkip: true }
+        },
+        y: {
+          min,
+          max,
+          grid: { color: getCssVar('--border') },
+          ticks: {
+            color: getCssVar('--text2'),
+            callback: v => `${v}${unit}`
+          }
+        }
+      }
+    }
+  });
+}
 
 // ── Chatbot
 let chatOpen=false;

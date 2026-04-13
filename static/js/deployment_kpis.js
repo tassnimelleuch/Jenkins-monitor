@@ -1,7 +1,3 @@
-function getCssVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
 function toSeries(map, limit = 8, preferredOrder = []) {
   const order = new Map(preferredOrder.map((k, i) => [k, i]));
   const entries = Object.entries(map || {}).sort((a, b) => {
@@ -150,9 +146,7 @@ function renderNamespaceSeriesChart(canvasId, seriesMap, chartRef, palette, opts
   if (existing) existing.remove();
 
   const [, firstSeries] = entries[0];
-  const labels = firstSeries.map(([ts]) =>
-    new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
-  );
+  const labels = firstSeries.map(([ts]) => formatTimeLabel(ts));
 
   const datasets = entries.slice(0, 8).map(([ns, points], i) => {
     const color = palette[i % palette.length];
@@ -160,10 +154,7 @@ function renderNamespaceSeriesChart(canvasId, seriesMap, chartRef, palette, opts
       label: ns,
       data: points.map(([, v]) => parseFloat(v.toFixed(2))),
       borderColor: color,
-      backgroundColor: color + '33',
-      borderWidth: 2,
-      pointRadius: 0,
-      tension: 0.3,
+      backgroundColor: color + '22',
       fill: false
     };
   });
@@ -171,26 +162,12 @@ function renderNamespaceSeriesChart(canvasId, seriesMap, chartRef, palette, opts
   if (chartRef) chartRef.destroy();
   const unit = opts.unit || '%';
   const max = opts.max ?? null;
-  return new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { color: getCssVar('--text2'), boxWidth: 10, boxHeight: 10 }
-        }
-      },
-      scales: {
-        x: { ticks: { maxTicksLimit: 6 }, grid: { display: false } },
-        y: {
-          min: 0,
-          max: max,
-          ticks: { callback: v => v + unit }
-        }
-      }
-    }
+  const styledDatasets = applyLineDefaults(datasets, { tension: 0.25 });
+  return buildLineChart(ctx, labels, styledDatasets, {
+    unit,
+    min: 0,
+    max,
+    maxTicksLimit: 10
   });
 }
 
@@ -213,6 +190,9 @@ async function loadClusterMetrics() {
           palette,
           { unit: '%', max: 100 }
         );
+        const badge = document.getElementById('nsCpuBadge');
+        const avgCpu = avgFromSeriesMap(d.namespace_cpu_history, 1);
+        if (badge) badge.textContent = avgCpu ? `Avg ${avgCpu}%` : 'Avg —%';
       }
       if (d.namespace_ram_history) {
         aksRamNsChart = renderNamespaceSeriesChart(
@@ -222,6 +202,9 @@ async function loadClusterMetrics() {
           palette,
           { unit: 'GB', max: null }
         );
+        const badge = document.getElementById('nsRamBadge');
+        const avgRam = avgFromSeriesMap(d.namespace_ram_history, 2);
+        if (badge) badge.textContent = avgRam ? `Avg ${avgRam} GB` : 'Avg — GB';
       }
       if (d.namespace_net_history) {
         aksNetNsChart = renderNamespaceSeriesChart(
@@ -231,6 +214,9 @@ async function loadClusterMetrics() {
           palette,
           { unit: ' MB/s', max: null }
         );
+        const badge = document.getElementById('nsNetBadge');
+        const avgNet = avgFromSeriesMap(d.namespace_net_history, 2);
+        if (badge) badge.textContent = avgNet ? `Avg ${avgNet} MB/s` : 'Avg — MB/s';
       }
       if (d.namespace_disk_history) {
         aksDiskNsChart = renderNamespaceSeriesChart(
@@ -240,6 +226,9 @@ async function loadClusterMetrics() {
           palette,
           { unit: 'GB', max: null }
         );
+        const badge = document.getElementById('nsDiskBadge');
+        const avgDisk = avgFromSeriesMap(d.namespace_disk_history, 2);
+        if (badge) badge.textContent = avgDisk ? `Avg ${avgDisk} GB` : 'Avg — GB';
       }
     }
   } catch (e) {

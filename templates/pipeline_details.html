@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+
+{% block title %}Pipeline Details — Jenkins Monitor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pipeline_details.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
+{% endblock %}
+
+{% block body_attrs %}data-pipeline-details-url="{{ url_for('pipeline_kpis.pipeline_details_api') }}" data-page="pipeline-details"{% endblock %}
+
+{% block page_content %}
+
+<div class="disconnected-banner" id="pdDisconnected"></div>
+
+<div class="pd-hero">
+  <div>
+    <div class="pd-title" id="pdTitle">Pipeline Details</div>
+    <div class="pd-sub" id="pdSub">Minimal configuration details (not shown elsewhere).</div>
+  </div>
+</div>
+
+<div class="pd-grid">
+  <div class="pd-card">
+    <div class="pd-card-title">Triggers</div>
+    <div id="pdTriggers" class="pd-list"></div>
+  </div>
+
+  <div class="pd-card">
+    <div class="pd-card-title">Pipeline</div>
+    <div class="pd-kv"><span>Type</span><span id="pdPipeType">--</span></div>
+    <div class="pd-kv"><span>Multibranch</span><span id="pdMultibranch">--</span></div>
+    <div class="pd-kv"><span>Job class</span><span id="pdJobClass">--</span></div>
+    <div class="pd-kv"><span>Definition</span><span id="pdDefClass">--</span></div>
+    <div class="pd-kv"><span>Script Path</span><span id="pdScriptPath">--</span></div>
+    <div class="pd-kv"><span>Max builds to keep</span><span id="pdMaxBuilds">--</span></div>
+  </div>
+</div>
+
+<div class="pd-row">
+  <div class="pd-card pd-card-wide">
+    <div class="pd-card-title">Parameters</div>
+    <div class="pd-table">
+      <div class="pd-table-head">
+        <span>Name</span>
+        <span>Type</span>
+        <span>Default</span>
+      </div>
+      <div id="pdParams"></div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/pipeline_details.js') }}"></script>
+{% endblock %}

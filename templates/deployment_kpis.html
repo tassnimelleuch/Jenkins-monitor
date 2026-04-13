@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{# No KPI card macros needed on this page #}
+{% from 'partials/kpi_cards.html' import metrics_grid %}
 
 {% block title %}Deployment KPIs — Jenkins Monitor{% endblock %}
 
@@ -191,59 +191,13 @@
   </div>
 </div>
 
-<div class="deploy-metrics-grid">
-  <div class="chart-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">CPU by Namespace</div>
-        <div class="chart-sub">30-min CPU usage % per namespace</div>
-      </div>
-      <div class="cbadge cbadge-g" id="nsCpuBadge">Live</div>
-    </div>
-    <div class="chart-area deploy-chart-area">
-      <canvas id="aksCpuNsChart"></canvas>
-    </div>
-  </div>
-
-  <div class="chart-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">Memory by Namespace</div>
-        <div class="chart-sub">30-min RAM usage (GB) per namespace</div>
-      </div>
-      <div class="cbadge cbadge-b" id="nsRamBadge">Live</div>
-    </div>
-    <div class="chart-area deploy-chart-area">
-      <canvas id="aksRamNsChart"></canvas>
-    </div>
-  </div>
-
-  <div class="chart-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">Network by Namespace</div>
-        <div class="chart-sub">Inbound + outbound (MB/s)</div>
-      </div>
-      <div class="cbadge cbadge-g" id="nsNetBadge">Live</div>
-    </div>
-    <div class="chart-area deploy-chart-area">
-      <canvas id="aksNetNsChart"></canvas>
-    </div>
-  </div>
-
-  <div class="chart-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">Disk by Namespace</div>
-        <div class="chart-sub">Filesystem usage (GB)</div>
-      </div>
-      <div class="cbadge cbadge-o" id="nsDiskBadge">Live</div>
-    </div>
-    <div class="chart-area deploy-chart-area">
-      <canvas id="aksDiskNsChart"></canvas>
-    </div>
-  </div>
-</div>
+{% set deploy_metrics_cards = [
+  {'title': 'CPU by Namespace', 'sub': '30-min CPU usage % per namespace', 'badge_class': 'cbadge-g', 'badge_id': 'nsCpuBadge', 'badge_text': 'Avg —%', 'canvas_id': 'aksCpuNsChart'},
+  {'title': 'Memory by Namespace', 'sub': '30-min RAM usage (GB) per namespace', 'badge_class': 'cbadge-b', 'badge_id': 'nsRamBadge', 'badge_text': 'Avg — GB', 'canvas_id': 'aksRamNsChart'},
+  {'title': 'Network by Namespace', 'sub': 'Inbound + outbound (MB/s)', 'badge_class': 'cbadge-g', 'badge_id': 'nsNetBadge', 'badge_text': 'Avg — MB/s', 'canvas_id': 'aksNetNsChart'},
+  {'title': 'Disk by Namespace', 'sub': 'Filesystem usage (GB)', 'badge_class': 'cbadge-o', 'badge_id': 'nsDiskBadge', 'badge_text': 'Avg — GB', 'canvas_id': 'aksDiskNsChart'}
+] %}
+{{ metrics_grid('', '', deploy_metrics_cards) }}
 
 {% endblock %}
 

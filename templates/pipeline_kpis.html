@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from 'partials/kpi_cards.html' import stat_row, latest_builds_chart %}
+{% from 'partials/kpi_cards.html' import stat_row, latest_builds_chart, metrics_grid %}
 
 {% block title %}Pipeline KPIs — Jenkins Monitor{% endblock %}
 
@@ -103,59 +103,13 @@
   
 </div>
 
-<div class="vm-metrics-grid">
-  <div class="chart-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">VM CPU</div>
-        <div class="chart-sub">CPU usage over time</div>
-      </div>
-      <div class="cbadge" id="vmCpuBadge">--</div>
-    </div>
-    <div class="chart-area vm-chart-area">
-      <canvas id="vmCpuChart"></canvas>
-    </div>
-  </div>
-
-  <div class="chart-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">VM RAM</div>
-        <div class="chart-sub">Memory usage over time</div>
-      </div>
-      <div class="cbadge cbadge-b" id="vmRamBadge">--</div>
-    </div>
-    <div class="chart-area vm-chart-area">
-      <canvas id="vmRamChart"></canvas>
-    </div>
-  </div>
-
-  <div class="chart-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">VM Network Traffic</div>
-        <div class="chart-sub">Inbound and outbound traffic</div>
-      </div>
-      <div class="cbadge cbadge-g" id="vmNetBadge">--</div>
-    </div>
-    <div class="chart-area vm-chart-area">
-      <canvas id="vmNetChart"></canvas>
-    </div>
-  </div>
-
-  <div class="chart-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">VM Disk Space</div>
-        <div class="chart-sub">Disk usage over time</div>
-      </div>
-      <div class="cbadge cbadge-o" id="vmDiskBadge">--</div>
-    </div>
-    <div class="chart-area vm-chart-area">
-      <canvas id="vmDiskChart"></canvas>
-    </div>
-  </div>
-</div>
+{% set vm_metrics_cards = [
+  {'title': 'VM CPU', 'sub': 'CPU usage over time', 'badge_class': '', 'badge_id': 'vmCpuBadge', 'badge_text': '--', 'canvas_id': 'vmCpuChart'},
+  {'title': 'VM RAM', 'sub': 'Memory usage over time', 'badge_class': 'cbadge-b', 'badge_id': 'vmRamBadge', 'badge_text': '--', 'canvas_id': 'vmRamChart'},
+  {'title': 'VM Network Traffic', 'sub': 'Inbound and outbound traffic', 'badge_class': 'cbadge-g', 'badge_id': 'vmNetBadge', 'badge_text': '--', 'canvas_id': 'vmNetChart'},
+  {'title': 'VM Disk Space', 'sub': 'Disk usage over time', 'badge_class': 'cbadge-o', 'badge_id': 'vmDiskBadge', 'badge_text': '--', 'canvas_id': 'vmDiskChart'}
+] %}
+{{ metrics_grid('', '', vm_metrics_cards) }}
 {% endblock %}
 
 {% block extra_js %}

@@ -110,7 +110,8 @@
       <span class="nav-label">Deployment KPIs</span>
     </a>
 
-    <div class="nav-item" onclick="setActive(this)">
+    <a class="nav-item {% if request.endpoint == 'finops.finops_dashboard' %}active{% endif %}"
+       href="{{ url_for('finops.finops_dashboard') }}">
       <span class="nav-icon">
         <svg viewBox="0 0 24 24">
           <path d="M12 2v20"/>
@@ -118,7 +119,7 @@
         </svg>
       </span>
       <span class="nav-label">FinOps</span>
-    </div>
+    </a>
 
     <div class="nav-item" onclick="setActive(this)">
       <span class="nav-icon">

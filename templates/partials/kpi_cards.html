@@ -73,6 +73,25 @@
 </div>
 {% endmacro %}
 
+{% macro metrics_grid(grid_class, area_class, cards) %}
+<div class="metrics-grid{% if grid_class %} {{ grid_class }}{% endif %}">
+    {% for card in cards %}
+    <div class="chart-card{% if card.card_class %} {{ card.card_class }}{% endif %}">
+        <div class="chart-hdr">
+            <div>
+                <div class="chart-title">{{ card.title }}</div>
+                <div class="chart-sub">{{ card.sub }}</div>
+            </div>
+            <div class="cbadge{% if card.badge_class %} {{ card.badge_class }}{% endif %}" id="{{ card.badge_id }}">{{ card.badge_text }}</div>
+        </div>
+        <div class="chart-area metrics-chart-area{% if area_class %} {{ area_class }}{% endif %}">
+            <canvas id="{{ card.canvas_id }}"></canvas>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endmacro %}
+
 <div class="kpi-card health">
     <div class="circular-progress">
         <svg viewBox="0 0 60 60">

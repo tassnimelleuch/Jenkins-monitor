@@ -2,10 +2,6 @@ const INITIAL_SHOW = 5;
 const POLL_MS = 5000;
 const SLOW_POLL_MS = 30000;
 
-function getCssVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
 let _allBuilds = [];
 let _showingAll = false;
 let _avgDurationMs = 120000;
@@ -701,13 +697,6 @@ let vmRamChart = null;
 let vmNetChart = null;
 let vmDiskChart = null;
 
-function formatTimeLabel(ts) {
-  return new Date(ts * 1000).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-}
-
 function renderVmLineChart(canvasId, series, chartRef, opts = {}) {
   const ctx = document.getElementById(canvasId)?.getContext('2d');
   if (!ctx) return chartRef;
@@ -719,65 +708,17 @@ function renderVmLineChart(canvasId, series, chartRef, opts = {}) {
     data: ds.values,
     borderColor: ds.color,
     backgroundColor: ds.fill || `${ds.color}22`,
-    borderWidth: 2,
-    pointRadius: 0,
-    pointHoverRadius: 4,
-    tension: 0.25,
     fill: !!ds.fillArea
   }));
 
-  return new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            color: getCssVar('--text2'),
-            boxWidth: 10,
-            boxHeight: 10
-          }
-        },
-        tooltip: {
-          enabled: true,
-          mode: 'index',
-          intersect: false,
-          callbacks: {
-            label(context) {
-              const value = context.raw;
-              const unit = opts.unit || '';
-              return `${context.dataset.label}: ${value}${unit}`;
-            }
-          }
-        },
-        decimation: { enabled: true, algorithm: 'lttb' }
-      },
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { color: getCssVar('--text2'), maxTicksLimit: 10, autoSkip: true }
-        },
-        y: {
-          min: opts.min ?? 0,
-          max: opts.max ?? undefined,
-          grid: { color: getCssVar('--border') },
-          ticks: {
-            color: getCssVar('--text2'),
-            callback: v => `${v}${opts.unit || ''}`
-          }
-        }
-      }
-    }
-  });
-}
+  const styledDatasets = applyLineDefaults(datasets, { tension: 0.25 });
 
-function avg(values = []) {
-  if (!values.length) return null;
-  return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+  return buildLineChart(ctx, labels, styledDatasets, {
+    unit: opts.unit || '',
+    min: opts.min ?? 0,
+    max: opts.max ?? undefined,
+    maxTicksLimit: 10
+  });
 }
 
 async function loadVmMetrics() {
@@ -790,7 +731,8 @@ async function loadVmMetrics() {
       const labels = d.cpu_history.map(([ts]) => ts);
       const values = d.cpu_history.map(([, v]) => parseFloat(v.toFixed(1)));
       const badge = document.getElementById('vmCpuBadge');
-      if (badge) badge.textContent = `Avg ${avg(values)}%`;
+      const avgCpu = avgValue(values, 1);
+      if (badge) badge.textContent = avgCpu ? `Avg ${avgCpu}%` : 'Avg —%';
       vmCpuChart = renderVmLineChart(
         'vmCpuChart',
         { labels, datasets: [{ label: 'CPU', values, color: '#5cb85c', fillArea: true }] },
@@ -803,7 +745,8 @@ async function loadVmMetrics() {
       const labels = d.ram_history.map(([ts]) => ts);
       const values = d.ram_history.map(([, v]) => parseFloat(v.toFixed(1)));
       const badge = document.getElementById('vmRamBadge');
-      if (badge) badge.textContent = `Avg ${avg(values)}%`;
+      const avgRam = avgValue(values, 1);
+      if (badge) badge.textContent = avgRam ? `Avg ${avgRam}%` : 'Avg —%';
       vmRamChart = renderVmLineChart(
         'vmRamChart',
         { labels, datasets: [{ label: 'RAM', values, color: '#3ab8f8', fillArea: true }] },
@@ -817,7 +760,9 @@ async function loadVmMetrics() {
       const rxValues = (d.net_rx_history || []).map(([, v]) => parseFloat(v.toFixed(2)));
       const txValues = (d.net_tx_history || []).map(([, v]) => parseFloat(v.toFixed(2)));
       const badge = document.getElementById('vmNetBadge');
-      if (badge) badge.textContent = 'Live';
+      const combined = rxValues.map((v, i) => v + (txValues[i] || 0));
+      const avgNet = avgValue(combined, 2);
+      if (badge) badge.textContent = avgNet ? `Avg ${avgNet} MB/s` : 'Avg — MB/s';
       vmNetChart = renderVmLineChart(
         'vmNetChart',
         {
@@ -836,7 +781,8 @@ async function loadVmMetrics() {
       const labels = d.disk_used_pct_history.map(([ts]) => ts);
       const values = d.disk_used_pct_history.map(([, v]) => parseFloat(v.toFixed(1)));
       const badge = document.getElementById('vmDiskBadge');
-      if (badge) badge.textContent = `Avg ${avg(values)}%`;
+      const avgDisk = avgValue(values, 1);
+      if (badge) badge.textContent = avgDisk ? `Avg ${avgDisk}%` : 'Avg —%';
       vmDiskChart = renderVmLineChart(
         'vmDiskChart',
         { labels, datasets: [{ label: 'Disk Used', values, color: '#ff9f43', fillArea: true }] },
