@@ -29,8 +29,12 @@ class AzureCostProvider:
         for attempt in range(4):
             response = requests.post(url, headers=headers, json=payload, timeout=60)
             if response.status_code == 429:
-                retry_after = response.headers.get("Retry-After")
-                wait_s = int(retry_after) if retry_after and retry_after.isdigit() else 2 ** attempt
+                retry_after = (
+                    response.headers.get("x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after")
+                    or response.headers.get("Retry-After")
+                    or "30"
+                )
+                wait_s = int(retry_after) if str(retry_after).isdigit() else 2 ** attempt
                 time.sleep(min(wait_s, 30))
                 continue
             if response.status_code == 204:

@@ -7,3 +7,5 @@ requests
 azure-identity 
 azure-mgmt-containerservice
 kubernetes
+redis 
+flask-caching

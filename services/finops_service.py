@@ -210,6 +210,7 @@ class FinOpsService:
         mode: str = "actual",
         only: str = "all",
     ) -> dict:
+        print(f"[AZURE] get_daily_cost_chart year={year} month={month} mode={mode} only={only}")
         days = self._empty_days(year, month)
         resource_types = sorted(list(AKS_TYPES | VM_TYPES))
 
@@ -224,16 +225,19 @@ class FinOpsService:
 
         daily, meta = self._rows_to_daily_map(result)
         if meta.get("row_count", 0) == 0:
-            # Retry without ResourceType filter in case the exact values don't match.
-            if mode == "forecast":
-                result = self.provider.forecast_usage(
-                    self._build_forecast_payload(year, month, None)
-                )
-            else:
-                result = self.provider.query_usage(
-                    self._build_query_payload(year, month, None, cost_type="ActualCost")
-                )
-            daily, meta = self._rows_to_daily_map(result)
+            print(f"[AZURE] zero rows meta={meta}")
+            # Retry without ResourceType filter only when we used one.
+            if resource_types:
+                print(f"[AZURE] retrying without ResourceType filter meta={meta}")
+                if mode == "forecast":
+                    result = self.provider.forecast_usage(
+                        self._build_forecast_payload(year, month, None)
+                    )
+                else:
+                    result = self.provider.query_usage(
+                        self._build_query_payload(year, month, None, cost_type="ActualCost")
+                    )
+                daily, meta = self._rows_to_daily_map(result)
 
         for d, buckets in daily.items():
             if d in days:

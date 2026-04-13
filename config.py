@@ -23,3 +23,10 @@ class Config:
     GITHUB_OWNER = os.getenv("GITHUB_OWNER")
     GITHUB_REPO = os.getenv("GITHUB_REPO")
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+
+
+    CACHE_TYPE = "RedisCache"
+    CACHE_REDIS_HOST = "127.0.0.1"
+    CACHE_REDIS_PORT = 6379
+    CACHE_REDIS_DB = 0
+    CACHE_DEFAULT_TIMEOUT = 1800

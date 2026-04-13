@@ -2,18 +2,25 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, render_template, request, session
 
 from config import Config
 from providers.azure_cost_provider import AzureCostProvider
 from services.finops_service import FinOpsService
+from services.finops_cache import get_cached_daily_cost_chart
+from services.access_service import role_required
 
 finops_bp = Blueprint("finops", __name__)
 
 
 @finops_bp.route("/finops")
+@role_required("admin", "dev", "qa")
 def finops_dashboard():
-    return render_template("finops.html")
+    return render_template(
+        "finops.html",
+        username=session.get("username"),
+        role=session.get("role"),
+    )
 
 
 def _get_year_month() -> tuple[int, int]:
@@ -49,7 +56,8 @@ def daily_cost():
     try:
         provider = AzureCostProvider(subscription_id=subscription_id)
         service = FinOpsService(provider)
-        payload = service.get_daily_cost_chart(year=year, month=month, mode=mode, only=only)
+        payload = get_cached_daily_cost_chart(service, year=year, month=month, mode=mode, only=only)
         return jsonify(payload)
     except Exception as exc:
         return jsonify({"error": f"Azure cost query failed: {exc}"}), 502
+

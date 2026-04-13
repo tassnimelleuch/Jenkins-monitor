@@ -10,10 +10,12 @@ from sonarcloud import sonarcloud_bp
 from github import github_bp
 from models import get_pending_count
 from finops import finops_bp
+from extensions import cache
 
 app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = app.config['SECRET_KEY']
+cache.init_app(app)
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(overview_bp, url_prefix='/jenkins')
@@ -29,6 +31,7 @@ def home():
     if session.get('role') in ('admin', 'dev', 'qa'):
         return redirect(url_for('overview.dashboard'))
     return redirect(url_for('auth.login'))
+
 
 @app.context_processor
 def inject_pending_count():
