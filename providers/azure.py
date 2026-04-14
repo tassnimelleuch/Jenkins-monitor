@@ -40,10 +40,19 @@ def check_connection():
         power_state = getattr(cluster, 'power_state', None)
         power_code = getattr(power_state, 'code', None) if power_state else None
 
+        def _norm(val):
+            if val is None:
+                return None
+            raw = getattr(val, 'value', val)
+            return str(raw).strip().lower()
+
         connected = True
-        if provisioning_state and str(provisioning_state).lower() != 'succeeded':
+        prov_norm = _norm(provisioning_state)
+        power_norm = _norm(power_code)
+
+        if prov_norm and 'succeeded' not in prov_norm:
             connected = False
-        if power_code and str(power_code).lower() != 'running':
+        if power_norm and 'running' not in power_norm:
             connected = False
 
         return {

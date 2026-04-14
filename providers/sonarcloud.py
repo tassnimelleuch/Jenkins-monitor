@@ -89,3 +89,16 @@ def search_issues(
         params['severities'] = severity
 
     return _get_json(url, params=params)
+
+
+def _get_json(url, params=None, timeout=8):
+    try:
+        resp = requests.get(url, params=params, headers=_get_headers(), timeout=timeout)
+        logger.error(f'[SonarCloud] {resp.status_code} — {url}')  # ADD THIS
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.error(f'[SonarCloud] FAILED {url} — {e}')  # CHANGE warning → error
+        return None

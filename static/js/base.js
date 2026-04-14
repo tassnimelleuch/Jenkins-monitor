@@ -99,7 +99,7 @@ function buildLineChart(ctx, labels, datasets, opts = {}) {
   });
 }
 
-// ── Chatbot
+// ── Chatbot ( for later )
 let chatOpen=false;
 function toggleChat(){
   chatOpen=!chatOpen;
@@ -159,7 +159,7 @@ async function apiAbortBuild(buildNumber) {
   return { ok: res.ok, data };
 }
 
-// ── PDF Export
+// ── PDF Export ( for later )
 function exportPDF(){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
