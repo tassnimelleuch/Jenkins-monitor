@@ -20,7 +20,7 @@
 </div>
 
 <div class="stat-row sonar-stat-row">
-  <div class="stat-card failed">
+  <div class="stat-card failed sonar-kpi" data-issue-type="BUG" data-metric="bugs">
     <div class="stat-icon">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="8" y1="8" x2="16" y2="16"/><line x1="16" y1="8" x2="8" y2="16"/></svg>
     </div>
@@ -29,7 +29,7 @@
       <div class="stat-value" id="sonarBugs">--</div>
     </div>
   </div>
-  <div class="stat-card aborted">
+  <div class="stat-card aborted sonar-kpi" data-issue-type="VULNERABILITY" data-metric="vulnerabilities">
     <div class="stat-icon">
       <svg viewBox="0 0 24 24"><path d="M12 3l9 4.5v9L12 21 3 16.5v-9z"/><path d="M12 3v18"/></svg>
     </div>
@@ -38,7 +38,7 @@
       <div class="stat-value" id="sonarVulnerabilities">--</div>
     </div>
   </div>
-  <div class="stat-card total">
+  <div class="stat-card total sonar-kpi" data-issue-type="CODE_SMELL" data-metric="code_smells">
     <div class="stat-icon">
       <svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="4"/><circle cx="16" cy="16" r="4"/><path d="M12 12l4-4"/></svg>
     </div>
@@ -47,7 +47,7 @@
       <div class="stat-value" id="sonarSmells">--</div>
     </div>
   </div>
-  <div class="stat-card success">
+  <div class="stat-card success sonar-kpi" data-issue-type="SECURITY_HOTSPOT" data-metric="security_hotspots">
     <div class="stat-icon">
       <svg viewBox="0 0 24 24"><path d="M4 4h16v6H4z"/><path d="M8 14h8"/><path d="M10 18h4"/></svg>
     </div>
@@ -59,22 +59,18 @@
 </div>
 
 <div class="sonar-grid">
-  <div class="sonar-card">
-    <div class="sonar-label">Coverage</div>
-    <div class="sonar-value" id="sonarCoverage">--</div>
-    <div class="sonar-help">Line coverage</div>
-  </div>
-  <div class="sonar-card">
+  
+  <div class="sonar-card sonar-kpi" data-action="metric" data-metric="duplicated_lines_density">
     <div class="sonar-label">Duplications</div>
     <div class="sonar-value" id="sonarDupes">--</div>
     <div class="sonar-help">Duplicated lines density</div>
   </div>
-  <div class="sonar-card">
+  <div class="sonar-card sonar-kpi" data-action="metric" data-metric="ncloc">
     <div class="sonar-label">Lines of Code</div>
     <div class="sonar-value" id="sonarNcloc">--</div>
     <div class="sonar-help">ncloc</div>
   </div>
-  <div class="sonar-card">
+  <div class="sonar-card sonar-kpi" data-action="conditions" data-metric="quality_gate" id="sonarGateCard">
     <div class="sonar-label">Quality Gate</div>
     <div class="sonar-value" id="sonarGateStatus">--</div>
     <div class="sonar-help" id="sonarGateMeta">Conditions —</div>
@@ -85,6 +81,22 @@
   <div class="sonar-section-title">Quality Gate Conditions</div>
   <div class="sonar-cond-list" id="sonarConditions">
     <div class="sonar-empty">Loading conditions...</div>
+  </div>
+</div>
+
+<div class="sonar-drawer" id="sonarDrawer" aria-hidden="true">
+  <div class="sonar-drawer-backdrop" id="sonarDrawerBackdrop"></div>
+  <div class="sonar-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="sonarDrawerTitle">
+    <div class="sonar-drawer-header">
+      <div>
+        <div class="sonar-drawer-title" id="sonarDrawerTitle">Details</div>
+        <div class="sonar-drawer-sub" id="sonarDrawerSub">—</div>
+      </div>
+      <button class="sonar-drawer-close" id="sonarDrawerClose" aria-label="Close">Close</button>
+    </div>
+    <div class="sonar-drawer-body" id="sonarDrawerBody">
+      <div class="sonar-empty">Select a KPI to view details.</div>
+    </div>
   </div>
 </div>
 {% endblock %}

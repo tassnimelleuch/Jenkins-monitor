@@ -30,7 +30,7 @@ def _get_json(url, params=None, timeout=8):
             url,
             params=params,
             headers=_get_headers(),
-            timeout=timeout
+            timeout=timeout,
         )
         if resp.status_code == 404:
             return None
@@ -45,6 +45,7 @@ def get_measures(metric_keys, project_key=None):
     key = project_key or _get_project_key()
     if not key:
         return None
+
     url = f"{_get_base_url()}/measures/component"
     params = {
         'component': key,
@@ -57,6 +58,34 @@ def get_quality_gate_status(project_key=None):
     key = project_key or _get_project_key()
     if not key:
         return None
+
     url = f"{_get_base_url()}/qualitygates/project_status"
     params = {'projectKey': key}
+    return _get_json(url, params=params)
+
+
+def search_issues(
+    project_key=None,
+    issue_type=None,
+    severity=None,
+    page=1,
+    page_size=20,
+):
+    key = project_key or _get_project_key()
+    if not key:
+        return None
+
+    url = f"{_get_base_url()}/issues/search"
+    params = {
+        'projects': key,
+        'p': page,
+        'ps': page_size,
+        'resolved': 'false',
+    }
+
+    if issue_type:
+        params['types'] = issue_type
+    if severity:
+        params['severities'] = severity
+
     return _get_json(url, params=params)
