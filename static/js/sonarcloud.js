@@ -33,6 +33,16 @@ function setGatePill(pill, status) {
   }
 }
 
+function setTextById(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function setConditionsState(message) {
+  const listEl = document.getElementById('sonarConditions');
+  if (listEl) listEl.innerHTML = `<div class="sonar-empty">${message}</div>`;
+}
+
 function renderConditions(listEl, conditions) {
   if (!listEl) return;
   if (!conditions || conditions.length === 0) {
@@ -62,9 +72,9 @@ async function loadSonarCloud() {
   const url = document.body.dataset.sonarUrl;
   if (!url) return;
 
-  const banner = document.getElementById('sonarBanner');
   const projectKeyEl = document.getElementById('sonarProjectKey');
   const gatePill = document.getElementById('sonarGatePill');
+  setConditionsState('Loading conditions...');
 
   try {
     const res = await fetch(url);
@@ -72,15 +82,10 @@ async function loadSonarCloud() {
     window.__sonarData = data;
 
     if (!data.connected) {
-      if (banner) {
-        banner.textContent = data.message || 'SonarCloud is unavailable.';
-        banner.style.display = 'inline-flex';
-      }
       setGatePill(gatePill, null);
+      setConditionsState('No conditions reported.');
       return;
     }
-
-    if (banner) banner.style.display = 'none';
     if (projectKeyEl) projectKeyEl.textContent = 'Project: ' + (data.project_key || '--');
 
     const metrics = data.metrics || {};
@@ -105,19 +110,18 @@ async function loadSonarCloud() {
     if (nclocEl) nclocEl.textContent = fmtInt(metrics.ncloc);
 
     const gateStatus = gate.status || '--';
-    document.getElementById('sonarGateStatus').textContent = gateStatus;
-    document.getElementById('sonarGateMeta').textContent =
-      'Conditions: ' + (gate.conditions ? gate.conditions.length : 0) + ' · Failing: ' + (gate.failed ?? 0);
+    setTextById('sonarGateStatus', gateStatus);
+    setTextById(
+      'sonarGateMeta',
+      'Conditions: ' + (gate.conditions ? gate.conditions.length : 0) + ' · Failing: ' + (gate.failed ?? 0)
+    );
 
     setGatePill(gatePill, gate.status);
     renderConditions(document.getElementById('sonarConditions'), gate.conditions);
     highlightFailingKpis(gate);
   } catch (e) {
-    if (banner) {
-      banner.textContent = 'Failed to load SonarCloud data.';
-      banner.style.display = 'inline-flex';
-    }
     setGatePill(gatePill, null);
+    setConditionsState('Conditions unavailable.');
   }
 }
 
