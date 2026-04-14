@@ -302,16 +302,18 @@ class FinOpsService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _compute_previous_week_change(daily_rows: List[DailyCostRow]) -> Optional[float]:
-        if len(daily_rows) < 14:
+    def _compute_previous_week_change_from_totals(totals):
+        if len(totals) < 14:
             return None
-        totals = [r.total for r in daily_rows]
-        current_week = sum(totals[-7:])
-        previous_week = sum(totals[-14:-7])
-        if previous_week == 0:
-            return None
-        return ((current_week - previous_week) / previous_week) * 100.0
 
+        current = sum(totals[-7:])
+        previous = sum(totals[-14:-7])
+
+        if previous == 0:   # 🔥 FIX HERE
+            return None
+
+        return ((current - previous) / previous) * 100
+       
     def get_daily_cost_chart(
         self,
         year: int,
@@ -389,7 +391,18 @@ class FinOpsService:
         total_cost = sum(r.total for r in rows)
         avg_daily_cost = total_cost / len(rows) if rows else 0.0
         highest_day = max(rows, key=lambda r: r.total) if rows else None
-        previous_week_change = self._compute_previous_week_change(rows)
+        totals = [r.total for r in rows]
+
+        if len(totals) < 14:
+            prev_month = month - 1 if month > 1 else 12
+            prev_year = year if month > 1 else year - 1
+
+            prev = self.get_daily_cost_chart(prev_year, prev_month, mode, only)
+            prev_totals = prev["series"].get("subscription_total", []) or prev["series"].get("aks", [])
+
+            totals = prev_totals[-7:] + totals
+
+        previous_week_change = self._compute_previous_week_change_from_totals(totals)
 
         return {
             "mode": mode,
