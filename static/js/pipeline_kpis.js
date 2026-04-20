@@ -8,6 +8,7 @@ let _avgDurationMs = 120000;
 let _activeTimers = {};
 let _pollHandle = null;
 let _slowHandle = null;
+let _stagesHandle = null;
 
 // ── TOOLTIP
 const _tip = document.getElementById('segTip');
@@ -664,6 +665,14 @@ async function loadPipelineKPIs() {
       clearInterval(_pollHandle);
       _pollHandle = null;
     }
+    
+    // Only poll running stages when there are actually running builds
+    if (hasRunning && !_stagesHandle) {
+      _stagesHandle = setInterval(pollRunningStages, 2000);
+    } else if (!hasRunning && _stagesHandle) {
+      clearInterval(_stagesHandle);
+      _stagesHandle = null;
+    }
   } catch (e) {
     console.error('Pipeline KPI error:', e);
   }
@@ -684,7 +693,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof loadStatRow === 'function') loadStatRow();
   }, SLOW_POLL_MS);
 
-  setInterval(pollRunningStages, 2000);
   if (typeof loadStatRow === 'function') loadStatRow();
   loadPipelineKPIs();
 });

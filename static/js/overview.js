@@ -267,10 +267,11 @@ async function pollRunningStages() {
   } catch (e) {}
 }
 
+let _runningStagesHandle = null;
+
 document.addEventListener('DOMContentLoaded', () => {
     requestNotificationPermission();
     checkStatus();
     loadKPIs();
     startPolling(30000);
-    setInterval(pollRunningStages, 2000);
 });
