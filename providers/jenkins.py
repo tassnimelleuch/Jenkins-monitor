@@ -59,7 +59,18 @@ def _get_json(url, timeout=8):
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except ValueError:
+            body = (resp.text or "").strip().replace("\n", " ")
+            snippet = body[:200]
+            logger.warning(
+                "[Jenkins] JSON decode failed: %s %s | %s",
+                resp.status_code,
+                resp.url,
+                snippet
+            )
+            return None
     except Exception as e:
         logger.warning(f'[Jenkins] JSON fetch error: {e}')
         return None

@@ -1,9 +1,11 @@
 import re
 import requests
+from flask import current_app
 
 from providers.kubernetes import get_cluster_snapshot
 from providers.jenkins import get_all_builds, get_console_log
 from services.dashboard_service import get_pipeline_kpis
+from services.parallel_executor import parallel_execute
 
 IMAGE_PATTERNS = [
     r'Building Docker image:\s*([^\s:]+):([^\s]+)',
@@ -85,17 +87,30 @@ def _get_latest_image_artifact():
     return {}
 
 
+def _run_in_app_context(app, func):
+    with app.app_context():
+        return func()
+
+
 def get_deployment_kpis():
     try:
-        data = get_cluster_snapshot()
-        pipeline = get_pipeline_kpis()
+        app = current_app._get_current_object()
+        tasks = {
+            'cluster': lambda: get_cluster_snapshot(),
+            'pipeline': lambda: _run_in_app_context(app, get_pipeline_kpis),
+            'latest_image': lambda: _run_in_app_context(app, _get_latest_image_artifact),
+        }
+
+        results = parallel_execute(tasks, max_workers=3, timeout=30)
+        data = results.get('cluster') or {}
+        pipeline = results.get('pipeline') or {}
 
         data['deployment_frequency'] = (
             pipeline.get('deployment_frequency', {})
             if pipeline and pipeline.get('connected')
             else {'successful': 0, 'total': 0, 'rate': 0}
         )
-        data['latest_image'] = _get_latest_image_artifact()
+        data['latest_image'] = results.get('latest_image') or {}
         return {
             "connected": True,
             "data": data

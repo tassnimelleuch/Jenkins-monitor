@@ -7,6 +7,8 @@ from providers.jenkins import (
     get_coverage_percent,
     get_test_report,
 )
+from flask import current_app
+from services.parallel_executor import parallel_execute
 
 DEPLOY_STAGE = 'Deploy to AKS'
 ROLLOUT_STAGE = 'Wait for AKS Rollout'
@@ -17,6 +19,11 @@ def _stage_status_map(stages):
         (s.get('name') or '').strip(): (s.get('status') or '').strip().upper()
         for s in (stages or [])
     }
+
+
+def _run_in_app_context(app, func):
+    with app.app_context():
+        return func()
 
 
 def get_kpis():
@@ -62,10 +69,25 @@ def get_pipeline_kpis():
     if all_builds is None:
         return {'connected': False}
 
+    app = current_app._get_current_object()
+
+    stage_tasks = {
+        b.get('number'): (
+            lambda n=b.get('number'): _run_in_app_context(app, lambda: get_stages(n))
+        )
+        for b in all_builds
+        if b.get('number')
+    }
+    stages_by_build = (
+        parallel_execute(stage_tasks, max_workers=6, timeout=20)
+        if stage_tasks
+        else {}
+    )
+
     builds_data = []
     for b in all_builds:
         num = b.get('number')
-        stages = get_stages(num) if num else []
+        stages = stages_by_build.get(num, []) if num else []
         builds_data.append({
             'number': num,
             'result': b.get('result'),
@@ -95,12 +117,39 @@ def get_pipeline_kpis():
 
     finished_recent = finished[:20]
     trend_builds = list(reversed(finished_recent))
+
+    coverage_tasks = {
+        b.get('number'): (
+            lambda n=b.get('number'): _run_in_app_context(app, lambda: get_coverage_percent(n))
+        )
+        for b in trend_builds
+        if b.get('number')
+    }
+    test_report_tasks = {
+        b.get('number'): (
+            lambda n=b.get('number'): _run_in_app_context(app, lambda: get_test_report(n))
+        )
+        for b in trend_builds
+        if b.get('number')
+    }
+
+    coverage_by_build = (
+        parallel_execute(coverage_tasks, max_workers=6, timeout=20)
+        if coverage_tasks
+        else {}
+    )
+    test_reports_by_build = (
+        parallel_execute(test_report_tasks, max_workers=6, timeout=20)
+        if test_report_tasks
+        else {}
+    )
+
     coverage_trend = []
     junit_trend = []
     coverage_vals = []
     for b in trend_builds:
         num = b.get('number')
-        coverage = get_coverage_percent(num) if num else None
+        coverage = coverage_by_build.get(num) if num else None
         if coverage is not None:
             coverage_vals.append(coverage)
         coverage_trend.append({
@@ -108,7 +157,7 @@ def get_pipeline_kpis():
             'coverage': coverage,
         })
 
-        report = get_test_report(num) if num else None
+        report = test_reports_by_build.get(num) if num else None
         if report:
             junit_trend.append({
                 'number': num,

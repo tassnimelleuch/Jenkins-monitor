@@ -9,6 +9,7 @@ from extensions import cache
 from providers.azure_cost_provider import AzureCostProvider
 from services.finops_service import FinOpsService
 from services.finops_cache import get_cached_daily_cost_chart, get_cached_resource_group_costs
+from services.parallel_executor import parallel_execute
 from services.access_service import role_required
 
 finops_bp = Blueprint("finops", __name__)
@@ -173,10 +174,21 @@ def refresh_cache():
         try:
             service, _ = _make_service()
             if service:
-                get_cached_daily_cost_chart(service, year, month, "actual", "all")
-                get_cached_daily_cost_chart(service, year, month, "actual", "aks")
-                get_cached_daily_cost_chart(service, year, month, "actual", "vm")
-                get_cached_resource_group_costs(service, year, month, "ActualCost")
+                tasks = {
+                    "daily_all": lambda: get_cached_daily_cost_chart(
+                        service, year, month, "actual", "all"
+                    ),
+                    "daily_aks": lambda: get_cached_daily_cost_chart(
+                        service, year, month, "actual", "aks"
+                    ),
+                    "daily_vm": lambda: get_cached_daily_cost_chart(
+                        service, year, month, "actual", "vm"
+                    ),
+                    "rg_actual": lambda: get_cached_resource_group_costs(
+                        service, year, month, "ActualCost"
+                    ),
+                }
+                parallel_execute(tasks, max_workers=3, timeout=120)
                 result["prefetched"] = True
         except Exception as exc:
             result["prefetch_error"] = f"{type(exc).__name__}: {exc}"
