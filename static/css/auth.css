@@ -1,7 +1,12 @@
 
 body.auth-page {
+  --bg:#f0f0f8; --bg2:#ffffff; --bg3:#e8e8f4; --bg4:#ddddf0;
+  --border:rgba(0,0,0,0.07); --border2:rgba(0,0,0,0.13);
+  --text:#0e0e20; --text2:#555568; --text3:#0d0d10;
+  --accent:#6558f0; --aglow:rgba(101,88,240,0.2);
+  --green:#00b87a; --yellow:#d4920a; --red:#e02040; --blue:#0284c7;
   font-family: 'Plus Jakarta Sans', sans-serif;
-  background: var(--bg);
+  background: radial-gradient(circle at 10% 10%, #ffffff 0%, var(--bg) 55%, #e7e7f5 100%);
   color: var(--text);
   min-height: 100vh;
   display: flex;
@@ -16,8 +21,8 @@ body.auth-page::before {
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px);
   background-size: 28px 28px;
   pointer-events: none;
   z-index: 0;
@@ -28,7 +33,7 @@ body.auth-page::after {
   position: fixed;
   width: 600px; height: 600px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(124,111,255,0.07) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(101,88,240,0.16) 0%, transparent 70%);
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
@@ -78,7 +83,7 @@ body.auth-page::after {
   border: 1px solid var(--border2);
   border-radius: 18px;
   padding: 32px 30px;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  box-shadow: 0 22px 50px rgba(12,12,32,0.12);
   position: relative;
   overflow: hidden;
 }

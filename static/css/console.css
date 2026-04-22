@@ -165,7 +165,7 @@
   border-right:1px solid var(--border);
   padding-right:14px;
 }
-.lc{color:#c9d1d9;padding-left:16px;}
+.lc{color:#6d71e0;padding-left:16px;}
 .lc.l-success{color:var(--green);}
 .lc.l-error{color:var(--red);}
 .lc.l-warn{color:var(--yellow);}
