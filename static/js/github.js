@@ -15,6 +15,99 @@ function setText(id, value) {
   if (el) el.textContent = value;
 }
 
+// Tag modal functions
+function openTagModal(sha, shortSha) {
+  const modal = document.getElementById('ghTagModal');
+  if (!modal) {
+    console.error('Tag modal not found');
+    return;
+  }
+  document.getElementById('tagCommitSha').value = sha;
+  document.getElementById('tagCommitDisplay').textContent = shortSha;
+  document.getElementById('tagNameInput').value = '';
+  document.getElementById('tagMessageInput').value = '';
+  document.getElementById('tagStatus').textContent = '';
+  document.getElementById('tagStatus').className = 'gh-tag-status';
+  modal.style.display = 'flex';
+}
+
+function closeTagModal() {
+  const modal = document.getElementById('ghTagModal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+async function submitTag() {
+  const sha = document.getElementById('tagCommitSha').value;
+  const tagName = document.getElementById('tagNameInput').value.trim();
+  const message = document.getElementById('tagMessageInput').value.trim();
+  const statusEl = document.getElementById('tagStatus');
+  
+  if (!tagName) {
+    statusEl.textContent = 'Please enter a tag name';
+    statusEl.className = 'gh-tag-status gh-tag-error';
+    return;
+  }
+  
+  // Validate tag name format (GitHub requirements)
+  if (!/^[a-zA-Z0-9._-]+$/.test(tagName)) {
+    statusEl.textContent = 'Invalid tag name. Use only letters, numbers, dots, dashes, and underscores.';
+    statusEl.className = 'gh-tag-status gh-tag-error';
+    return;
+  }
+  
+  statusEl.textContent = 'Creating tag...';
+  statusEl.className = 'gh-tag-status gh-tag-loading';
+  
+  try {
+    const response = await fetch('/api/github/tag', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sha: sha,
+        tag_name: tagName,
+        message: message
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok) {
+      statusEl.textContent = `✓ Tag "${tagName}" created successfully!`;
+      statusEl.className = 'gh-tag-status gh-tag-success';
+      document.getElementById('tagNameInput').value = '';
+      document.getElementById('tagMessageInput').value = '';
+      
+      // Close modal after 2 seconds
+      setTimeout(() => {
+        closeTagModal();
+      }, 2000);
+    } else {
+      statusEl.textContent = data.error || 'Failed to create tag';
+      statusEl.className = 'gh-tag-status gh-tag-error';
+    }
+  } catch (error) {
+    statusEl.textContent = 'Error: ' + error.message;
+    statusEl.className = 'gh-tag-status gh-tag-error';
+  }
+}
+
+// Close modal when clicking outside
+document.addEventListener('DOMContentLoaded', function() {
+  const modal = document.getElementById('ghTagModal');
+  if (modal) {
+    window.addEventListener('click', function(event) {
+      if (event.target === modal) {
+        closeTagModal();
+      }
+    });
+  }
+});
+
+
 function renderCommits(container, commits) {
   if (!container) return;
   if (!commits || commits.length === 0) {
@@ -30,7 +123,10 @@ function renderCommits(container, commits) {
       <div class="gh-commit-body">
         <div class="gh-commit-msg">${(c.message || '').split('\\n')[0]}</div>
         <div class="gh-commit-meta">${c.author_name || 'Unknown'} · ${fmtDate(c.date)}</div>
-        ${c.html_url ? `<a class="gh-commit-link" href="${c.html_url}" target="_blank" rel="noopener">View commit</a>` : ''}
+        <div class="gh-commit-actions">
+          ${c.html_url ? `<a class="gh-commit-link" href="${c.html_url}" target="_blank" rel="noopener">View commit</a>` : ''}
+          <button class="gh-tag-btn" onclick="openTagModal('${c.sha}', '${c.short_sha}')">Tag</button>
+        </div>
       </div>
     `;
     container.appendChild(div);

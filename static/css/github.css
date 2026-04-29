@@ -768,3 +768,253 @@
   .gh-grid{grid-template-columns:1fr;}
   .ttf-container{flex-direction:column;align-items:flex-start;}
 }
+
+/* TAG BUTTON & MODAL */
+.gh-commit-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.gh-tag-btn {
+  padding: 6px 12px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.gh-tag-btn:hover {
+  background: #0d47a1;
+  box-shadow: 0 4px 12px rgba(13, 71, 161, 0.25);
+  transform: translateY(-2px);
+}
+
+.gh-tag-btn:active {
+  transform: translateY(0);
+}
+
+/* Modal */
+.gh-tag-modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.4);
+  align-items: center;
+  justify-content: center;
+}
+
+.gh-tag-modal-content {
+  background-color: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.2);
+  animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gh-tag-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gh-tag-modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text1);
+}
+
+.gh-tag-modal-close {
+  background: none;
+  border: none;
+  font-size: 28px;
+  color: var(--text2);
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.gh-tag-modal-close:hover {
+  color: var(--text1);
+}
+
+.gh-tag-modal-body {
+  padding: 20px;
+}
+
+.gh-tag-commit-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--bg3);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.gh-tag-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text2);
+  letter-spacing: 0.05em;
+}
+
+.gh-tag-commit-sha {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.gh-tag-form-group {
+  margin-bottom: 16px;
+}
+
+.gh-tag-form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text1);
+  margin-bottom: 6px;
+}
+
+.gh-tag-input,
+.gh-tag-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg3);
+  color: var(--text1);
+  font-size: 12px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.gh-tag-input:focus,
+.gh-tag-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg2);
+  box-shadow: 0 0 0 3px rgba(13, 71, 161, 0.1);
+}
+
+.gh-tag-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.gh-tag-hint {
+  font-size: 10px;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+.gh-tag-status {
+  display: none;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.gh-tag-status:not(:empty) {
+  display: block;
+}
+
+.gh-tag-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.gh-tag-success {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.gh-tag-loading {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.gh-tag-modal-footer {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+
+.gh-tag-btn-cancel,
+.gh-tag-btn-submit {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.gh-tag-btn-cancel {
+  background: var(--bg3);
+  color: var(--text1);
+  border: 1px solid var(--border);
+}
+
+.gh-tag-btn-cancel:hover {
+  background: var(--border);
+}
+
+.gh-tag-btn-submit {
+  background: var(--accent);
+  color: #fff;
+}
+
+.gh-tag-btn-submit:hover {
+  background: #0d47a1;
+  box-shadow: 0 4px 12px rgba(13, 71, 161, 0.25);
+}
+
+.gh-tag-btn-submit:active {
+  transform: scale(0.98);
+}

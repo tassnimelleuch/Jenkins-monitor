@@ -95,6 +95,41 @@
   <div class="gh-empty">Loading code churn data...</div>
 </div>
 </div>
+
+<!-- Tag Modal -->
+<div id="ghTagModal" class="gh-tag-modal">
+  <div class="gh-tag-modal-content">
+    <div class="gh-tag-modal-header">
+      <h2>Tag Commit</h2>
+      <button class="gh-tag-modal-close" onclick="closeTagModal()">&times;</button>
+    </div>
+    <div class="gh-tag-modal-body">
+      <div class="gh-tag-commit-info">
+        <span class="gh-tag-label">Commit:</span>
+        <span class="gh-tag-commit-sha" id="tagCommitDisplay">--</span>
+      </div>
+      <input type="hidden" id="tagCommitSha" value="">
+      
+      <div class="gh-tag-form-group">
+        <label for="tagNameInput">Tag Name *</label>
+        <input type="text" id="tagNameInput" placeholder="e.g., v1.0.0, release-2026-04" class="gh-tag-input">
+        <div class="gh-tag-hint">Use only letters, numbers, dots, dashes, underscores</div>
+      </div>
+      
+      <div class="gh-tag-form-group">
+        <label for="tagMessageInput">Tag Message (Optional)</label>
+        <textarea id="tagMessageInput" placeholder="Add an optional message for annotated tag" class="gh-tag-textarea"></textarea>
+        <div class="gh-tag-hint">Leave empty for lightweight tag</div>
+      </div>
+      
+      <div id="tagStatus" class="gh-tag-status"></div>
+    </div>
+    <div class="gh-tag-modal-footer">
+      <button class="gh-tag-btn-cancel" onclick="closeTagModal()">Cancel</button>
+      <button class="gh-tag-btn-submit" onclick="submitTag()">Create Tag</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}

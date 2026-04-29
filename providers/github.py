@@ -137,3 +137,94 @@ def get_pull_requests(owner, repo, state='all', per_page=20):
     
     logger.info(f"[GitHub] Total pull requests fetched: {len(all_prs)}")
     return all_prs if all_prs else None
+
+
+def create_tag(owner, repo, tag_name, sha, message=None):
+    """Create a git tag on a commit in GitHub.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        tag_name: Name of the tag to create
+        sha: Commit SHA to tag
+        message: Optional message for the tag (if None, creates lightweight tag)
+    
+    Returns:
+        dict with tag info on success, dict with error on failure
+    """
+    if not tag_name or not sha:
+        logger.error('[GitHub] Tag creation failed: missing tag_name or sha')
+        return {'error': 'Tag name and commit SHA are required'}
+    
+    token = _get_token()
+    if not token:
+        logger.error('[GitHub] Tag creation failed: no GitHub token configured')
+        return {'error': 'GitHub token not configured'}
+    
+    base_url = _get_base_url()
+    headers = _get_headers()
+    
+    try:
+        if message:
+            # Step 1: Create tag object
+            tag_url = f"{base_url}/repos/{owner}/{repo}/git/tags"
+            tag_payload = {
+                'tag': tag_name,
+                'message': message,
+                'object': sha,
+                'type': 'commit'
+            }
+            
+            tag_resp = requests.post(
+                tag_url,
+                json=tag_payload,
+                headers=headers,
+                timeout=8
+            )
+            
+            if not tag_resp.ok:
+                error_msg = tag_resp.json().get('message', 'Unknown error')
+                logger.error(f'[GitHub] Failed to create tag object: {error_msg}')
+                return {'error': f'Failed to create tag: {error_msg}'}
+            
+            tag_obj = tag_resp.json()
+            tag_sha = tag_obj.get('sha')
+            
+            # Step 2: Create reference
+            ref_url = f"{base_url}/repos/{owner}/{repo}/git/refs"
+            ref_payload = {
+                'ref': f'refs/tags/{tag_name}',
+                'sha': tag_sha
+            }
+        else:
+            # Create lightweight tag (directly reference the commit)
+            ref_url = f"{base_url}/repos/{owner}/{repo}/git/refs"
+            ref_payload = {
+                'ref': f'refs/tags/{tag_name}',
+                'sha': sha
+            }
+        
+        ref_resp = requests.post(
+            ref_url,
+            json=ref_payload,
+            headers=headers,
+            timeout=8
+        )
+        
+        if not ref_resp.ok:
+            error_msg = ref_resp.json().get('message', 'Unknown error')
+            logger.error(f'[GitHub] Failed to create tag reference: {error_msg}')
+            return {'error': f'Failed to create tag reference: {error_msg}'}
+        
+        result = ref_resp.json()
+        logger.info(f'[GitHub] Successfully created tag "{tag_name}" on commit {sha[:7]}')
+        return {
+            'success': True,
+            'tag_name': tag_name,
+            'ref': result.get('ref'),
+            'message': f'Tag "{tag_name}" created successfully'
+        }
+        
+    except Exception as e:
+        logger.error(f'[GitHub] Tag creation exception: {e}')
+        return {'error': f'Error creating tag: {str(e)}'}
