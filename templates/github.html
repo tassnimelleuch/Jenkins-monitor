@@ -58,6 +58,23 @@
 <div class="gh-card-title">Last Failed Pipeline Commit</div>
 <div id="ghFailingCommit">
   <div class="gh-empty">Loading failed commit...</div>
+</div><div class="gh-divider"></div>
+<div class="gh-card-title">Fix for Latest Failure</div>
+<div id="ghFixCommit">
+  <div class="gh-empty">No fix commit found yet.</div>
+</div>
+
+<div class="gh-divider"></div>
+<div class="gh-card-title">Time to Fix</div>
+<div id="ghTimeToFix">
+  <div class="gh-empty">Calculating time to fix...</div>
+</div>
+
+<div class="gh-divider"></div>
+<div class="gh-card-title">Code Churn</div>
+<div class="gh-sub" style="margin-bottom:10px;">Last 6 months · additions (🟢) vs deletions (🔴)</div>
+<div id="ghCodeChurn" class="gh-churn-container">
+  <div class="gh-empty">Loading code churn data...</div>
 </div>
 </div>
 {% endblock %}

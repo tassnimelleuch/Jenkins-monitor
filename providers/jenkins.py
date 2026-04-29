@@ -122,7 +122,7 @@ def get_last_n_finished(n=10, builds=None):
     if not builds:
         return []
     finished = [b for b in builds if b.get('result') is not None]
-    return finished[:n]
+    return finished if n is None else finished[:n]
 
 
 def get_running_builds(builds=None):

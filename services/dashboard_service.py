@@ -6,6 +6,8 @@ from providers.jenkins import (
     get_stages,
     get_coverage_percent,
     get_test_report,
+    get_build_info,
+    extract_build_culprits,
 )
 from flask import current_app
 from services.parallel_executor import parallel_execute
@@ -33,7 +35,7 @@ def get_kpis():
 
     last_build_number = all_builds[0].get('number') if all_builds else None
 
-    finished = get_last_n_finished(10, builds=all_builds)
+    finished = get_last_n_finished(None, builds=all_builds)  # Calculate KPIs on ALL builds
     running_lst = get_running_builds(builds=all_builds)
     health = get_health_score()
 
@@ -62,7 +64,6 @@ def get_kpis():
         'build_trend': trend,
         'avg_duration_ms': avg_duration_ms,
     }
-
 
 def get_pipeline_kpis():
     all_builds = get_all_builds()

@@ -36,14 +36,23 @@ def _commit_item(c):
     author_user = c.get('author') or {}
     committer_user = c.get('committer') or {}
     sha = c.get('sha')
+    
+    # Use author name from commit metadata first, then from GitHub user object
+    author_name = author.get('name') or author_user.get('name') or committer.get('name')
+    committer_name = committer.get('name') or committer_user.get('name')
+    
     return {
         'sha': sha,
         'short_sha': sha[:7] if sha else None,
         'message': commit.get('message'),
-        'author_name': author.get('name') or committer.get('name'),
+        'author_name': author_name,
         'author_login': author_user.get('login'),
-        'committer_name': committer.get('name'),
+        'author_avatar': author_user.get('avatar_url'),
+        'author_profile_url': author_user.get('html_url'),
+        'committer_name': committer_name,
         'committer_login': committer_user.get('login'),
+        'committer_avatar': committer_user.get('avatar_url'),
+        'committer_profile_url': committer_user.get('html_url'),
         'date': author.get('date') or committer.get('date'),
         'html_url': c.get('html_url'),
     }
@@ -52,6 +61,72 @@ def _commit_item(c):
 def _run_in_app_context(app, func):
     with app.app_context():
         return func()
+
+
+def _calculate_code_churn(commits_raw):
+    """Calculate code churn (additions/deletions) by month."""
+    if not commits_raw:
+        return {}
+    
+    churn_by_month = {}  # {YYYY-MM: {'additions': int, 'deletions': int}}
+    
+    for commit in commits_raw:
+        # Get commit date
+        commit_obj = commit.get('commit', {})
+        author = commit_obj.get('author', {}) or {}
+        date_str = author.get('date')  # ISO format: 2024-03-15T10:30:00Z
+        
+        if not date_str:
+            continue
+        
+        # Extract YYYY-MM from date
+        try:
+            month_key = date_str[:7]  # e.g., "2024-03"
+        except:
+            continue
+        
+        # Get additions and deletions
+        stats = commit.get('stats', {}) or {}
+        additions = stats.get('additions', 0) or 0
+        deletions = stats.get('deletions', 0) or 0
+        
+        if month_key not in churn_by_month:
+            churn_by_month[month_key] = {'additions': 0, 'deletions': 0}
+        
+        churn_by_month[month_key]['additions'] += additions
+        churn_by_month[month_key]['deletions'] += deletions
+    
+    # Sort by month and return
+    sorted_churn = {}
+    for month in sorted(churn_by_month.keys()):
+        sorted_churn[month] = churn_by_month[month]
+    
+    return sorted_churn
+
+
+def _fetch_commit_details(app, owner, repo, commits_raw):
+    if not commits_raw:
+        return []
+
+    tasks = {
+        item.get('sha'): (
+            lambda s=item.get('sha'): _run_in_app_context(app, lambda: get_commit(owner, repo, s))
+        )
+        for item in commits_raw
+        if item.get('sha')
+    }
+    details_by_sha = (
+        parallel_execute(tasks, max_workers=6, timeout=20)
+        if tasks
+        else {}
+    )
+
+    detailed = []
+    for item in commits_raw:
+        sha = item.get('sha')
+        commit_raw = details_by_sha.get(sha) if sha else None
+        detailed.append(commit_raw or item)
+    return detailed
 
 
 def get_github_summary():
@@ -65,7 +140,7 @@ def get_github_summary():
     app = current_app._get_current_object()
     tasks = {
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
-        'commits': lambda: _run_in_app_context(app, lambda: get_commits(owner, repo, per_page=8)),
+        'commits': lambda: _run_in_app_context(app, lambda: get_commits(owner, repo, per_page=100)),
         'failed_build': lambda: _run_in_app_context(app, get_last_failed_build),
     }
     results = parallel_execute(tasks, max_workers=3, timeout=20)
@@ -79,8 +154,10 @@ def get_github_summary():
         }
 
     commits = []
+    detailed_commits_raw = []
     if isinstance(commits_raw, list):
         commits = [_commit_item(c) for c in commits_raw]
+        detailed_commits_raw = _fetch_commit_details(app, owner, repo, commits_raw)
 
     failing_commit = None
 
@@ -144,6 +221,32 @@ def get_github_summary():
                     'html_url': f'https://github.com/{owner}/{repo}/commit/{failed_sha}',
                 }
             }
+            
+            if commits:
+                failed_commit_index = None
+                for idx, commit in enumerate(commits):
+                    if commit.get('sha') == failed_sha:
+                        failed_commit_index = idx
+                        break
+                
+                # The fixing commit is the first one after the failing commit
+                if failed_commit_index is not None and failed_commit_index > 0:
+                    fix_commit = commits[failed_commit_index - 1]  # More recent commits come first
+                    failing_commit['fix_commit'] = fix_commit
+                elif not failed_commit_index and commits:
+                    # If the failing commit is not in the list but we have recent commits,
+                    # try to assume the most recent commit might have fixed it
+                    # (This handles cases where the failing commit is very old)
+                    potential_fix = commits[0]
+                    if potential_fix and potential_fix.get('sha') != failed_sha:
+                        failing_commit['fix_commit'] = potential_fix
+
+    # Calculate code churn by month
+    code_churn = _calculate_code_churn(detailed_commits_raw) if detailed_commits_raw else {}
+    code_churn_list = [
+        {'month': month, 'additions': data['additions'], 'deletions': data['deletions']}
+        for month, data in code_churn.items()
+    ]
 
     return {
         'connected': True,
@@ -163,4 +266,5 @@ def get_github_summary():
         },
         'commits': commits,
         'failing_commit': failing_commit,
+        'code_churn': code_churn_list,
     }

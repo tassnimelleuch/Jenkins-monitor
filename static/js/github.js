@@ -84,6 +84,9 @@ async function loadGitHub() {
     renderCommits(document.getElementById('ghCommits'), data.commits || []);
     try {
       renderFailingCommit(data);
+      renderFixCommit(data);
+      renderTimeToFix(data);
+      renderCodeChurn(data);
     } catch (e) {
       const container = document.getElementById('ghFailingCommit');
       if (container) {
@@ -117,20 +120,332 @@ function renderFailingCommit(data) {
     (c.author_name ? c.author_name.replace(/\s+/g, '') : null);
 
   const displayMsg = (c.message || 'No commit message').split('\n')[0];
+  
+  const avatarUrl = c.author_avatar || c.committer_avatar;
+  const profileUrl = c.author_profile_url || c.committer_profile_url;
+  const userName = c.author_name || c.committer_name || ghUser || 'Unknown';
+
+  let userCardHTML = '';
+  if (profileUrl) {
+    userCardHTML = `
+      <a href="${profileUrl}" target="_blank" rel="noopener" class="gh-user-card">
+        ${avatarUrl ? `<img src="${avatarUrl}" alt="${userName}" class="gh-user-avatar">` : ''}
+        <div class="gh-user-info">
+          <div class="gh-user-name">${userName}</div>
+          ${ghUser ? `<div class="gh-user-login">@${ghUser}</div>` : ''}
+        </div>
+      </a>
+    `;
+  } else {
+    userCardHTML = `
+      <div class="gh-user-card-plain">
+        ${avatarUrl ? `<img src="${avatarUrl}" alt="${userName}" class="gh-user-avatar">` : ''}
+        <div class="gh-user-info">
+          <div class="gh-user-name">${userName}</div>
+          ${ghUser ? `<div class="gh-user-login">@${ghUser}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
 
   container.innerHTML = `
     <div class="gh-commit gh-commit-failing">
-      <div class="gh-commit-top">
-        <a href="${c.html_url}" target="_blank" rel="noopener" class="gh-sha">${c.short_sha || '--'}</a>
-        <span class="gh-stat-val">Build #${fc.build_number}</span>
+      <div class="gh-commit-header">
+        <div class="gh-commit-title-row">
+          <div>
+            <a href="${c.html_url}" target="_blank" rel="noopener" class="gh-commit-sha-badge">${c.short_sha || '--'}</a>
+            <span class="gh-build-badge">Build #${fc.build_number}</span>
+          </div>
+        </div>
+        <div class="gh-commit-msg">${displayMsg}</div>
       </div>
-      <div class="gh-commit-msg">${displayMsg}</div>
-      <div class="gh-meta">
-        ${ghUser ? `GitHub user: @${ghUser}` : 'GitHub user: Unknown'}
+      
+      <div class="gh-culprit-section">
+        <div class="gh-culprit-label">Failed by</div>
+        ${userCardHTML}
       </div>
-      ${fc.build_url ? `<div class="gh-meta"><a href="${fc.build_url}" target="_blank" rel="noopener">Open failed Jenkins build</a></div>` : ''}
+      
+      <div class="gh-commit-footer">
+        ${fmtDate(c.date) !== '--' ? `<div class="gh-meta">Committed ${fmtDate(c.date)}</div>` : ''}
+        ${fc.build_url ? `<a href="${fc.build_url}" target="_blank" rel="noopener" class="gh-build-link">View Jenkins build →</a>` : ''}
+      </div>
     </div>
   `;
 }
 
-document.addEventListener('DOMContentLoaded', loadGitHub);
+function renderFixCommit(data) {
+  const container = document.getElementById('ghFixCommit');
+  if (!container) return;
+
+  const fc = data.failing_commit;
+  if (!fc || !fc.fix_commit) {
+    container.innerHTML = '<div class="gh-empty">No fix commit found yet.</div>';
+    return;
+  }
+
+  const c = fc.fix_commit;
+  console.log('Fix commit data:', c); // Debug log
+
+  const ghUser =
+    c.author_login ||
+    c.committer_login ||
+    (c.author_name ? c.author_name.replace(/\s+/g, '') : null);
+
+  const displayMsg = (c.message || 'No commit message').split('\n')[0];
+  
+  const avatarUrl = c.author_avatar || c.committer_avatar;
+  const profileUrl = c.author_profile_url || c.committer_profile_url;
+  const userName = c.author_name || c.committer_name || ghUser || 'Unknown';
+
+  let userCardHTML = '';
+  if (profileUrl) {
+    userCardHTML = `
+      <a href="${profileUrl}" target="_blank" rel="noopener" class="gh-user-card gh-user-card-success">
+        ${avatarUrl ? `<img src="${avatarUrl}" alt="${userName}" class="gh-user-avatar">` : ''}
+        <div class="gh-user-info">
+          <div class="gh-user-name">${userName}</div>
+          ${ghUser ? `<div class="gh-user-login">@${ghUser}</div>` : ''}
+        </div>
+      </a>
+    `;
+  } else {
+    userCardHTML = `
+      <div class="gh-user-card-plain gh-user-card-success">
+        ${avatarUrl ? `<img src="${avatarUrl}" alt="${userName}" class="gh-user-avatar">` : ''}
+        <div class="gh-user-info">
+          <div class="gh-user-name">${userName}</div>
+          ${ghUser ? `<div class="gh-user-login">@${ghUser}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div class="gh-commit gh-commit-fixed">
+      <div class="gh-commit-header">
+        <div class="gh-commit-title-row">
+          <div>
+            <a href="${c.html_url}" target="_blank" rel="noopener" class="gh-commit-sha-badge gh-commit-sha-badge-success">${c.short_sha || '--'}</a>
+            <span class="gh-build-badge gh-build-badge-success">Fixed</span>
+          </div>
+        </div>
+        <div class="gh-commit-msg gh-commit-msg-success">${displayMsg}</div>
+      </div>
+      
+      <div class="gh-culprit-section gh-culprit-section-success">
+        <div class="gh-culprit-label gh-culprit-label-success">Fixed by</div>
+        ${userCardHTML}
+      </div>
+      
+      <div class="gh-commit-footer">
+        ${fmtDate(c.date) !== '--' ? `<div class="gh-meta">Committed ${fmtDate(c.date)}</div>` : ''}
+        ${c.html_url ? `<a href="${c.html_url}" target="_blank" rel="noopener" class="gh-build-link gh-build-link-success">View commit →</a>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+// CALCULATE AND DISPLAY TIME TO FIX
+function renderTimeToFix(data) {
+  const container = document.getElementById('ghTimeToFix');
+  if (!container) return;
+
+  const fc = data.failing_commit;
+  if (!fc || !fc.commit || !fc.fix_commit) {
+    container.innerHTML = '<div class="gh-empty">No fix commit found yet.</div>';
+    return;
+  }
+
+  const failDate = new Date(fc.commit.date);
+  const fixDate = new Date(fc.fix_commit.date);
+
+  if (isNaN(failDate.getTime()) || isNaN(fixDate.getTime())) {
+    container.innerHTML = '<div class="gh-empty">Unable to calculate time to fix (missing dates).</div>';
+    return;
+  }
+
+  const diffMs = fixDate.getTime() - failDate.getTime();
+  
+  // Check if fix came before failure (shouldn't happen)
+  if (diffMs < 0) {
+    container.innerHTML = '<div class="gh-empty">Fix appears to be before failure.</div>';
+    return;
+  }
+
+  // Format the time difference
+  const diffSeconds = Math.floor(diffMs / 1000);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  let timeStr = '';
+  if (diffDays > 0) {
+    timeStr = `${diffDays}d ${diffHours % 24}h ${diffMinutes % 60}m`;
+  } else if (diffHours > 0) {
+    timeStr = `${diffHours}h ${diffMinutes % 60}m`;
+  } else if (diffMinutes > 0) {
+    timeStr = `${diffMinutes}m ${diffSeconds % 60}s`;
+  } else {
+    timeStr = `${diffSeconds}s`;
+  }
+
+  // Determine severity color
+  let severity = 'good';
+  let severityLabel = 'Excellent';
+  if (diffHours >= 24) {
+    severity = 'critical';
+    severityLabel = 'Critical';
+  } else if (diffHours >= 8) {
+    severity = 'warning';
+    severityLabel = 'Fair';
+  } else if (diffHours >= 1) {
+    severity = 'caution';
+    severityLabel = 'Good';
+  }
+
+  container.innerHTML = `
+    <div class="ttf-container">
+      <div class="ttf-main">
+        <div class="ttf-time">${timeStr}</div>
+        <div class="ttf-label">From failure to fix</div>
+      </div>
+      <div class="ttf-severity ttf-${severity}">
+        <div class="ttf-sev-badge">${severityLabel}</div>
+      </div>
+    </div>
+    <div class="ttf-details">
+      <div class="ttf-detail-row">
+        <span class="ttf-label-small">Failure</span>
+        <span class="ttf-value">${fmtDate(fc.commit.date)}</span>
+      </div>
+      <div class="ttf-detail-row">
+        <span class="ttf-label-small">Fixed</span>
+        <span class="ttf-value">${fmtDate(fc.fix_commit.date)}</span>
+      </div>
+    </div>
+  `;
+}
+
+// CODE CHURN CHART (Lines added/deleted per month)
+function renderCodeChurn(data) {
+  const container = document.getElementById('ghCodeChurn');
+  if (!container) return;
+
+  const churnData = data.code_churn;
+  if (!churnData || churnData.length === 0) {
+    container.innerHTML = '<div class="gh-empty">No code churn data available.</div>';
+    return;
+  }
+
+  const lastMonths = churnData.slice(-6);
+
+  const totalAdded = lastMonths.reduce((sum, d) => sum + (d.additions || 0), 0);
+  const totalDeleted = lastMonths.reduce((sum, d) => sum + (d.deletions || 0), 0);
+
+  // Chart dimensions
+  const width = 520;
+  const height = 190;
+  const padding = 28;
+  const chartWidth = width - 2 * padding;
+  const chartHeight = height - 2 * padding - 12;
+
+  // Find max value for scaling
+  let maxValue = 0;
+  lastMonths.forEach(d => {
+    maxValue = Math.max(maxValue, d.additions + d.deletions);
+  });
+  maxValue = Math.ceil(maxValue / 100) * 100; // Round up to nearest 100
+  if (maxValue === 0) maxValue = 100;
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', width);
+  svg.setAttribute('height', height);
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.classList.add('churn-svg');
+
+  // Draw bars
+  const barWidth = (chartWidth / lastMonths.length) * 0.32;
+  const spaceBetweenBars = (chartWidth / lastMonths.length) * 0.12;
+
+  lastMonths.forEach((d, idx) => {
+    const x = padding + (idx * (chartWidth / lastMonths.length)) + spaceBetweenBars;
+    const addHeight = (d.additions / maxValue) * chartHeight;
+    const delHeight = (d.deletions / maxValue) * chartHeight;
+
+    // Additions bar (green) - on the left
+    if (d.additions > 0) {
+      const addBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      addBar.setAttribute('x', x - barWidth / 2 - 3);
+      addBar.setAttribute('y', padding + chartHeight - addHeight);
+      addBar.setAttribute('width', barWidth);
+      addBar.setAttribute('height', addHeight);
+      addBar.setAttribute('fill', '#22c55e');
+      addBar.setAttribute('opacity', '0.85');
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = `${d.month} - Added: ${fmtNum(d.additions)}`;
+      addBar.appendChild(title);
+      svg.appendChild(addBar);
+    }
+
+    // Deletions bar (red) - on the right
+    if (d.deletions > 0) {
+      const delBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      delBar.setAttribute('x', x + barWidth / 2 + 3);
+      delBar.setAttribute('y', padding + chartHeight - delHeight);
+      delBar.setAttribute('width', barWidth);
+      delBar.setAttribute('height', delHeight);
+      delBar.setAttribute('fill', '#ef4444');
+      delBar.setAttribute('opacity', '0.85');
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = `${d.month} - Deleted: ${fmtNum(d.deletions)}`;
+      delBar.appendChild(title);
+      svg.appendChild(delBar);
+    }
+
+    // X-axis label (month)
+    const monthLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    monthLabel.setAttribute('x', x + spaceBetweenBars / 2);
+    monthLabel.setAttribute('y', padding + chartHeight + 16);
+    monthLabel.setAttribute('font-size', '10.5');
+    monthLabel.setAttribute('fill', 'var(--text2)');
+    monthLabel.setAttribute('text-anchor', 'middle');
+    // Format month: "2024-03" -> "Mar"
+    const [year, month] = d.month.split('-');
+    const monthDate = new Date(year, parseInt(month) - 1);
+    const monthStr = monthDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    monthLabel.textContent = monthStr;
+    svg.appendChild(monthLabel);
+  });
+
+  // Axes
+  const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  xAxis.setAttribute('x1', padding);
+  xAxis.setAttribute('y1', padding + chartHeight);
+  xAxis.setAttribute('x2', width - padding);
+  xAxis.setAttribute('y2', padding + chartHeight);
+  xAxis.setAttribute('stroke', 'var(--border)');
+  xAxis.setAttribute('stroke-width', '1');
+  svg.appendChild(xAxis);
+
+  // Legend
+  const legendGroup = document.createElement('div');
+  legendGroup.className = 'churn-legend';
+  legendGroup.innerHTML = `
+    <div class="churn-legend-item">
+      <div class="churn-legend-dot" style="background: #22c55e;"></div>
+      <span>Added ${fmtNum(totalAdded)}</span>
+    </div>
+    <div class="churn-legend-item">
+      <div class="churn-legend-dot" style="background: #ef4444;"></div>
+      <span>Deleted ${fmtNum(totalDeleted)}</span>
+    </div>
+  `;
+
+  container.innerHTML = '';
+  container.appendChild(svg);
+  container.appendChild(legendGroup);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadGitHub();
+});
