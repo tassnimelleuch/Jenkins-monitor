@@ -1,7 +1,7 @@
 import logging
 from flask import current_app
 from services.parallel_executor import parallel_execute
-from providers.github import get_repo, get_commits
+from providers.github import get_repo, get_commits, get_commit, get_pull_requests
 from providers.jenkins import (
     get_last_failed_build,
     get_build_info,
@@ -9,7 +9,6 @@ from providers.jenkins import (
     extract_build_commits,
     extract_build_culprits,
 )
-from providers.github import get_repo, get_commits, get_commit
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +131,57 @@ def _calculate_file_changes(commits_raw):
     ]
 
 
+def _pr_item(pr):
+    """Format a pull request for display."""
+    user = pr.get('user', {}) or {}
+    return {
+        'number': pr.get('number'),
+        'title': pr.get('title'),
+        'state': pr.get('state'),  # 'open' or 'closed'
+        'author_name': user.get('name'),
+        'author_login': user.get('login'),
+        'author_avatar': user.get('avatar_url'),
+        'author_profile_url': user.get('html_url'),
+        'url': pr.get('html_url'),
+        'created_at': pr.get('created_at'),
+        'updated_at': pr.get('updated_at'),
+        'closed_at': pr.get('closed_at'),
+        'merged_at': pr.get('merged_at'),
+        'draft': pr.get('draft', False),
+        'additions': pr.get('additions', 0),
+        'deletions': pr.get('deletions', 0),
+        'changed_files': pr.get('changed_files', 0),
+        'comments': pr.get('comments', 0),
+        'review_comments': pr.get('review_comments', 0),
+    }
+
+
+def _calculate_file_changes(commits_raw):
+    """Calculate most frequently changed files across all commits."""
+    if not commits_raw:
+        return []
+    
+    file_changes = {}  # {filename: count}
+    
+    for commit in commits_raw:
+        files = commit.get('files', [])
+        if not files:
+            continue
+        
+        for file_obj in files:
+            filename = file_obj.get('filename')
+            if filename:
+                file_changes[filename] = file_changes.get(filename, 0) + 1
+    
+    # Sort by frequency (descending) and get top 10
+    sorted_files = sorted(file_changes.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    return [
+        {'filename': fname, 'changes': count}
+        for fname, count in sorted_files
+    ]
+
+
 def _fetch_commit_details(app, owner, repo, commits_raw):
     if not commits_raw:
         return []
@@ -170,8 +220,9 @@ def get_github_summary():
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
         'commits': lambda: _run_in_app_context(app, lambda: get_commits(owner, repo, per_page=100, since="2026-04-01T00:00:00Z", until="2026-04-30T23:59:59Z")),
         'failed_build': lambda: _run_in_app_context(app, get_last_failed_build),
+        'pull_requests': lambda: _run_in_app_context(app, lambda: get_pull_requests(owner, repo, state='all', per_page=50)),
     }
-    results = parallel_execute(tasks, max_workers=3, timeout=20)
+    results = parallel_execute(tasks, max_workers=4, timeout=20)
     repo_raw = results.get('repo')
     commits_raw = results.get('commits')
 
@@ -280,6 +331,28 @@ def get_github_summary():
     # Calculate most frequently changed files
     file_changes = _calculate_file_changes(detailed_commits_raw) if detailed_commits_raw else []
 
+    # Process pull requests
+    prs_open = []
+    prs_closed = []
+    prs_merged = []
+    
+    prs_all_raw = results.get('pull_requests')
+    if isinstance(prs_all_raw, list):
+        logger.info(f"[GitHub] Fetched {len(prs_all_raw)} total pull requests")
+        all_prs = [_pr_item(pr) for pr in prs_all_raw]
+        
+        # Separate by state and merge status
+        for pr in all_prs:
+            if pr.get('merged_at'):
+                # Merged PRs
+                prs_merged.append(pr)
+            elif pr.get('state') == 'open':
+                # Open PRs (including drafts)
+                prs_open.append(pr)
+            else:
+                # Closed (unmerged) PRs
+                prs_closed.append(pr)
+
     return {
         'connected': True,
         'owner': owner,
@@ -300,4 +373,7 @@ def get_github_summary():
         'failing_commit': failing_commit,
         'code_churn': code_churn_list,
         'file_changes': file_changes,
+        'pull_requests_open': prs_open,
+        'pull_requests_merged': prs_merged,
+        'pull_requests_closed': prs_closed,
     }

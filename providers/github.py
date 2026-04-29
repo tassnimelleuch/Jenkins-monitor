@@ -96,3 +96,44 @@ def get_commits(owner, repo, per_page=8, since=None, until=None):
 def get_commit(owner, repo, sha):
     url = f"{_get_base_url()}/repos/{owner}/{repo}/commits/{sha}"
     return _get_json(url)
+
+
+def get_pull_requests(owner, repo, state='all', per_page=20):
+    """Fetch pull requests (open, closed, or all)."""
+    url = f"{_get_base_url()}/repos/{owner}/{repo}/pulls"
+    base_params = {'per_page': per_page, 'state': state, 'sort': 'updated', 'direction': 'desc'}
+    
+    logger.info(f"[GitHub] Fetching pull requests with state={state}")
+    
+    all_prs = []
+    page = 1
+    
+    while True:
+        params = {**base_params, 'page': page}
+        try:
+            resp = requests.get(
+                url,
+                params=params,
+                headers=_get_headers(),
+                timeout=8
+            )
+            if resp.status_code == 404:
+                break
+            resp.raise_for_status()
+            prs = resp.json()
+            
+            if not prs or not isinstance(prs, list):
+                break
+            
+            all_prs.extend(prs)
+            logger.info(f"[GitHub] Page {page}: fetched {len(prs)} pull requests")
+            
+            if len(prs) < per_page:
+                break
+            page += 1
+        except Exception as e:
+            logger.warning(f'[GitHub] Pull request fetch error on page {page}: {e}')
+            break
+    
+    logger.info(f"[GitHub] Total pull requests fetched: {len(all_prs)}")
+    return all_prs if all_prs else None

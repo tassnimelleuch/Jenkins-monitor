@@ -82,6 +82,8 @@ async function loadGitHub() {
     if (link && repo.html_url) link.href = repo.html_url;
 
     renderCommits(document.getElementById('ghCommits'), data.commits || []);
+    renderPullRequests(document.getElementById('ghOpenPRs'), data.pull_requests_open || [], 'open');
+    renderPullRequests(document.getElementById('ghMergedPRs'), data.pull_requests_merged || [], 'merged');
     try {
       renderFailingCommit(data);
       renderFixCommit(data);
@@ -470,6 +472,59 @@ function renderCodeChurn(data) {
   container.innerHTML = '';
   container.appendChild(svg);
   container.appendChild(legendGroup);
+}
+
+// RENDER PULL REQUESTS
+function renderPullRequests(container, prs, type) {
+  if (!container) return;
+  if (!prs || prs.length === 0) {
+    const emptyMsg = type === 'open' ? 'No open pull requests.' : 'No merged pull requests yet.';
+    container.innerHTML = `<div class="gh-empty">${emptyMsg}</div>`;
+    return;
+  }
+  
+  container.innerHTML = '';
+  prs.slice(0, 10).forEach(pr => {
+    const div = document.createElement('div');
+    div.className = 'gh-pr';
+    if (pr.state === 'merged' || type === 'merged') {
+      div.classList.add('gh-pr-merged');
+    } else if (pr.state === 'closed') {
+      div.classList.add('gh-pr-closed');
+    } else {
+      div.classList.add('gh-pr-open');
+    }
+    
+    const statusLabel = pr.state === 'merged' || type === 'merged' ? '✓ Merged' : 
+                       pr.state === 'open' ? '◯ Open' : '✕ Closed';
+    const statusClass = pr.state === 'merged' || type === 'merged' ? 'gh-pr-status-merged' :
+                       pr.state === 'open' ? 'gh-pr-status-open' : 'gh-pr-status-closed';
+    
+    const avatar = pr.author_avatar ? `<img src="${pr.author_avatar}" alt="${pr.author_login}" class="gh-pr-avatar">` : '';
+    const author = pr.author_login || pr.author_name || 'Unknown';
+    const authorLink = pr.author_profile_url ? 
+      `<a href="${pr.author_profile_url}" target="_blank" rel="noopener" class="gh-pr-author">${author}</a>` :
+      `<span class="gh-pr-author">${author}</span>`;
+    
+    const stats = `<span class="gh-pr-stat">+${pr.additions}</span><span class="gh-pr-stat">-${pr.deletions}</span>`;
+    const dateStr = pr.merged_at ? fmtDate(pr.merged_at) : fmtDate(pr.updated_at);
+    
+    div.innerHTML = `
+      <div class="gh-pr-header">
+        <span class="gh-pr-number">#${pr.number}</span>
+        <a href="${pr.url}" target="_blank" rel="noopener" class="gh-pr-title">${pr.title}</a>
+        <span class="${statusClass}">${statusLabel}</span>
+      </div>
+      <div class="gh-pr-meta">
+        ${avatar}
+        ${authorLink}
+        <span class="gh-pr-date">${dateStr}</span>
+        <span class="gh-pr-files">${pr.changed_files} files</span>
+        ${stats}
+      </div>
+    `;
+    container.appendChild(div);
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
