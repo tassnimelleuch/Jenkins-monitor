@@ -47,10 +47,50 @@ def get_repo(owner, repo):
     return _get_json(url)
 
 
-def get_commits(owner, repo, per_page=8):
+def get_commits(owner, repo, per_page=8, since=None, until=None):
+    """Fetch all commits with pagination support."""
     url = f"{_get_base_url()}/repos/{owner}/{repo}/commits"
-    params = {'per_page': per_page}
-    return _get_json(url, params=params)
+    base_params = {'per_page': per_page}
+    if since:
+        base_params['since'] = since
+    if until:
+        base_params['until'] = until
+    
+    logger.info(f"[GitHub] Fetching commits with params: {base_params}")
+    
+    all_commits = []
+    page = 1
+    
+    while True:
+        params = {**base_params, 'page': page}
+        try:
+            resp = requests.get(
+                url,
+                params=params,
+                headers=_get_headers(),
+                timeout=8
+            )
+            if resp.status_code == 404:
+                break
+            resp.raise_for_status()
+            commits = resp.json()
+            
+            if not commits or not isinstance(commits, list):
+                break
+            
+            all_commits.extend(commits)
+            logger.info(f"[GitHub] Page {page}: fetched {len(commits)} commits")
+            
+            # Check if there's a next page
+            if len(commits) < per_page:
+                break
+            page += 1
+        except Exception as e:
+            logger.warning(f'[GitHub] Commit fetch error on page {page}: {e}')
+            break
+    
+    logger.info(f"[GitHub] Total commits fetched: {len(all_commits)}")
+    return all_commits if all_commits else None
 
 
 def get_commit(owner, repo, sha):

@@ -1,3 +1,4 @@
+import logging
 from flask import current_app
 from services.parallel_executor import parallel_execute
 from providers.github import get_repo, get_commits
@@ -10,6 +11,8 @@ from providers.jenkins import (
 )
 from providers.github import get_repo, get_commits, get_commit
 
+logger = logging.getLogger(__name__)
+
 def _derive_repo_from_project_key(project_key):
     if not project_key or '_' not in project_key:
         return None, None
@@ -21,12 +24,11 @@ def _get_owner_repo():
     owner = current_app.config.get('GITHUB_OWNER')
     repo = current_app.config.get('GITHUB_REPO')
 
-    if owner and repo:
-        return owner, repo
+    if not owner or not repo:
+        logger.warning('[GitHub] GITHUB_OWNER and GITHUB_REPO not configured')
+        return None, None
 
-    project_key = current_app.config.get('SONARCLOUD_PROJECT_KEY')
-    d_owner, d_repo = _derive_repo_from_project_key(project_key)
-    return owner or d_owner, repo or d_repo
+    return owner, repo
 
 
 def _commit_item(c):
@@ -104,6 +106,32 @@ def _calculate_code_churn(commits_raw):
     return sorted_churn
 
 
+def _calculate_file_changes(commits_raw):
+    """Calculate most frequently changed files across all commits."""
+    if not commits_raw:
+        return []
+    
+    file_changes = {}  # {filename: count}
+    
+    for commit in commits_raw:
+        files = commit.get('files', [])
+        if not files:
+            continue
+        
+        for file_obj in files:
+            filename = file_obj.get('filename')
+            if filename:
+                file_changes[filename] = file_changes.get(filename, 0) + 1
+    
+    # Sort by frequency (descending) and get top 10
+    sorted_files = sorted(file_changes.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    return [
+        {'filename': fname, 'changes': count}
+        for fname, count in sorted_files
+    ]
+
+
 def _fetch_commit_details(app, owner, repo, commits_raw):
     if not commits_raw:
         return []
@@ -140,7 +168,7 @@ def get_github_summary():
     app = current_app._get_current_object()
     tasks = {
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
-        'commits': lambda: _run_in_app_context(app, lambda: get_commits(owner, repo, per_page=100)),
+        'commits': lambda: _run_in_app_context(app, lambda: get_commits(owner, repo, per_page=100, since="2026-04-01T00:00:00Z", until="2026-04-30T23:59:59Z")),
         'failed_build': lambda: _run_in_app_context(app, get_last_failed_build),
     }
     results = parallel_execute(tasks, max_workers=3, timeout=20)
@@ -156,6 +184,7 @@ def get_github_summary():
     commits = []
     detailed_commits_raw = []
     if isinstance(commits_raw, list):
+        logger.info(f"[GitHub] Fetched {len(commits_raw)} commits. Sample dates: {[c.get('commit', {}).get('author', {}).get('date') for c in commits_raw[:3]]}")
         commits = [_commit_item(c) for c in commits_raw]
         detailed_commits_raw = _fetch_commit_details(app, owner, repo, commits_raw)
 
@@ -247,6 +276,9 @@ def get_github_summary():
         {'month': month, 'additions': data['additions'], 'deletions': data['deletions']}
         for month, data in code_churn.items()
     ]
+    
+    # Calculate most frequently changed files
+    file_changes = _calculate_file_changes(detailed_commits_raw) if detailed_commits_raw else []
 
     return {
         'connected': True,
@@ -267,4 +299,5 @@ def get_github_summary():
         'commits': commits,
         'failing_commit': failing_commit,
         'code_churn': code_churn_list,
+        'file_changes': file_changes,
     }

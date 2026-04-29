@@ -86,6 +86,7 @@ async function loadGitHub() {
       renderFailingCommit(data);
       renderFixCommit(data);
       renderTimeToFix(data);
+      renderMostChanged(data);
       renderCodeChurn(data);
     } catch (e) {
       const container = document.getElementById('ghFailingCommit');
@@ -309,21 +310,46 @@ function renderTimeToFix(data) {
         <div class="ttf-time">${timeStr}</div>
         <div class="ttf-label">From failure to fix</div>
       </div>
-      <div class="ttf-severity ttf-${severity}">
-        <div class="ttf-sev-badge">${severityLabel}</div>
-      </div>
-    </div>
-    <div class="ttf-details">
-      <div class="ttf-detail-row">
-        <span class="ttf-label-small">Failure</span>
-        <span class="ttf-value">${fmtDate(fc.commit.date)}</span>
-      </div>
-      <div class="ttf-detail-row">
-        <span class="ttf-label-small">Fixed</span>
-        <span class="ttf-value">${fmtDate(fc.fix_commit.date)}</span>
-      </div>
+      
     </div>
   `;
+}
+
+// MOST CHANGED FILES
+function renderMostChanged(data) {
+  const container = document.getElementById('ghMostChanged');
+  if (!container) return;
+
+  const files = data.file_changes;
+  if (!files || files.length === 0) {
+    container.innerHTML = '<div class="gh-empty">No file changes data available.</div>';
+    return;
+  }
+
+  // Find max changes for scaling
+  const maxChanges = Math.max(...files.map(f => f.changes));
+
+  // Create bar chart HTML
+  let html = '<div class="file-bars">';
+  files.forEach((file, idx) => {
+    const pct = Math.round((file.changes / maxChanges) * 100);
+    const bgColor = idx % 2 === 0 ? '#3a7be8' : '#ff8c42';
+    const filename = file.filename.length > 45 ? file.filename.substring(0, 42) + '...' : file.filename;
+    
+    html += `
+      <div class="file-bar-row" title="${file.filename}">
+        <div class="file-bar-name">${filename}</div>
+        <div class="file-bar-container">
+          <div class="file-bar" style="width: ${pct}%; background-color: ${bgColor};">
+            <span class="file-bar-value">${file.changes}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+  html += '</div>';
+
+  container.innerHTML = html;
 }
 
 // CODE CHURN CHART (Lines added/deleted per month)
