@@ -33,7 +33,7 @@ def cluster_metrics_api():
 @deployment_kpis_bp.route('/api/debug-metrics')
 def debug_metrics():
     from flask import jsonify
-    from collectors.prometheus import query_range_series, query
+    from collectors.prometheus_collectors import query_range_series, query
     from services.metrics_service import _now_range
 
     start, end = _now_range(30)
