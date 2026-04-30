@@ -89,7 +89,7 @@ function updateActiveBuilds(runningCount, builds) {
                         </svg>
                     </button>
                     <a class="bl-console-btn"
-                       href="/jenkins/console/${b.number}"
+                       href="/console/${b.number}"
                        target="_blank"
                        title="View Console">
                         <svg viewBox="0 0 24 24">
@@ -203,7 +203,7 @@ function renderTrendChart(builds) {
         const isLast = i === points.length - 1;
         const color  = p.build.result === 'SUCCESS' ? '#00dba0'
                      : p.build.result === 'FAILURE' ? '#ff4560' : '#ff8c42';
-        const consoleUrl = '/jenkins/console/' + p.build.number;
+        const consoleUrl = '/console/' + p.build.number;
         const r = isLast ? 6 : 4;
         return `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${color}"
                     ${isLast ? 'stroke="white" stroke-width="2"' : ''}
@@ -218,7 +218,7 @@ function renderTrendChart(builds) {
     document.getElementById('trendXLabels').innerHTML = points.map(p =>
         `<text x="${p.x}" y="158" class="axis-label" text-anchor="middle"
               style="cursor:pointer;"
-              onclick="window.open('/jenkins/console/${p.build.number}','_blank')">#${p.build.number}</text>`
+              onclick="window.open('/console/${p.build.number}','_blank')">#${p.build.number}</text>`
     ).join('');
 
     const badge = document.getElementById('trendBadge');

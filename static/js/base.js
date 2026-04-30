@@ -384,7 +384,7 @@ function resultLabel(r) {
 }
 
 function openConsole(num) {
-  window.open('/jenkins/console/' + num, '_blank');
+  window.open('/console/' + num, '_blank');
 }
 
 // ── Latest Builds Chart (shared)

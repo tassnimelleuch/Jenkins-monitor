@@ -47,6 +47,7 @@ def abort(build_number):
     return jsonify({'aborted': False, 'error': message}), 500
 
 @pipeline_kpis_bp.route('/api/vm-metrics')
+@role_required('admin')
 def vm_metrics_api():
     from flask import jsonify
     return jsonify(get_vm_metrics())
