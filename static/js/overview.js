@@ -254,7 +254,7 @@ function renderTrendChart(builds) {
 // Fast stage updater — only updates squares on running rows
 async function pollRunningStages() {
   try {
-    const data = await (await fetch('/jenkins/api/running_stages')).json();
+    const data = await (await fetch('/api/running_stages')).json();
     data.forEach(b => {
       const strip = document.querySelector('#brow-' + b.number + ' .stage-strip');
       if (!strip || !b.stages.length) return;

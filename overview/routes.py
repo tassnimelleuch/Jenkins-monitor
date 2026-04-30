@@ -52,7 +52,7 @@ def latest_build():
         'build_number': kpis.get('last_build_number')
     })
 
-@overview_bp.route('/azure/api/status', methods=['GET'])
+@overview_bp.route('/api/azure/status', methods=['GET'])
 def azure_status():
     result = get_connection_status()
     status_code = 200 if result['connected'] else 503

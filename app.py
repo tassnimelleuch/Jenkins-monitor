@@ -17,10 +17,10 @@ cache.init_app(app)
 app.secret_key = app.config['SECRET_KEY']
 
 app.register_blueprint(auth_bp)
-app.register_blueprint(overview_bp, url_prefix='/jenkins')
-app.register_blueprint(pipeline_kpis_bp, url_prefix='/jenkins')
+app.register_blueprint(overview_bp)
+app.register_blueprint(pipeline_kpis_bp)
 app.register_blueprint(user_management_bp)
-app.register_blueprint(deployment_kpis_bp, url_prefix='/jenkins')
+app.register_blueprint(deployment_kpis_bp)
 app.register_blueprint(sonarcloud_bp)
 app.register_blueprint(github_bp)
 app.register_blueprint(finops_bp)

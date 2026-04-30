@@ -148,13 +148,13 @@ function showToast(msg,cls=''){
 
 // Shared pipeline actions
 async function apiTriggerBuild() {
-  const res = await fetch('/jenkins/api/build', { method: 'POST' });
+  const res = await fetch('/api/build', { method: 'POST' });
   const data = await res.json();
   return { ok: res.ok, data };
 }
 
 async function apiAbortBuild(buildNumber) {
-  const res = await fetch('/jenkins/api/abort/' + buildNumber, { method: 'POST' });
+  const res = await fetch('/api/abort/' + buildNumber, { method: 'POST' });
   const data = await res.json();
   return { ok: res.ok, data };
 }
@@ -302,7 +302,7 @@ function setActive(el) {
 // Connection status
 async function checkStatus() {
   try {
-    const res = await fetch('/jenkins/api/status');
+    const res = await fetch('/api/status');
     if (!res.ok) throw new Error('status request failed');
 
     const data = await res.json();
@@ -335,7 +335,7 @@ async function checkStatus() {
 // azure connection status
 async function checkAzureStatus() {
   try {
-    const res = await fetch('/jenkins/azure/api/status');
+    const res = await fetch('/api/azure/status');
     if (!res.ok) throw new Error('azure status request failed');
     const data = await res.json().catch(() => ({ connected: false }));
     const dot = document.getElementById('azureStatusDot');
@@ -479,7 +479,7 @@ async function loadStatRow() {
 
 async function loadLatestBuild() {
   try {
-    const res = await fetch('/jenkins/api/latest_build');
+    const res = await fetch('/api/latest_build');
     if (!res.ok) throw new Error();
 
     const data = await res.json();

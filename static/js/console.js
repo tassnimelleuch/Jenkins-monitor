@@ -84,7 +84,7 @@ function updateBadge(text) {
 // ── FETCH LOG
 async function fetchLog() {
   try {
-    const res = await fetch('/jenkins/api/log/' + BUILD_NUMBER);
+    const res = await fetch('/api/log/' + BUILD_NUMBER);
     const data = await res.json();
     renderLines(data.log || '');
   } catch (e) {
