@@ -1,5 +1,5 @@
 import logging
-from providers.prometheus import query, query_range, query_range_series
+from collectors.prometheus_collectors import query, query_range, query_range_series
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)

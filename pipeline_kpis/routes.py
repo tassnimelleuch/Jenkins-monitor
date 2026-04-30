@@ -2,7 +2,7 @@ from flask import session, jsonify, render_template
 from pipeline_kpis import pipeline_kpis_bp
 from services.access_service import role_required
 from services.dashboard_service import get_pipeline_kpis
-from providers.jenkins import get_running_stages, trigger_build, abort_build
+from collectors.jenkins_collectors import get_running_stages, trigger_build, abort_build
 from models import get_pending_count
 from services.metrics_service import get_vm_metrics
 

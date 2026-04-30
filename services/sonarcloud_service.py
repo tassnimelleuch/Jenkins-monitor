@@ -7,7 +7,7 @@ using parallel execution where possible to minimise latency.
 import logging
 from flask import current_app
 
-from providers.sonarcloud import (
+from collectors.sonarcloud_collectors import (
     get_measures,
     get_quality_gate_status,
     search_issues,

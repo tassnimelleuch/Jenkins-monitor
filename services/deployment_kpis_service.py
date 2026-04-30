@@ -2,8 +2,8 @@ import re
 import requests
 from flask import current_app
 
-from providers.kubernetes import get_cluster_snapshot
-from providers.jenkins import get_all_builds, get_console_log
+from collectors.kubernetes_collectors import get_cluster_snapshot
+from collectors.jenkins_collectors import get_all_builds, get_console_log
 from services.dashboard_service import get_pipeline_kpis
 from services.parallel_executor import parallel_execute
 

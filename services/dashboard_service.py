@@ -1,4 +1,4 @@
-from providers.jenkins import (
+from collectors.jenkins_collectors import (
     get_all_builds,
     get_last_n_finished,
     get_running_builds,

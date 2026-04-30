@@ -1,8 +1,8 @@
 import logging
 from flask import current_app
 from services.parallel_executor import parallel_execute
-from providers.github import get_repo, get_commits, get_commit, get_pull_requests
-from providers.jenkins import (
+from collectors.github_collectors import get_repo, get_commits, get_commit, get_pull_requests
+from collectors.jenkins_collectors import (
     get_last_failed_build,
     get_build_info,
     extract_build_commit_sha,

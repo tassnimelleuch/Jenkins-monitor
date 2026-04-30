@@ -6,7 +6,7 @@ from flask import Blueprint, jsonify, render_template, request, session
 
 from config import Config
 from extensions import cache
-from providers.azure_cost_provider import AzureCostProvider
+from collectors.azure_cost_collector import AzureCostProvider
 from services.finops_service import FinOpsService
 from services.finops_cache import get_cached_daily_cost_chart, get_cached_resource_group_costs
 from services.parallel_executor import parallel_execute
