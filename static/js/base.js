@@ -432,19 +432,6 @@ function renderLatestBuildsChart(builds) {
 }
 
 // ── Shared Stat Row
-async function getOverviewKpis() {
-  const url = document.body.dataset.kpisUrl;
-  if (!url) return null;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('KPI fetch failed');
-    return await res.json();
-  } catch (e) {
-    console.error('KPI fetch error:', e);
-    return null;
-  }
-}
-
 function updateStatRow(data) {
   const map = {
     'sv-total': data.total_builds,
@@ -464,16 +451,6 @@ function clearStatRow() {
     const el = document.getElementById(id);
     if (el) el.textContent = '--';
   });
-}
-
-async function loadStatRow() {
-  const data = await getOverviewKpis();
-  if (!data) return;
-  if (!data.connected) {
-    clearStatRow();
-    return;
-  }
-  updateStatRow(data);
 }
 
 
@@ -529,7 +506,9 @@ async function loadGitHubBadge() {
 document.addEventListener('DOMContentLoaded', () => {
   checkStatus();
   checkAzureStatus();
-  loadLatestBuild();
+  if (document.body.dataset.page !== 'pipeline-kpis') {
+    loadLatestBuild();
+  }
   loadGitHubBadge();
 });
 

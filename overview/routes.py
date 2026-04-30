@@ -1,7 +1,7 @@
 from flask import session, jsonify, render_template
 from overview import overview_bp
 from services.access_service import role_required
-from services.dashboard_service import get_kpis
+from services.pipeline_kpis_service import get_kpis
 from collectors.jenkins_collectors import check_connection, get_console_log
 from services.azure_service import get_connection_status
 

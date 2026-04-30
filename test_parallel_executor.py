@@ -8,7 +8,7 @@ from flask import Flask
 
 from config import Config
 from services.parallel_executor import parallel_execute
-from services.dashboard_service import get_pipeline_kpis
+from services.pipeline_kpis_service import get_pipeline_kpis
 from services.deployment_kpis_service import get_deployment_kpis
 from services.github_service import get_github_summary
 from services.sonarcloud_service import get_sonarcloud_summary

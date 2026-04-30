@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-kpis-url="{{ url_for('overview.kpis') }}" data-vm-metrics-url="{{ url_for('pipeline_kpis.vm_metrics_api') }}" data-page="pipeline-kpis"{% endblock %}
+{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-vm-metrics-url="{{ url_for('pipeline_kpis.vm_metrics_api') }}" data-page="pipeline-kpis"{% endblock %}
 
 {% block page_content %}
 

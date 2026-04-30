@@ -630,30 +630,41 @@ async function loadPipelineKPIs() {
     const data = await (await fetch(url)).json();
 
     if (!data.connected || !data.builds || !data.builds.length) {
+      if (typeof clearStatRow === 'function') clearStatRow();
       document.getElementById('buildTimeline').innerHTML =
         '<div class="tl-empty">No build data — check Jenkins connection.</div>';
       return;
     }
 
-    const durs = data.builds.filter(b => b.result && b.duration > 0).map(b => b.duration);
-    if (durs.length) {
-      _avgDurationMs = Math.round(durs.reduce((a, b) => a + b, 0) / durs.length);
+    if (typeof updateStatRow === 'function') {
+      updateStatRow(data);
+    }
+
+    if (data.avg_duration_ms) {
+      _avgDurationMs = data.avg_duration_ms;
+    } else {
+      const durs = data.builds.filter(b => b.result && b.duration > 0).map(b => b.duration * 1000);
+      if (durs.length) {
+        _avgDurationMs = Math.round(durs.reduce((a, b) => a + b, 0) / durs.length);
+      }
     }
 
     const finished = data.builds.filter(b => b.result !== null);
     const success = finished.filter(b => b.result === 'SUCCESS').length;
-    const rate = finished.length > 0 ? Math.round(success / finished.length * 100) : 0;
+    const rate = data.success_rate ?? (finished.length > 0 ? Math.round(success / finished.length * 100) : 0);
 
     updateCircle('healthCircle', 'health-val', 'health-badge', data.health_score || 0);
     updateCircle('rateCircle', 'rate-val', 'rate-badge', rate);
 
+    const latestBuildTag = document.getElementById('latestBuildTag');
+    if (latestBuildTag && data.last_build_number) {
+      latestBuildTag.textContent = '#' + data.last_build_number;
+    }
+
     _allBuilds = data.builds;
-    if (typeof renderLatestBuildsChart === 'function' && typeof getOverviewKpis === 'function') {
-      const kpis = await getOverviewKpis();
-      if (kpis && kpis.connected) {
-        const trendFinished = (kpis.build_trend || []).filter(b => b.result !== null);
-        renderLatestBuildsChart(trendFinished);
-      }
+    if (typeof renderLatestBuildsChart === 'function') {
+      const trendFinished = (data.build_trend || []).filter(b => b.result !== null);
+      renderLatestBuildsChart(trendFinished);
     }
     renderTimeline();
     renderCharts(data);
@@ -679,9 +690,6 @@ async function loadPipelineKPIs() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  checkStatus();
-  loadLatestBuild();
-
   const btn = document.getElementById('startStopBtn');
   if (btn) {
     btn.removeAttribute('onclick');
@@ -690,10 +698,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   _slowHandle = setInterval(() => {
     if (!_pollHandle) loadPipelineKPIs();
-    if (typeof loadStatRow === 'function') loadStatRow();
   }, SLOW_POLL_MS);
 
-  if (typeof loadStatRow === 'function') loadStatRow();
   loadPipelineKPIs();
 });
 

@@ -4,7 +4,7 @@ from flask import current_app
 
 from collectors.kubernetes_collectors import get_cluster_snapshot
 from collectors.jenkins_collectors import get_all_builds, get_console_log
-from services.dashboard_service import get_pipeline_kpis
+from services.pipeline_kpis_service import get_pipeline_kpis
 from services.parallel_executor import parallel_execute
 
 IMAGE_PATTERNS = [
