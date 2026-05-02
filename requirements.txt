@@ -9,3 +9,4 @@ azure-mgmt-containerservice
 kubernetes
 redis 
 flask-caching
+psycopg2-binary

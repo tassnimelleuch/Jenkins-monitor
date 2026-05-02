@@ -231,25 +231,15 @@ function toggleShowMore() {
 }
 
 function triggerBuild() {
-  showConfirm(
-    '▶ Start Build',
-    'Trigger a new build for <strong>django-pipeline</strong>?',
-    async () => {
-      try {
-        const { data } = await apiTriggerBuild();
-
-        if (data.queued) {
-          showToast('✅ Build queued — watching for updates');
-          if (!_pollHandle) _pollHandle = setInterval(loadPipelineKPIs, POLL_MS);
-          setTimeout(loadPipelineKPIs, 2000);
-        } else {
-          showToast('❌ ' + (data.error || 'Failed to trigger'), 'abort-toast');
-        }
-      } catch (e) {
-        showToast('❌ Network error', 'abort-toast');
-      }
+  triggerBuildWithConfirmation({
+    bodyHtml: 'Trigger a new build for <strong>django-pipeline</strong>?',
+    queuedMessage: '✅ Build queued — watching for updates',
+    triggerErrorMessage: 'Failed to trigger',
+    onQueued() {
+      if (!_pollHandle) _pollHandle = setInterval(loadPipelineKPIs, POLL_MS);
+      setTimeout(loadPipelineKPIs, 2000);
     }
-  );
+  });
 }
 
 function toggleBuild() {

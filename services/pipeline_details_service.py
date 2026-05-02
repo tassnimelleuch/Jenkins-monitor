@@ -1,4 +1,4 @@
-from collectors.jenkins_collectors import get_pipeline_details
+from collectors.jenkins_collector import get_pipeline_details
 
 
 def get_pipeline_details_summary():

@@ -9,12 +9,17 @@ from sonarcloud import sonarcloud_bp
 from github import github_bp
 from models import get_pending_count
 from finops import finops_bp
-from extensions import cache
+from extensions import cache, db
 
 app = Flask(__name__)
 app.config.from_object(Config)
 cache.init_app(app)
+db.init_app(app)
 app.secret_key = app.config['SECRET_KEY']
+
+from pipeline_storage_models import PipelineBuildDuration, PipelineStageDuration
+with app.app_context():
+    db.create_all()
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(overview_bp)

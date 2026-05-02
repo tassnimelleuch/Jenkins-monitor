@@ -159,6 +159,31 @@ async function apiAbortBuild(buildNumber) {
   return { ok: res.ok, data };
 }
 
+function triggerBuildWithConfirmation(opts = {}) {
+  const bodyHtml = opts.bodyHtml || 'Trigger a new build for <strong>django-pipeline</strong>?';
+  const queuedMessage = opts.queuedMessage || '✅ Build queued';
+  const triggerErrorMessage = opts.triggerErrorMessage || 'Failed to trigger build';
+  const onQueued = typeof opts.onQueued === 'function' ? opts.onQueued : null;
+
+  showConfirm(
+    '▶ Start Build',
+    bodyHtml,
+    async () => {
+      try {
+        const { data } = await apiTriggerBuild();
+        if (data.queued) {
+          showToast(queuedMessage);
+          if (onQueued) onQueued(data);
+        } else {
+          showToast('❌ ' + (data.error || triggerErrorMessage), 'abort-toast');
+        }
+      } catch (e) {
+        showToast('❌ Network error', 'abort-toast');
+      }
+    }
+  );
+}
+
 // ── PDF Export ( for later )
 function exportPDF(){
   const {jsPDF}=window.jspdf;
@@ -387,8 +412,7 @@ function openConsole(num) {
   window.open('/console/' + num, '_blank');
 }
 
-// ── Latest Builds Chart (shared)
-function renderLatestBuildsChart(builds) {
+function _renderBuildBars(builds) {
   const wrap   = document.getElementById('barsWrap');
   const sumRow = document.getElementById('buildSummaryRow');
   if (!wrap) return;
@@ -429,6 +453,11 @@ function renderLatestBuildsChart(builds) {
       + '<div class="bar-lbl">#' + b.number + '</div>'
       + '</div>';
   }).join('');
+}
+
+// ── Latest Builds Chart (shared)
+function renderLatestBuildsChart(builds) {
+  _renderBuildBars(builds);
 }
 
 // ── Shared Stat Row
@@ -586,46 +615,7 @@ function confirmAbort(buildNumber) {
 
 // BAR CHART 
 function renderBarChart(builds) {
-    const wrap   = document.getElementById('barsWrap');
-    const sumRow = document.getElementById('buildSummaryRow');
-    if (!wrap) return;
-
-    const sorted = [...builds].reverse();
-    const maxDur = Math.max(...sorted.map(b => b.duration || 1));
-    const pass   = builds.filter(b => b.result === 'SUCCESS').length;
-    const fail   = builds.filter(b => b.result === 'FAILURE').length;
-    const abrt   = builds.filter(b => b.result === 'ABORTED').length;
-
-    if (sumRow) {
-        sumRow.innerHTML =
-            '<div class="bstat pass"><div class="bstat-dot"></div>' + pass + ' Pass</div>' +
-            '<div class="bstat fail"><div class="bstat-dot"></div>' + fail + ' Fail</div>' +
-            '<div class="bstat abrt"><div class="bstat-dot"></div>' + abrt + ' Aborted</div>';
-    }
-
-    wrap.innerHTML = sorted.map(b => {
-        const dur  = b.duration || 0;
-        const mins = Math.floor(dur / 60000);
-        const secs = Math.floor((dur % 60000) / 1000);
-        const pct  = Math.max(5, Math.round((dur / maxDur) * 100));
-        const cls  = b.result === 'SUCCESS' ? 'pass' : b.result === 'FAILURE' ? 'fail' : 'abrt';
-
-        const richTooltip =
-            `<div class="bar-tooltip-rich">
-                <div class="btr-top">
-                    <div class="btr-num">#${b.number}</div>
-                    <div class="btr-result">${b.result || 'RUNNING'}</div>
-                </div>
-                <div class="btr-dur">${mins}m ${secs}s</div>
-                
-            </div>`;
-
-        return '<div class="bar-col">'
-            + richTooltip
-            + '<div class="bar ' + cls + '" style="height:' + pct + '%"></div>'
-            + '<div class="bar-lbl">#' + b.number + '</div>'
-            + '</div>';
-    }).join('');
+    _renderBuildBars(builds);
 }
 
 //CIRCULAR PROGRESS

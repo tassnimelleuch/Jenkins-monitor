@@ -1,4 +1,4 @@
-from collectors.jenkins_collectors import (
+from collectors.jenkins_collector import (
     get_all_builds,
     get_last_n_finished,
     get_running_builds,
@@ -9,6 +9,7 @@ from collectors.jenkins_collectors import (
 )
 from flask import current_app
 from services.parallel_executor import parallel_execute
+from services.pipeline_storage_service import sync_pipeline_durations
 
 DEPLOY_STAGE = 'Deploy to AKS'
 ROLLOUT_STAGE = 'Wait for AKS Rollout'
@@ -108,6 +109,7 @@ def get_pipeline_kpis():
             'number': num,
             'result': b.get('result'),
             'duration': b.get('duration', 0) // 1000 if b.get('duration') else 0,
+            'duration_ms': b.get('duration', 0) or 0,
             'timestamp': b.get('timestamp', 0),
             'stages': stages,
         })
@@ -205,7 +207,7 @@ def get_pipeline_kpis():
         (successful_deployments / total_finished_builds) * 100, 1
     ) if total_finished_builds > 0 else 0
 
-    return {
+    payload = {
         'connected': True,
         'last_build_number': summary['last_build_number'],
         'total_builds': summary['total_builds'],
@@ -230,3 +232,6 @@ def get_pipeline_kpis():
             'rate': deployment_rate,
         },
     }
+
+    sync_pipeline_durations(payload.get('builds', []))
+    return payload

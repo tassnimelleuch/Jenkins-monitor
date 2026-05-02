@@ -1,5 +1,5 @@
 import logging
-from collectors.prometheus_collectors import query, query_range, query_range_series
+from collectors.prometheus_collector import query, query_range, query_range_series
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
@@ -233,11 +233,6 @@ def get_cluster_metrics():
 
         # ── Namespace Disk ───────────────────────────────────────────────────
         ns_disk_queries = [
-            (
-                'sum by (namespace) (container_fs_usage_bytes'
-                '{namespace!="",container!="POD",container!=""}) / 1e9',
-                "namespace",
-            ),
             (
                 'sum by (namespace) (container_fs_usage_bytes'
                 '{namespace!="",container!="POD",container!=""}) / 1e9',

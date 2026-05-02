@@ -2,8 +2,31 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()  
+
+
+def _build_database_uri():
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        if database_url.startswith('postgres://'):
+            return database_url.replace('postgres://', 'postgresql://', 1)
+        return database_url
+
+    host = os.getenv('POSTGRES_HOST')
+    db_name = os.getenv('POSTGRES_DB')
+    user = os.getenv('POSTGRES_USER')
+    password = os.getenv('POSTGRES_PASSWORD')
+    port = os.getenv('POSTGRES_PORT', '5432')
+
+    if all([host, db_name, user, password]):
+        return f'postgresql://{user}:{password}@{host}:{port}/{db_name}'
+
+    return 'sqlite:///jenkins_monitor.db'
+
+
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret')
+    SQLALCHEMY_DATABASE_URI = _build_database_uri()
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     JENKINS_URL      = os.getenv('JENKINS_URL')
     JENKINS_USERNAME = os.getenv('JENKINS_USERNAME')
@@ -24,6 +47,11 @@ class Config:
     GITHUB_REPO = os.getenv("GITHUB_REPO")
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
+    DOCKERHUB_API_URL = os.getenv("DOCKERHUB_API_URL", "https://hub.docker.com/v2")
+    DOCKERHUB_IMAGE = os.getenv("DOCKERHUB_IMAGE")
+    DOCKERHUB_TAG = os.getenv("DOCKERHUB_TAG")
+    DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN")
+    DOCKERHUB_BUILD_TAG_SUFFIX = os.getenv("DOCKERHUB_BUILD_TAG_SUFFIX", "build-{build_number}")
 
     CACHE_TYPE = "RedisCache"
     CACHE_REDIS_HOST = "127.0.0.1"

@@ -1,4 +1,4 @@
-from collectors import azure_collectors as azure
+from collectors import azure_collector as azure
 
 
 def get_connection_status():

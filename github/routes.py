@@ -2,7 +2,7 @@ from flask import jsonify, render_template, session, request
 from github import github_bp
 from services.access_service import role_required
 from services.github_service import get_github_summary
-from collectors.github_collectors import create_tag
+from collectors.github_collector import create_tag
 from flask import current_app
 import logging
 

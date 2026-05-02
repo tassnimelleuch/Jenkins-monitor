@@ -298,10 +298,10 @@ function renderLatestImageArtifact(latestImage) {
   const imageName = latestImage.image_name || '--';
   const tag = latestImage.tag || '--';
   const sizeMb = latestImage.size_mb;
-  const result = latestImage.result || '--';
+  const result = latestImage.result || latestImage.status || '--';
   const timestamp = latestImage.timestamp || null;
 
-  setText('latestImageBuild', `#${buildNumber}`);
+  setText('latestImageBuild', buildNumber !== '--' ? `#${buildNumber}` : '--');
   setText('latestImageName', imageName);
   setText('latestImageTag', tag);
   setText('latestImageSize', formatSizeMB(sizeMb));
@@ -309,7 +309,7 @@ function renderLatestImageArtifact(latestImage) {
   setText('latestImageTimestamp', formatTimestamp(timestamp));
 
   if (badge) {
-    badge.textContent = tag !== '--' ? tag : 'Latest Build';
+    badge.textContent = tag !== '--' ? tag : 'Docker Hub';
   }
 
   if (resultEl) {

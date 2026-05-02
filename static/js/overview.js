@@ -138,24 +138,15 @@ function updateActiveBuilds(runningCount, builds) {
 
 //TRIGGER BUILD
 function triggerBuild() {
-    showConfirm(
-        '▶ Start Build',
-        'Are you sure you want to trigger a new build for <strong>django-pipeline</strong>?',
-        async () => {
-            try {
-                const { data } = await apiTriggerBuild();
-                if (data.queued) {
-                    showToast('✅ Build queued — watch Active Builds');
-                    startPolling(5000);
-                    setTimeout(() => startPolling(30000), 30000);
-                } else {
-                    showToast('❌ ' + (data.error || 'Failed to trigger build'), 'abort-toast');
-                }
-            } catch (e) {
-                showToast('❌ Network error', 'abort-toast');
-            }
+    triggerBuildWithConfirmation({
+        bodyHtml: 'Are you sure you want to trigger a new build for <strong>django-pipeline</strong>?',
+        queuedMessage: '✅ Build queued — watch Active Builds',
+        triggerErrorMessage: 'Failed to trigger build',
+        onQueued() {
+            startPolling(5000);
+            setTimeout(() => startPolling(30000), 30000);
         }
-    );
+    });
 }
 
 function toggleBuild() {
