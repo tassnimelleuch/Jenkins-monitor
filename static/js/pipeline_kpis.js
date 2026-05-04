@@ -106,6 +106,7 @@ function buildRowHtml(b) {
   const m = Math.floor(elapsed / 60);
   const sv = elapsed % 60;
   const durText = isRunning ? m + 'm ' + String(sv).padStart(2, '0') + 's' : '';
+  const branch = b.branch ? `<span style="font-size:8px;background:var(--bg3);padding:2px 6px;border-radius:3px;color:var(--text2);margin-top:2px;display:inline-block;">${b.branch}</span>` : '';
 
   let segHtml;
   if (stages.length) {
@@ -154,6 +155,7 @@ function buildRowHtml(b) {
       <div>
         <div class="br-num">#${b.number}</div>
         <div class="br-date">${fmtDate(b.timestamp)}</div>
+        ${branch}
       </div>
       <div class="br-dot ${dotCls(b.result)}"></div>
       <div class="stage-strip">${segHtml}</div>

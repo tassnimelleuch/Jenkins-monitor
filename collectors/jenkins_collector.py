@@ -24,6 +24,54 @@ def _get_root():
     return current_app.config['JENKINS_URL'].rstrip('/')
 
 
+def _is_multibranch():
+    """Check if the pipeline is a multibranch pipeline."""
+    try:
+        resp = requests.get(
+            f'{_get_base()}/api/json?tree=_class',
+            auth=_get_auth(),
+            timeout=5
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            job_class = data.get('_class', '')
+            return 'MultiBranch' in job_class
+    except Exception:
+        pass
+    return False
+
+
+def _get_multibranch_jobs():
+    """Get all branch jobs from a multibranch pipeline."""
+    try:
+        resp = requests.get(
+            f'{_get_base()}/api/json?tree=jobs[name,_class]',
+            auth=_get_auth(),
+            timeout=10
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            jobs = data.get('jobs', [])
+            return [j.get('name') for j in jobs if j.get('name')]
+    except Exception as e:
+        logger.warning(f'[Jenkins] Failed to fetch multibranch jobs: {e}')
+    return []
+
+
+def _get_builds_from_job(job_path):
+    """Get builds from a single job (branch or regular pipeline)."""
+    try:
+        resp = requests.get(
+            f'{job_path}/api/json?tree=builds[number,status,timestamp,duration,result]',
+            auth=_get_auth(),
+            timeout=10
+        )
+        if resp.status_code == 200:
+            return resp.json().get('builds', [])
+    except Exception as e:
+        logger.warning(f'[Jenkins] Failed to fetch builds from {job_path}: {e}')
+    return []
+
 def _get_artifact_paths():
     coverage = current_app.config.get('JENKINS_COVERAGE_ARTIFACT', 'coverage.xml')
     junit = current_app.config.get('JENKINS_JUNIT_ARTIFACT', 'junit-results.xml')
@@ -100,13 +148,33 @@ def check_connection():
 
 def get_all_builds():
     try:
-        resp = requests.get(
-            f'{_get_base()}/api/json?tree=builds[number,status,timestamp,duration,result]',
-            auth=_get_auth(),
-            timeout=10
-        )
-        resp.raise_for_status()
-        return resp.json().get('builds', [])
+        # Check if this is a multibranch pipeline
+        if _is_multibranch():
+            logger.info('[Jenkins] Detected multibranch pipeline, aggregating builds from branches')
+            all_builds = []
+            branches = _get_multibranch_jobs()
+            logger.info(f'[Jenkins] Found branches: {branches}')
+            
+            for branch in branches:
+                job_path = f'{_get_base()}/job/{branch}'
+                builds = _get_builds_from_job(job_path)
+                logger.info(f'[Jenkins] Branch "{branch}" has {len(builds) if builds else 0} builds')
+                if builds:
+                    # Add branch info to each build for context
+                    for build in builds:
+                        build['branch'] = branch
+                    all_builds.extend(builds)
+            
+            logger.info(f'[Jenkins] Total builds aggregated: {len(all_builds)}')
+            
+            # Sort by build number descending (most recent first)
+            all_builds.sort(key=lambda x: x.get('number', 0), reverse=True)
+            return all_builds if all_builds else None
+        else:
+            # Single branch pipeline - use the old approach
+            builds = _get_builds_from_job(_get_base())
+            logger.info(f'[Jenkins] Single-branch pipeline with {len(builds) if builds else 0} builds')
+            return builds
     except Exception as e:
         logger.error(f'[Jenkins] get_all_builds error: {e}')
         return None
@@ -146,11 +214,29 @@ def get_health_score():
 
 def get_console_log(build_number):
     try:
+        # Try single branch pipeline first
         resp = requests.get(
             f'{_get_base()}/{build_number}/consoleText',
             auth=_get_auth(),
             timeout=30
         )
+        
+        # If 404 and multibranch, try each branch
+        if resp.status_code == 404 and _is_multibranch():
+            branches = _get_multibranch_jobs()
+            for branch in branches:
+                job_path = f'{_get_base()}/job/{branch}'
+                try:
+                    resp = requests.get(
+                        f'{job_path}/{build_number}/consoleText',
+                        auth=_get_auth(),
+                        timeout=30
+                    )
+                    if resp.status_code == 200:
+                        break
+                except Exception:
+                    continue
+        
         if resp.status_code == 200:
             return resp.text
         elif resp.status_code == 404:
@@ -201,11 +287,29 @@ def abort_build(build_number):
 
 def get_stages(build_number):
     try:
+        # First try single branch pipeline path
         resp = requests.get(
             f'{_get_base()}/{build_number}/wfapi/describe',
             auth=_get_auth(),
             timeout=10
         )
+        
+        # If 404 and multibranch, try each branch
+        if resp.status_code == 404 and _is_multibranch():
+            branches = _get_multibranch_jobs()
+            for branch in branches:
+                job_path = f'{_get_base()}/job/{branch}'
+                try:
+                    resp = requests.get(
+                        f'{job_path}/{build_number}/wfapi/describe',
+                        auth=_get_auth(),
+                        timeout=10
+                    )
+                    if resp.status_code == 200:
+                        break
+                except Exception:
+                    continue
+        
         resp.raise_for_status()
         data = resp.json()
         return [
@@ -218,7 +322,7 @@ def get_stages(build_number):
             for s in data.get('stages', [])
         ]
     except Exception as e:
-        logger.error(f'[Jenkins] get_stages error: {e}')
+        logger.error(f'[Jenkins] get_stages error for build {build_number}: {e}')
         return []
 
 
@@ -415,14 +519,34 @@ def _extract_junit_from_xml(xml_text):
     }
 
 
-def get_build_info(build_number):
+def _get_build_info_from_path(job_path, build_number):
+    """Fetch build info from a specific job path."""
     return _get_json(
-        f'{_get_base()}/{build_number}/api/json?tree='
+        f'{job_path}/{build_number}/api/json?tree='
         'number,result,timestamp,duration,url,'
         'actions[lastBuiltRevision[SHA1,branch[name]],parameters[name,value]],'
         'changeSets[items[commitId,msg,author[fullName]]],'
         'culprits[fullName,absoluteUrl]'
     )
+
+
+def get_build_info(build_number):
+    """Get build info, handling both single-branch and multibranch pipelines."""
+    # First try single branch pipeline path
+    info = _get_build_info_from_path(_get_base(), build_number)
+    if info:
+        return info
+    
+    # If not found and multibranch, try each branch
+    if _is_multibranch():
+        branches = _get_multibranch_jobs()
+        for branch in branches:
+            job_path = f'{_get_base()}/job/{branch}'
+            info = _get_build_info_from_path(job_path, build_number)
+            if info:
+                return info
+    
+    return None
 
 
 def extract_build_commit_sha(build_info):
@@ -506,3 +630,140 @@ def get_last_failed_build(builds=None):
         if b.get('result') == 'FAILURE':
             return b
     return None
+
+
+def get_pipeline_details():
+    """Fetch pipeline configuration details including job info, triggers, and parameters."""
+    try:
+        job_data = _get_json(
+            f'{_get_base()}/api/json?tree='
+            'displayName,name,description,'
+            '_class,'
+            'triggers[*],'
+            'properties[*],'
+            'definition[*],'
+            'buildDiscarder[*]'
+        )
+        
+        if not job_data:
+            return {'connected': False}
+        
+        # Extract job info
+        job = {
+            'display_name': job_data.get('displayName'),
+            'name': job_data.get('name'),
+            'description': job_data.get('description'),
+        }
+        
+        # Determine pipeline type and class
+        job_class = job_data.get('_class', '')
+        is_multibranch = 'MultiBranch' in job_class
+        
+        # Extract pipeline definition class
+        definition = job_data.get('definition', {})
+        definition_class = definition.get('_class', '')
+        script_path = definition.get('scriptPath')
+        
+        pipeline = {
+            'type': _extract_pipeline_type(job_class),
+            'multibranch': is_multibranch,
+            'job_class': job_class,
+            'definition_class': definition_class,
+            'script_path': script_path,
+        }
+        
+        # Extract build discarder
+        discarder_data = job_data.get('buildDiscarder') or {}
+        build_discarder = {
+            'num_to_keep': discarder_data.get('daysToKeepValue') or discarder_data.get('numToKeepValue'),
+        }
+        
+        # Extract triggers
+        triggers = _extract_triggers(job_data.get('triggers', []))
+        
+        # Extract parameters
+        parameters = _extract_parameters(job_data.get('properties', []))
+        
+        return {
+            'connected': True,
+            'job': job,
+            'pipeline': pipeline,
+            'build_discarder': build_discarder,
+            'triggers': triggers,
+            'parameters': parameters,
+        }
+    except Exception as e:
+        logger.error(f'[Jenkins] get_pipeline_details error: {e}')
+        return {'connected': False}
+
+
+def _extract_pipeline_type(job_class):
+    """Determine pipeline type from job class."""
+    if 'Declarative' in job_class or 'Pipeline' in job_class:
+        return 'Declarative Pipeline'
+    elif 'Scripted' in job_class:
+        return 'Scripted Pipeline'
+    elif 'MultiBranch' in job_class:
+        return 'Multibranch Pipeline'
+    else:
+        return 'Unknown'
+
+
+def _extract_triggers(triggers_list):
+    """Extract trigger information from job triggers."""
+    if not triggers_list:
+        return []
+    
+    result = []
+    for trigger in triggers_list:
+        if not isinstance(trigger, dict):
+            continue
+        
+        trigger_class = trigger.get('_class', '').split('.')[-1]
+        spec = ''
+        
+        # Extract spec based on trigger type
+        if 'SCMTrigger' in trigger_class:
+            spec = trigger.get('spec', 'Poll SCM')
+        elif 'TimerTrigger' in trigger_class:
+            spec = trigger.get('spec', 'Scheduled')
+        elif 'GitHubPushTrigger' in trigger_class:
+            spec = 'GitHub Push'
+        elif 'GenericTrigger' in trigger_class:
+            spec = 'Generic Webhook'
+        else:
+            spec = trigger_class or 'Trigger'
+        
+        result.append({
+            'type': trigger_class or 'Trigger',
+            'spec': spec,
+        })
+    
+    return result
+
+
+def _extract_parameters(properties_list):
+    """Extract parameter information from job properties."""
+    if not properties_list:
+        return []
+    
+    result = []
+    for prop in properties_list:
+        if not isinstance(prop, dict):
+            continue
+        
+        prop_class = prop.get('_class', '')
+        
+        # Check if this is a parameters definition property
+        if 'ParametersDefinitionProperty' in prop_class:
+            params = prop.get('parameterDefinitions', [])
+            for param in params:
+                if isinstance(param, dict):
+                    result.append({
+                        'name': param.get('name'),
+                        'type': param.get('_class', '').split('.')[-1] if param.get('_class') else 'String',
+                        'default': param.get('defaultValue'),
+                        'description': param.get('description'),
+                    })
+    
+    return result
