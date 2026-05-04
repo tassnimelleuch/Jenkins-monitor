@@ -6,6 +6,11 @@ from collectors.jenkins_collector import get_running_stages, trigger_build, abor
 from models import get_pending_count
 from services.metrics_service import get_vm_metrics
 from services.pipeline_details_service import get_pipeline_details_summary
+from services.pipeline_db_kpis_service import (
+    get_kpis_from_database,
+    get_recent_builds_from_database,
+    get_build_statistics_by_branch,
+)
 
 @pipeline_kpis_bp.route('/pipeline_kpis')
 @role_required('admin', 'dev', 'qa')
@@ -65,3 +70,52 @@ def abort(build_number):
 def vm_metrics_api():
     from flask import jsonify
     return jsonify(get_vm_metrics())
+
+
+# ==================== DATABASE KPI ENDPOINTS ====================
+# These endpoints calculate KPIs from persistent PostgreSQL data
+
+@pipeline_kpis_bp.route('/api/pipeline_kpis_db')
+@role_required('admin', 'dev', 'qa')
+def pipeline_kpis_db():
+    """
+    Get pipeline KPIs calculated from database.
+    More stable and historical than API-only approach.
+    Data is persisted and includes all past builds.
+    """
+    data = get_kpis_from_database()
+    return jsonify(data)
+
+
+@pipeline_kpis_bp.route('/api/recent_builds_db')
+@role_required('admin', 'dev', 'qa')
+def recent_builds_db():
+    """
+    Get recent builds from database with their stages.
+    """
+    limit = request.args.get('limit', default=20, type=int)
+    limit = min(limit, 100)  # Max 100
+    
+    builds = get_recent_builds_from_database(limit=limit)
+    
+    return jsonify({
+        'source': 'database',
+        'builds': builds,
+        'count': len(builds),
+    })
+
+
+@pipeline_kpis_bp.route('/api/branch_statistics')
+@role_required('admin', 'dev', 'qa')
+def branch_statistics():
+    """
+    Get detailed statistics per branch from database.
+    Useful for multibranch pipelines.
+    """
+    stats = get_build_statistics_by_branch()
+    
+    return jsonify({
+        'source': 'database',
+        'branches': stats,
+        'count': len(stats),
+    })

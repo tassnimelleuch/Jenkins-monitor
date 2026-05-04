@@ -57,6 +57,7 @@ def sync_pipeline_durations(builds):
 
             duration_seconds = int(build.get('duration') or 0)
             duration_ms = int(build.get('duration_ms') or (duration_seconds * 1000))
+            row.branch = build.get('branch', 'unknown')
             row.result = build.get('result')
             row.started_at = _millis_to_datetime(build.get('timestamp'))
             row.duration_seconds = duration_seconds

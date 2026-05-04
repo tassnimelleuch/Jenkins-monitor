@@ -6,6 +6,7 @@ class PipelineBuildDuration(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     build_number = db.Column(db.Integer, unique=True, nullable=False, index=True)
+    branch = db.Column(db.String(255), nullable=True, index=True)
     result = db.Column(db.String(32), nullable=True)
     started_at = db.Column(db.DateTime(timezone=True), nullable=True)
     duration_seconds = db.Column(db.Integer, nullable=False, default=0)

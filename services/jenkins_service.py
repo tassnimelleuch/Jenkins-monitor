@@ -10,6 +10,11 @@ from collectors.jenkins_collector import (
 from flask import current_app
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import sync_pipeline_durations
+from services.pipeline_db_kpis_service import (
+    get_kpis_from_database,
+    get_recent_builds_from_database,
+)
+from pipeline_storage_models import PipelineBuildDuration
 
 DEPLOY_STAGE = 'Deploy to AKS'
 ROLLOUT_STAGE = 'Wait for AKS Rollout'
