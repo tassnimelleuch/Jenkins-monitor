@@ -112,7 +112,6 @@ def get_pipeline_kpis():
             'duration_ms': b.get('duration', 0) or 0,
             'timestamp': b.get('timestamp', 0),
             'stages': stages,
-            'branch': b.get('branch', 'unknown'),  # Include branch info
         })
 
     finished = [b for b in builds_data if b['result'] is not None]
@@ -208,14 +207,6 @@ def get_pipeline_kpis():
         (successful_deployments / total_finished_builds) * 100, 1
     ) if total_finished_builds > 0 else 0
 
-    # Calculate builds by branch (for multibranch pipelines)
-    builds_by_branch = {}
-    for b in builds_data:
-        branch = b.get('branch', 'unknown')
-        if branch not in builds_by_branch:
-            builds_by_branch[branch] = []
-        builds_by_branch[branch].append(b)
-
     payload = {
         'connected': True,
         'last_build_number': summary['last_build_number'],
@@ -228,13 +219,6 @@ def get_pipeline_kpis():
         'build_trend': summary['build_trend'],
         'avg_duration_ms': summary['avg_duration_ms'],
         'builds': builds_data,
-        'builds_by_branch': {
-            branch: {
-                'count': len(builds),
-                'build_numbers': [b['number'] for b in builds]
-            }
-            for branch, builds in builds_by_branch.items()
-        },
         'health_score': get_health_score(),
         'avg_duration_seconds': avg_duration,
         'failure_rate_by_stage': failure_rate_by_stage,
