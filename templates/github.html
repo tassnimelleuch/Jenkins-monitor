@@ -83,14 +83,25 @@
 </div>
 
 <div class="gh-divider"></div>
-<div class="gh-card-title">Most Changed Files</div>
-<div class="gh-sub" style="margin-bottom:10px;">Top 10 files modified in April</div>
+<div class="gh-analytics-head">
+  <div>
+    <div class="gh-card-title">Most Changed Files</div>
+    <div class="gh-sub" id="ghMostChangedSub">Top changed files across recent months</div>
+  </div>
+  <div class="gh-analytics-toggle" role="tablist" aria-label="GitHub analytics grouping">
+    <button type="button" class="gh-analytics-btn active" data-gh-group="month">Month</button>
+    <button type="button" class="gh-analytics-btn" data-gh-group="week">Week</button>
+  </div>
+</div>
+<div class="gh-analytics-summary" id="ghMostChangedSummary"></div>
 <div id="ghMostChanged" class="gh-most-changed-container">
   <div class="gh-empty">Loading file changes data...</div>
 </div>
 
 <div class="gh-divider"></div>
 <div class="gh-card-title">Code Churn</div>
+<div class="gh-sub" id="ghCodeChurnSub">Real code churn grouped by month</div>
+<div class="gh-analytics-summary" id="ghCodeChurnSummary"></div>
 <div id="ghCodeChurn" class="gh-churn-container">
   <div class="gh-empty">Loading code churn data...</div>
 </div>

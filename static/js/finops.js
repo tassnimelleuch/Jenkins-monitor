@@ -1,5 +1,12 @@
 let chartInstance = null;
 
+function formatMonthLabel(year, month) {
+  if (!year || !month) return 'previous month';
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  if (Number.isNaN(date.getTime())) return 'previous month';
+  return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
 function populateMonthSelector() {
   const select = document.getElementById('monthSelector');
   if (!select) return;
@@ -39,10 +46,63 @@ function formatCurrency(value) {
   }).format(Number(value));
 }
 
+function formatSignedCurrency(value) {
+  if (value == null || Number.isNaN(Number(value))) return '-';
+  const numeric = Number(value);
+  const sign = numeric > 0 ? '+' : numeric < 0 ? '-' : '';
+  return `${sign}${formatCurrency(Math.abs(numeric))}`;
+}
+
+function formatSignedPercent(value) {
+  if (value == null || Number.isNaN(Number(value))) return '-';
+  const numeric = Number(value);
+  const sign = numeric > 0 ? '+' : numeric < 0 ? '' : '';
+  return `${sign}${numeric.toFixed(2)}%`;
+}
+
 function setText(id, value) {
   const el = document.getElementById(id);
   if (!el) return;
   el.textContent = value;
+}
+
+function applyCostTrendClass(el, amount) {
+  if (!el) return;
+  el.classList.remove('is-increase', 'is-decrease', 'is-neutral');
+
+  if (amount > 0) {
+    el.classList.add('is-increase');
+  } else if (amount < 0) {
+    el.classList.add('is-decrease');
+  } else {
+    el.classList.add('is-neutral');
+  }
+}
+
+function setDeltaText(id, change, previousMonthLabel, options = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  const formatter = options.formatter || 'currency';
+  const prefix = options.prefix || '';
+  const suffix = options.suffix || '';
+  const neutralText = options.neutralText || `No comparison available for ${previousMonthLabel}`;
+  const amount = Number(change?.amount || 0);
+
+  el.classList.remove('is-increase', 'is-decrease', 'is-neutral');
+
+  if (!change || change.amount == null) {
+    el.textContent = neutralText;
+    el.classList.add('is-neutral');
+    return;
+  }
+
+  const deltaValue = formatter === 'percent'
+    ? formatSignedPercent(change.pct)
+    : formatSignedCurrency(change.amount);
+
+  el.textContent = `${prefix}${deltaValue} vs ${previousMonthLabel}${suffix}`;
+  applyCostTrendClass(el, amount);
 }
 
 function sumSeries(values) {
@@ -93,12 +153,9 @@ async function loadFinopsChart() {
     showError('');
   }
 
-  const aksTotal = sumSeries(data.series.aks);
-  const vmTotal = sumSeries(data.series.vm);
-
   setText('totalCost', formatCurrency(data.summary.total_cost));
-  setText('aksTotal', formatCurrency(aksTotal));
-  setText('vmTotal', formatCurrency(vmTotal));
+  setText('aksTotal', formatCurrency(data.summary.aks_total));
+  setText('vmTotal', formatCurrency(data.summary.vm_total));
   setText('avgDaily', formatCurrency(data.summary.average_daily_cost));
   setText(
     'highestDay',
@@ -106,12 +163,28 @@ async function loadFinopsChart() {
       ? `${data.summary.highest_day} (${formatCurrency(data.summary.highest_day_cost)})`
       : '-'
   );
-  setText(
-    'weekChange',
-    data.summary.previous_week_change_pct === null
-      ? '-'
-      : `${data.summary.previous_week_change_pct}%`
+
+  const previousMonthLabel = formatMonthLabel(
+    String(data.summary.previous_month_label || '').slice(0, 4),
+    String(data.summary.previous_month_label || '').slice(5, 7)
   );
+  const selectedMonthLabel = formatMonthLabel(data.year, data.month);
+  const totalDelta = data.summary.delta?.total_cost;
+
+  setDeltaText('totalCostDelta', totalDelta, previousMonthLabel);
+  setDeltaText('aksTotalDelta', data.summary.delta?.aks_total, previousMonthLabel);
+  setDeltaText('vmTotalDelta', data.summary.delta?.vm_total, previousMonthLabel);
+  setDeltaText('avgDailyDelta', data.summary.delta?.average_daily_cost, previousMonthLabel);
+  setDeltaText('highestDayDelta', data.summary.delta?.highest_day_cost, previousMonthLabel, { prefix: 'Peak ' });
+
+  setText(
+    'monthChange',
+    totalDelta?.pct == null ? '-' : formatSignedPercent(totalDelta.pct)
+  );
+  applyCostTrendClass(document.getElementById('monthChange'), Number(totalDelta?.amount || 0));
+  setDeltaText('monthChangeMeta', totalDelta, previousMonthLabel, { suffix: ' total' });
+
+  setText('finopsChartSub', `${selectedMonthLabel} compared with ${previousMonthLabel}`);
 
   const ctx = document.getElementById('dailyCostChart').getContext('2d');
   const rootStyle = getComputedStyle(document.documentElement);

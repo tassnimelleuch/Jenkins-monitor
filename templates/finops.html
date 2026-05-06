@@ -40,26 +40,32 @@
   <div class="finops-card">
     <div class="finops-card-label">Total</div>
     <div class="finops-card-value" id="totalCost">-</div>
+    <div class="finops-card-meta" id="totalCostDelta">Compared to previous month</div>
   </div>
   <div class="finops-card">
     <div class="finops-card-label">AKS total</div>
     <div class="finops-card-value" id="aksTotal">-</div>
+    <div class="finops-card-meta" id="aksTotalDelta">Compared to previous month</div>
   </div>
   <div class="finops-card">
     <div class="finops-card-label">VM total</div>
     <div class="finops-card-value" id="vmTotal">-</div>
+    <div class="finops-card-meta" id="vmTotalDelta">Compared to previous month</div>
   </div>
   <div class="finops-card">
     <div class="finops-card-label">Average / day</div>
     <div class="finops-card-value" id="avgDaily">-</div>
+    <div class="finops-card-meta" id="avgDailyDelta">Compared to previous month</div>
   </div>
   <div class="finops-card">
     <div class="finops-card-label">Highest day</div>
     <div class="finops-card-value" id="highestDay">-</div>
+    <div class="finops-card-meta" id="highestDayDelta">Compared to previous month</div>
   </div>
   <div class="finops-card">
-    <div class="finops-card-label">Vs previous week</div>
-    <div class="finops-card-value" id="weekChange">-</div>
+    <div class="finops-card-label">Vs previous month</div>
+    <div class="finops-card-value" id="monthChange">-</div>
+    <div class="finops-card-meta" id="monthChangeMeta">Total cost change</div>
   </div>
 </div>
 
@@ -69,7 +75,7 @@
   <div class="finops-chart-header">
     <div>
       <div class="finops-chart-title">Daily Cost (AKS + VM)</div>
-      <div class="finops-chart-sub"></div>
+      <div class="finops-chart-sub" id="finopsChartSub"></div>
     </div>
     <div class="finops-legend">
       <span class="finops-legend-item">

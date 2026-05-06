@@ -55,6 +55,18 @@
 }
 .finops-card-label{font-size:10.5px;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;font-weight:700;}
 .finops-card-value{font-size:18px;font-weight:800;margin-top:6px;font-family:'JetBrains Mono',monospace;}
+.finops-card-value.is-increase{color:var(--red);}
+.finops-card-value.is-decrease{color:var(--green);}
+.finops-card-value.is-neutral{color:var(--text);}
+.finops-card-meta{
+  margin-top:8px;
+  font-size:11px;
+  color:var(--text2);
+  min-height:16px;
+}
+.finops-card-meta.is-increase{color:var(--red);}
+.finops-card-meta.is-decrease{color:var(--green);}
+.finops-card-meta.is-neutral{color:var(--text2);}
 
 .finops-error{
   margin-top:12px;

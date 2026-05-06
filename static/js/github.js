@@ -15,6 +15,82 @@ function setText(id, value) {
   if (el) el.textContent = value;
 }
 
+let _ghAnalyticsPayload = null;
+let _ghAnalyticsGrouping = 'month';
+
+function formatMonthKey(key, format = 'short') {
+  if (!key || typeof key !== 'string') return key || '--';
+  const [year, month] = key.split('-');
+  const parsed = new Date(Number(year), Number(month) - 1, 1);
+  if (Number.isNaN(parsed.getTime())) return key;
+  return parsed.toLocaleDateString('en-US', {
+    month: format === 'long' ? 'long' : 'short',
+    year: format === 'long' ? 'numeric' : '2-digit'
+  });
+}
+
+function analyticsUnitLabel() {
+  return _ghAnalyticsGrouping === 'week' ? 'week' : 'month';
+}
+
+function analyticsWindowCount(data) {
+  const windowData = data?.analytics_window || {};
+  return _ghAnalyticsGrouping === 'week' ? (windowData.weeks || 0) : (windowData.months || 0);
+}
+
+function updateGitHubAnalyticsButtons() {
+  document.querySelectorAll('.gh-analytics-btn').forEach((button) => {
+    button.classList.toggle('active', button.dataset.ghGroup === _ghAnalyticsGrouping);
+  });
+}
+
+function normalizeLegacyMonthChurn(data) {
+  if (!Array.isArray(data?.code_churn)) return [];
+  return data.code_churn.map((item) => ({
+    period_key: item.month,
+    label: formatMonthKey(item.month, 'short'),
+    detail_label: formatMonthKey(item.month, 'long'),
+    start_date: `${item.month}-01`,
+    additions: item.additions || 0,
+    deletions: item.deletions || 0,
+    commits: 0,
+    changed_files: 0,
+    files_added: 0,
+    files_modified: 0,
+    files_removed: 0,
+    files_renamed: 0
+  }));
+}
+
+function getCodeChurnDataset(data) {
+  const grouped = data?.code_churn_by_period || {};
+  const periods = grouped[_ghAnalyticsGrouping];
+  if (Array.isArray(periods) && periods.length) return periods;
+  if (_ghAnalyticsGrouping === 'month') return normalizeLegacyMonthChurn(data);
+  return [];
+}
+
+function getFileChangeDataset(data) {
+  const grouped = data?.file_changes_by_period || {};
+  const dataset = grouped[_ghAnalyticsGrouping];
+  if (dataset && Array.isArray(dataset.items)) return dataset;
+  return {
+    items: Array.isArray(data?.file_changes) ? data.file_changes : [],
+    period_count: analyticsWindowCount(data),
+    scope_label: `Top 10 files touched across recent ${analyticsUnitLabel()}s`
+  };
+}
+
+function setGitHubAnalyticsGrouping(grouping) {
+  if (grouping !== 'week' && grouping !== 'month') return;
+  _ghAnalyticsGrouping = grouping;
+  updateGitHubAnalyticsButtons();
+  if (_ghAnalyticsPayload) {
+    renderMostChanged(_ghAnalyticsPayload);
+    renderCodeChurn(_ghAnalyticsPayload);
+  }
+}
+
 // Tag modal functions
 function openTagModal(sha, shortSha) {
   const modal = document.getElementById('ghTagModal');
@@ -181,6 +257,8 @@ async function loadGitHub() {
     renderPullRequests(document.getElementById('ghOpenPRs'), data.pull_requests_open || [], 'open');
     renderPullRequests(document.getElementById('ghMergedPRs'), data.pull_requests_merged || [], 'merged');
     try {
+      _ghAnalyticsPayload = data;
+      updateGitHubAnalyticsButtons();
       renderFailingCommit(data);
       renderFixCommit(data);
       renderTimeToFix(data);
