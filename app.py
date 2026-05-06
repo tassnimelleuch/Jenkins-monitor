@@ -31,6 +31,21 @@ app.register_blueprint(github_bp)
 app.register_blueprint(finops_bp)
 
 
+def _display_pipeline_name(job_path, branch_name=None):
+    raw_job = (job_path or '').strip().strip('/')
+    if not raw_job:
+        return 'Jenkins Pipeline'
+
+    normalized = raw_job.replace('/job/', '/')
+    if normalized.startswith('job/'):
+        normalized = normalized[4:]
+
+    parts = [part for part in normalized.split('/') if part]
+    if branch_name and len(parts) > 1 and parts[-1] == branch_name:
+        parts = parts[:-1]
+    return parts[-1] if parts else raw_job
+
+
 @app.route('/')
 def home():
     if session.get('role') in ('admin', 'dev', 'qa'):
@@ -40,9 +55,14 @@ def home():
 
 @app.context_processor
 def inject_pending_count():
+    branch_name = (app.config.get('JENKINS_BRANCH') or 'main').strip() or 'main'
+    context = {
+        'pipeline_name': _display_pipeline_name(app.config.get('JENKINS_JOB'), branch_name),
+        'branch_name': branch_name,
+    }
     if session.get('role') == 'admin':
-        return {'pending_count': get_pending_count()}
-    return {}
+        context['pending_count'] = get_pending_count()
+    return context
 
 
 if __name__ == '__main__':

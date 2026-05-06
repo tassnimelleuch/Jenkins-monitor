@@ -1,4 +1,6 @@
-from flask import session, jsonify, render_template
+import json
+
+from flask import session, jsonify, render_template, current_app
 from pipeline_kpis import pipeline_kpis_bp
 from services.access_service import role_required
 from services.jenkins_service import get_pipeline_kpis
@@ -20,7 +22,11 @@ def pipeline_kpis():
 @pipeline_kpis_bp.route('/api/pipeline_kpis')
 @role_required('admin', 'dev', 'qa')
 def pipeline_kpis_api():
-    return jsonify(get_pipeline_kpis())
+    payload = get_pipeline_kpis()
+    return current_app.response_class(
+        json.dumps(payload, indent=2),
+        mimetype='application/json'
+    )
 
 
 @pipeline_kpis_bp.route('/api/running_stages')

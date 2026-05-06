@@ -25,7 +25,14 @@ def get_deployment_kpis():
         pipeline = results.get('pipeline') or {}
 
         data['deployment_frequency'] = (
-            pipeline.get('deployment_frequency', {})
+            (
+                (
+                    (
+                        pipeline.get('branches', {}) or {}
+                    ).get((pipeline.get('pipeline') or {}).get('selected_branch'), {})
+                    or {}
+                ).get('deployment', {}) or {}
+            ).get('frequency', {})
             if pipeline and pipeline.get('connected')
             else {'successful': 0, 'total': 0, 'rate': 0}
         )

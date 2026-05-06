@@ -1,5 +1,6 @@
 import logging
 import xml.etree.ElementTree as ET
+from urllib.parse import quote, unquote
 import requests
 from flask import current_app
 
@@ -15,13 +16,49 @@ def _get_auth():
 
 
 def _get_base():
-    url = current_app.config['JENKINS_URL'].rstrip('/')
-    job = current_app.config['JENKINS_JOB']
-    return f"{url}/job/{job}"
+    segments = _get_pipeline_segments()
+    branch = _get_branch_name()
+    if branch:
+        segments.append(branch)
+    return _build_job_url(*segments)
 
 
 def _get_root():
     return current_app.config['JENKINS_URL'].rstrip('/')
+
+
+def _get_job_segments():
+    raw_job = (current_app.config.get('JENKINS_JOB') or '').strip().strip('/')
+    if not raw_job:
+        return []
+
+    normalized = raw_job.replace('/job/', '/')
+    if normalized.startswith('job/'):
+        normalized = normalized[4:]
+
+    return [segment for segment in normalized.split('/') if segment]
+
+
+def _get_pipeline_segments():
+    segments = _get_job_segments()
+    branch = _get_branch_name()
+    if branch and len(segments) > 1 and segments[-1] == branch:
+        return segments[:-1]
+    return segments
+
+
+def _get_branch_name():
+    branch = (current_app.config.get('JENKINS_BRANCH') or '').strip().strip('/')
+    return branch or None
+
+
+def _build_job_url(*segments):
+    path = ''.join(f"/job/{quote(segment, safe='')}" for segment in segments if segment)
+    return f"{_get_root()}{path}"
+
+
+def _get_pipeline_base():
+    return _build_job_url(*_get_pipeline_segments())
 
 
 def _get_artifact_paths():
@@ -110,6 +147,57 @@ def get_all_builds():
     except Exception as e:
         logger.error(f'[Jenkins] get_all_builds error: {e}')
         return None
+
+
+def _serialize_branch_build(build, branch_name):
+    if not build:
+        return None
+
+    duration_ms = build.get('duration', 0) or 0
+    return {
+        'branch': branch_name,
+        'number': build.get('number'),
+        'result': build.get('result'),
+        'timestamp': build.get('timestamp', 0),
+        'duration_ms': duration_ms,
+        'duration_seconds': duration_ms // 1000 if duration_ms else 0,
+    }
+
+
+def get_branch_jobs():
+    data = _get_json(
+        f'{_get_pipeline_base()}/api/json?tree='
+        'jobs[name,url,color,healthReport[score,description],'
+        'lastBuild[number,result,timestamp,duration],'
+        'lastCompletedBuild[number,result,timestamp,duration]]'
+    )
+    jobs = data.get('jobs', []) if isinstance(data, dict) else []
+    branches = []
+
+    for job in jobs:
+        raw_name = (job.get('name') or '').strip()
+        if not raw_name:
+            continue
+
+        branch_name = unquote(raw_name)
+        branches.append({
+            'name': branch_name,
+            'job_name': raw_name,
+            'url': job.get('url'),
+            'color': job.get('color'),
+            'health_score': (
+                (job.get('healthReport') or [{}])[0].get('score', 0)
+                if isinstance(job.get('healthReport'), list)
+                else 0
+            ),
+            'last_build': _serialize_branch_build(job.get('lastBuild'), branch_name),
+            'last_completed_build': _serialize_branch_build(
+                job.get('lastCompletedBuild'),
+                branch_name
+            ),
+        })
+
+    return branches
 
 
 def get_last_n_finished(n=10, builds=None):

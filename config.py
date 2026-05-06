@@ -32,6 +32,7 @@ class Config:
     JENKINS_USERNAME = os.getenv('JENKINS_USERNAME')
     JENKINS_TOKEN    = os.getenv('JENKINS_TOKEN')
     JENKINS_JOB      = os.getenv('JENKINS_JOB')
+    JENKINS_BRANCH   = os.getenv('JENKINS_BRANCH', 'main')
 
     AZURE_SUBSCRIPTION_ID = os.getenv('AZURE_SUBSCRIPTION_ID')
     AKS_RESOURCE_GROUP    = os.getenv('AKS_RESOURCE_GROUP')

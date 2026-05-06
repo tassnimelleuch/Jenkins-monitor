@@ -146,6 +146,27 @@ function showToast(msg,cls=''){
   setTimeout(()=>t.classList.remove('show'),3000);
 }
 
+function getPipelineName() {
+  return document.body.dataset.pipelineName || 'django-pipeline';
+}
+
+function getBranchName() {
+  return document.body.dataset.branchName || 'main';
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function pipelineStrongLabel() {
+  return `<strong>${escapeHtml(getPipelineName())}</strong>`;
+}
+
 // Shared pipeline actions
 async function apiTriggerBuild() {
   const res = await fetch('/api/build', { method: 'POST' });
@@ -160,7 +181,7 @@ async function apiAbortBuild(buildNumber) {
 }
 
 function triggerBuildWithConfirmation(opts = {}) {
-  const bodyHtml = opts.bodyHtml || 'Trigger a new build for <strong>django-pipeline</strong>?';
+  const bodyHtml = opts.bodyHtml || `Trigger a new build for ${pipelineStrongLabel()} on <strong>${escapeHtml(getBranchName())}</strong>?`;
   const queuedMessage = opts.queuedMessage || '✅ Build queued';
   const triggerErrorMessage = opts.triggerErrorMessage || 'Failed to trigger build';
   const onQueued = typeof opts.onQueued === 'function' ? opts.onQueued : null;
@@ -195,7 +216,7 @@ function exportPDF(){
   doc.setTextColor(255,255,255);doc.setFontSize(14);doc.setFont('helvetica','bold');
   doc.text('Jenkins Monitor — KPI Report',14,13);
   doc.setFontSize(8);doc.setFont('helvetica','normal');
-  doc.text(`Generated: ${ts}  |  Pipeline: django-pipeline  |  Branch: main`,14,20);
+  doc.text(`Generated: ${ts}  |  Pipeline: ${getPipelineName()}  |  Branch: ${getBranchName()}`,14,20);
   const total=document.getElementById('sv-total').textContent;
   const succ=document.getElementById('sv-success').textContent;
   const fail=document.getElementById('sv-failed').textContent;
@@ -462,11 +483,12 @@ function renderLatestBuildsChart(builds) {
 
 // ── Shared Stat Row
 function updateStatRow(data) {
+  const source = data.summary || data;
   const map = {
-    'sv-total': data.total_builds,
-    'sv-success': data.successful,
-    'sv-failed': data.failed,
-    'sv-aborted': data.aborted,
+    'sv-total': source.total_builds,
+    'sv-success': source.successful,
+    'sv-failed': source.failed,
+    'sv-aborted': source.aborted,
   };
   Object.entries(map).forEach(([id, value]) => {
     const el = document.getElementById(id);

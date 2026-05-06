@@ -139,7 +139,7 @@ function updateActiveBuilds(runningCount, builds) {
 //TRIGGER BUILD
 function triggerBuild() {
     triggerBuildWithConfirmation({
-        bodyHtml: 'Are you sure you want to trigger a new build for <strong>django-pipeline</strong>?',
+        bodyHtml: `Are you sure you want to trigger a new build for ${pipelineStrongLabel()} on <strong>${escapeHtml(getBranchName())}</strong>?`,
         queuedMessage: '✅ Build queued — watch Active Builds',
         triggerErrorMessage: 'Failed to trigger build',
         onQueued() {

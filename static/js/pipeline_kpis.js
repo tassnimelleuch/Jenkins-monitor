@@ -232,7 +232,7 @@ function toggleShowMore() {
 
 function triggerBuild() {
   triggerBuildWithConfirmation({
-    bodyHtml: 'Trigger a new build for <strong>django-pipeline</strong>?',
+    bodyHtml: `Trigger a new build for ${pipelineStrongLabel()} on <strong>${escapeHtml(getBranchName())}</strong>?`,
     queuedMessage: '✅ Build queued — watching for updates',
     triggerErrorMessage: 'Failed to trigger',
     onQueued() {
@@ -246,9 +246,21 @@ function toggleBuild() {
   triggerBuild();
 }
 
-function renderCharts(data) {
-  if (data.avg_duration_seconds !== undefined) {
-    const avgDur = data.avg_duration_seconds || 0;
+function getSelectedBranchPayload(data) {
+  const pipeline = data.pipeline || {};
+  const branches = data.branches || {};
+  const selectedBranch = pipeline.selected_branch || getBranchName();
+  return branches[selectedBranch] || {};
+}
+
+function renderCharts(branchData) {
+  const summary = branchData.summary || {};
+  const stages = branchData.stages || {};
+  const quality = branchData.quality || {};
+  const trends = branchData.trends || {};
+
+  if (summary.avg_duration_seconds !== undefined) {
+    const avgDur = summary.avg_duration_seconds || 0;
     const mins = Math.floor(avgDur / 60);
     const secs = avgDur % 60;
     const displayText = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
@@ -258,8 +270,8 @@ function renderCharts(data) {
     if (avgEl) avgEl.textContent = `Avg: ${displayText}`;
   }
 
-  if (data.avg_test_coverage !== undefined) {
-    const coverage = data.avg_test_coverage;
+  if (quality.avg_test_coverage !== undefined) {
+    const coverage = quality.avg_test_coverage;
     const el = document.getElementById('coverageValue');
     const badge = document.getElementById('coverageAvgBadge');
     if (coverage === null || coverage === undefined) {
@@ -271,16 +283,16 @@ function renderCharts(data) {
     }
   }
 
-  if (data.failure_rate_by_stage && Object.keys(data.failure_rate_by_stage).length > 0) {
-    renderStageFailureChart(data.failure_rate_by_stage);
+  if (stages.failure_rate && Object.keys(stages.failure_rate).length > 0) {
+    renderStageFailureChart(stages.failure_rate);
   }
 
-  if (Array.isArray(data.coverage_trend)) {
-    renderCoverageTrend(data.coverage_trend);
+  if (Array.isArray(trends.coverage)) {
+    renderCoverageTrend(trends.coverage);
   }
 
-  if (Array.isArray(data.junit_trend)) {
-    renderJUnitTrend(data.junit_trend);
+  if (Array.isArray(trends.junit)) {
+    renderJUnitTrend(trends.junit);
   }
 }
 
@@ -618,8 +630,12 @@ async function loadPipelineKPIs() {
   try {
     const url = document.body.dataset.pipelineKpisUrl;
     const data = await (await fetch(url)).json();
+    const branchData = getSelectedBranchPayload(data);
+    const summary = branchData.summary || {};
+    const builds = branchData.builds || [];
+    const trendBuilds = (branchData.trends || {}).builds || [];
 
-    if (!data.connected || !data.builds || !data.builds.length) {
+    if (!data.connected || !builds.length) {
       if (typeof clearStatRow === 'function') clearStatRow();
       document.getElementById('buildTimeline').innerHTML =
         '<div class="tl-empty">No build data — check Jenkins connection.</div>';
@@ -627,39 +643,47 @@ async function loadPipelineKPIs() {
     }
 
     if (typeof updateStatRow === 'function') {
-      updateStatRow(data);
+      updateStatRow(summary);
     }
 
-    if (data.avg_duration_ms) {
-      _avgDurationMs = data.avg_duration_ms;
+    if (summary.avg_duration_ms) {
+      _avgDurationMs = summary.avg_duration_ms;
     } else {
-      const durs = data.builds.filter(b => b.result && b.duration > 0).map(b => b.duration * 1000);
+      const durs = builds
+        .filter(b => b.result && b.duration_seconds > 0)
+        .map(b => b.duration_ms || (b.duration_seconds * 1000));
       if (durs.length) {
         _avgDurationMs = Math.round(durs.reduce((a, b) => a + b, 0) / durs.length);
       }
     }
 
-    const finished = data.builds.filter(b => b.result !== null);
+    const finished = builds.filter(b => b.result !== null);
     const success = finished.filter(b => b.result === 'SUCCESS').length;
-    const rate = data.success_rate ?? (finished.length > 0 ? Math.round(success / finished.length * 100) : 0);
+    const rate = summary.success_rate ?? (finished.length > 0 ? Math.round(success / finished.length * 100) : 0);
 
-    updateCircle('healthCircle', 'health-val', 'health-badge', data.health_score || 0);
+    updateCircle('healthCircle', 'health-val', 'health-badge', summary.health_score || 0);
     updateCircle('rateCircle', 'rate-val', 'rate-badge', rate);
 
     const latestBuildTag = document.getElementById('latestBuildTag');
-    if (latestBuildTag && data.last_build_number) {
-      latestBuildTag.textContent = '#' + data.last_build_number;
+    if (latestBuildTag && summary.last_build_number) {
+      latestBuildTag.textContent = '#' + summary.last_build_number;
     }
 
-    _allBuilds = data.builds;
+    _allBuilds = builds.map(b => ({
+      ...b,
+      duration: b.duration_seconds ?? 0,
+    }));
     if (typeof renderLatestBuildsChart === 'function') {
-      const trendFinished = (data.build_trend || []).filter(b => b.result !== null);
+      const trendFinished = trendBuilds.filter(b => b.result !== null).map(b => ({
+        ...b,
+        duration: b.duration_seconds ?? 0,
+      }));
       renderLatestBuildsChart(trendFinished);
     }
     renderTimeline();
-    renderCharts(data);
+    renderCharts(branchData);
 
-    const hasRunning = data.builds.some(b => b.result === null);
+    const hasRunning = builds.some(b => b.result === null);
     if (hasRunning && !_pollHandle) {
       _pollHandle = setInterval(loadPipelineKPIs, POLL_MS);
     } else if (!hasRunning && _pollHandle) {
