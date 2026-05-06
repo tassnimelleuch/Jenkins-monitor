@@ -16,6 +16,7 @@ from services.user_account_service import (
     normalize_role,
     role_matches,
 )
+from services.access_service import can_view_chart
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -68,11 +69,13 @@ def home():
 @app.context_processor
 def inject_pending_count():
     branch_name = (app.config.get('JENKINS_BRANCH') or 'main').strip() or 'main'
+    current_role = session.get('role')
     context = {
         'pipeline_name': _display_pipeline_name(app.config.get('JENKINS_JOB'), branch_name),
         'branch_name': branch_name,
+        'can_view_chart': lambda chart_key, role=current_role: can_view_chart(role, chart_key),
     }
-    if session.get('role') == 'admin':
+    if current_role == 'admin':
         context['pending_count'] = get_pending_count()
     return context
 

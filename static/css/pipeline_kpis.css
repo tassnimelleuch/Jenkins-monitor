@@ -251,6 +251,9 @@ body[data-page="pipeline-kpis"] .kpi-row {
   max-width:none;
   justify-self:stretch;
 }
+.pipeline-coverage-card-full{
+  grid-column:1 / -1;
+}
 .pipeline-duration-toolbar{
   display:flex;
   align-items:center;

@@ -176,6 +176,17 @@
     line-height:1.5;
     color:var(--text2);
 }
+.overview-role-info{
+    background:
+        linear-gradient(135deg, rgba(0,219,160,.12), rgba(58,184,248,.08)),
+        var(--bg2);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:18px 20px;
+    margin-bottom:14px;
+    animation:fadeUp .5s ease both;
+    animation-delay:.35s;
+}
 
 /* ── CHARTS ── */
 .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}

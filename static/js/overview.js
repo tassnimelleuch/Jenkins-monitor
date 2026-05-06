@@ -23,6 +23,10 @@ function fmtDate(ts) {
         date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function currentUserCanManageBuilds() {
+    return (document.body.dataset.userRole || '').toLowerCase() === 'admin';
+}
+
 function showOverviewSegTip(el, name, dur, stcls, sttext) {
     if (!_overviewSegTip) return;
 
@@ -110,13 +114,16 @@ function buildOverviewHistoryRowHtml(build) {
     const minutes = Math.floor(elapsedSeconds / 60);
     const seconds = elapsedSeconds % 60;
     const durText = isRunning ? `${minutes}m ${String(seconds).padStart(2, '0')}s` : '';
+    const abortButton = currentUserCanManageBuilds()
+        ? `<button class="br-abort" onclick="event.stopPropagation();confirmAbort(${build.number})" title="Abort build #${build.number}">
+             <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+           </button>`
+        : '';
     const resultCell = isRunning
         ? `<div>
              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                <span class="br-result run">${historyResultLabel(build.result)}</span>
-               <button class="br-abort" onclick="event.stopPropagation();confirmAbort(${build.number})" title="Abort build #${build.number}">
-                 <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-               </button>
+               ${abortButton}
              </div>
              <div style="font-size:9.5px;font-family:'JetBrains Mono',monospace;color:var(--text2);margin-top:4px;" id="brdur-${build.number}">${durText}</div>
              <div class="br-console">↗ console</div>
@@ -266,6 +273,23 @@ function clearOverviewHistoryCharts() {
     }
 }
 
+function hasOverviewLatestBuildsChart() {
+    return Boolean(document.getElementById('barsWrap'));
+}
+
+function hasOverviewTrendChart() {
+    return Boolean(
+        document.getElementById('trendSuccessLine') &&
+        document.getElementById('trendFailLine') &&
+        document.getElementById('trendDots') &&
+        document.getElementById('trendXLabels')
+    );
+}
+
+function hasOverviewHistoryTimeline() {
+    return Boolean(document.getElementById('overviewBuildTimeline'));
+}
+
 async function loadKPIs() {
     try {
         const res = await fetch(document.body.dataset.kpisUrl);
@@ -297,8 +321,10 @@ async function loadKPIs() {
 
         const hasRunning = trend.some(build => build.result === null);
         if (hasRunning && !_runningStagesHandle) {
-            _runningStagesHandle = setInterval(pollRunningStages, 2000);
-            pollRunningStages();
+            if (hasOverviewHistoryTimeline()) {
+                _runningStagesHandle = setInterval(pollRunningStages, 2000);
+                pollRunningStages();
+            }
         } else if (!hasRunning && _runningStagesHandle) {
             clearInterval(_runningStagesHandle);
             _runningStagesHandle = null;
@@ -314,14 +340,18 @@ async function loadKPIs() {
             b => b.result !== null && _isWithinLast24Hours(b, now)
         );
         if (finishedLast24h.length > 0) {
-            renderBarChart(finishedLast24h);
-            renderTrendChart(finishedLast24h);
+            if (hasOverviewLatestBuildsChart()) renderBarChart(finishedLast24h);
+            if (hasOverviewTrendChart()) renderTrendChart(finishedLast24h);
         } else {
             clearOverviewHistoryCharts();
         }
 
-        _overviewHistoryBuilds = historyLast24h;
-        renderOverviewHistory();
+        if (hasOverviewHistoryTimeline()) {
+            _overviewHistoryBuilds = historyLast24h;
+            renderOverviewHistory();
+        } else {
+            clearOverviewHistory();
+        }
     } catch (e) {
         console.error('KPI fetch error:', e);
     }
@@ -363,6 +393,17 @@ function updateActiveBuilds(runningCount, builds) {
         const m          = Math.floor(elapsedSec / 60);
         const s          = elapsedSec % 60;
 
+        const abortButton = currentUserCanManageBuilds()
+            ? `<button class="bl-abort"
+                    onclick="confirmAbort(${b.number})"
+                    title="Abort build #${b.number}">
+                    <svg viewBox="0 0 24 24">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>`
+            : '';
+
         const div = document.createElement('div');
         div.className = 'build-line';
         div.id        = 'bl-' + b.number;
@@ -371,14 +412,7 @@ function updateActiveBuilds(runningCount, builds) {
                 <div class="bl-id">#${b.number}</div>
                 <div class="bl-meta">
                     <div class="bl-duration" id="bl-${b.number}-dur">${m}m ${String(s).padStart(2,'0')}s</div>
-                    <button class="bl-abort"
-                        onclick="confirmAbort(${b.number})"
-                        title="Abort build #${b.number}">
-                        <svg viewBox="0 0 24 24">
-                            <line x1="18" y1="6" x2="6" y2="18"/>
-                            <line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
-                    </button>
+                    ${abortButton}
                     <a class="bl-console-btn"
                        href="/console/${b.number}"
                        target="_blank"
@@ -446,6 +480,7 @@ function toggleBuild() {
 
 // SVG TREND CHART
 function renderTrendChart(builds) {
+    if (!hasOverviewTrendChart()) return;
     const sorted = [...builds].reverse();
     const n      = sorted.length;
     if (n === 0) return;

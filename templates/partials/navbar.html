@@ -10,7 +10,9 @@
 
     <div class="topbar-actions">
         {% block topbar_actions %}
+        {% if role == 'admin' %}
         <button class="btn btn-green" id="startStopBtn" onclick="toggleBuild()">▶ Start Build</button>
+        {% endif %}
         <button class="btn btn-export" onclick="exportPDF()">↓ Export PDF</button>
         {% endblock %}
     </div>

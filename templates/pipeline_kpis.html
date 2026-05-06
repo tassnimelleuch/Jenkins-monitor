@@ -14,6 +14,15 @@
 {% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-vm-metrics-url="{{ url_for('pipeline_kpis.vm_metrics_api') }}" data-page="pipeline-kpis"{% endblock %}
 
 {% block page_content %}
+{% set show_pipeline_duration = can_view_chart('pipeline_duration') %}
+{% set show_pipeline_stage_failure = can_view_chart('pipeline_stage_failure') %}
+{% set show_pipeline_coverage = can_view_chart('pipeline_coverage') %}
+{% set show_pipeline_junit = can_view_chart('pipeline_junit') %}
+{% set show_vm_cpu = can_view_chart('vm_cpu') %}
+{% set show_vm_ram = can_view_chart('vm_ram') %}
+{% set show_vm_network = can_view_chart('vm_network') %}
+{% set show_vm_disk = can_view_chart('vm_disk') %}
+{% set coverage_only_view = show_pipeline_coverage and not show_pipeline_duration and not show_pipeline_stage_failure and not show_pipeline_junit %}
 
 <!-- Legacy build-history tooltip kept for later rollback.
 <div class="seg-tip" id="segTip">
@@ -76,6 +85,7 @@
   {{ latest_builds_chart() }}
   #}
 
+  {% if show_pipeline_duration %}
   <div class="chart-card pipeline-duration-card">
     <div class="chart-hdr">
       <div>
@@ -97,15 +107,19 @@
       <canvas id="pipelineGroupedDurationChart"></canvas>
     </div>
   </div>
+  {% endif %}
 
+  {% if show_pipeline_stage_failure %}
   <div class="chart-card pipeline-stage-card">
     <div class="pipeline-section-title">Failure Rate by Stage</div>
     <div id="stageFailureChart" class="pipeline-stage-chart">
       <div style="height:8px;background:var(--bg3);border-radius:4px;flex:1;"></div>
     </div>
   </div>
+  {% endif %}
 
-  <div class="chart-card pipeline-coverage-card">
+  {% if show_pipeline_coverage %}
+  <div class="chart-card pipeline-coverage-card{% if coverage_only_view %} pipeline-coverage-card-full{% endif %}">
     <div class="chart-hdr">
       <div>
         <div class="chart-title">Coverage Trend</div>
@@ -124,7 +138,9 @@
       <canvas id="coverageTrendChart"></canvas>
     </div>
   </div>
+  {% endif %}
 
+  {% if show_pipeline_junit %}
   <div class="chart-card pipeline-junit-card">
     <div class="chart-hdr">
       <div>
@@ -137,17 +153,21 @@
       <canvas id="junitTrendChart"></canvas>
     </div>
   </div>
+  {% endif %}
 
   
 </div>
 
 {% set vm_metrics_cards = [
-  {'title': 'VM CPU', 'sub': 'CPU usage over time', 'badge_class': '', 'badge_id': 'vmCpuBadge', 'badge_text': '--', 'canvas_id': 'vmCpuChart'},
-  {'title': 'VM RAM', 'sub': 'Memory usage over time', 'badge_class': 'cbadge-b', 'badge_id': 'vmRamBadge', 'badge_text': '--', 'canvas_id': 'vmRamChart'},
-  {'title': 'VM Network Traffic', 'sub': 'Inbound and outbound traffic', 'badge_class': 'cbadge-g', 'badge_id': 'vmNetBadge', 'badge_text': '--', 'canvas_id': 'vmNetChart'},
-  {'title': 'VM Disk Space', 'sub': 'Disk usage over time', 'badge_class': 'cbadge-o', 'badge_id': 'vmDiskBadge', 'badge_text': '--', 'canvas_id': 'vmDiskChart'}
+  {'title': 'VM CPU', 'sub': 'CPU usage over time', 'badge_class': '', 'badge_id': 'vmCpuBadge', 'badge_text': '--', 'canvas_id': 'vmCpuChart'} if show_vm_cpu else none,
+  {'title': 'VM RAM', 'sub': 'Memory usage over time', 'badge_class': 'cbadge-b', 'badge_id': 'vmRamBadge', 'badge_text': '--', 'canvas_id': 'vmRamChart'} if show_vm_ram else none,
+  {'title': 'VM Network Traffic', 'sub': 'Inbound and outbound traffic', 'badge_class': 'cbadge-g', 'badge_id': 'vmNetBadge', 'badge_text': '--', 'canvas_id': 'vmNetChart'} if show_vm_network else none,
+  {'title': 'VM Disk Space', 'sub': 'Disk usage over time', 'badge_class': 'cbadge-o', 'badge_id': 'vmDiskBadge', 'badge_text': '--', 'canvas_id': 'vmDiskChart'} if show_vm_disk else none
 ] %}
+{% set vm_metrics_cards = vm_metrics_cards | reject('none') | list %}
+{% if vm_metrics_cards %}
 {{ metrics_grid('', '', vm_metrics_cards) }}
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

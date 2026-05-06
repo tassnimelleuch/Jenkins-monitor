@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
     {% block extra_css %}{% endblock %}
 </head>
-<body data-pipeline-name="{{ pipeline_name }}" data-branch-name="{{ branch_name }}" {% block body_attrs %}{% endblock %}>
+<body data-pipeline-name="{{ pipeline_name }}" data-branch-name="{{ branch_name }}" data-user-role="{{ role or '' }}" {% block body_attrs %}{% endblock %}>
 
     {% include 'partials/sidebar.html' %}
 

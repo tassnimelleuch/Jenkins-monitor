@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 {% block page_content %}
+{% set show_overview_latest_builds = can_view_chart('overview_latest_builds') %}
+{% set show_overview_build_trend = can_view_chart('overview_build_trend') %}
+{% set show_overview_build_history = can_view_chart('overview_build_history') %}
+{% set show_overview_charts = show_overview_latest_builds or show_overview_build_trend or show_overview_build_history %}
 
 <div id="disconnectedBanner" class="disconnected-banner">
     <svg viewBox="0 0 24 24">
@@ -38,15 +42,27 @@
     </div>
 </div>
 
+{% if show_overview_charts %}
 <div class="overview-24h-info">
     <div class="overview-24h-eyebrow">Last 24 Hours</div>
     <div class="overview-24h-title">The charts below are filtered to builds from the last 24 hours.</div>
  
 </div>
+{% else %}
+<div class="overview-role-info">
+    <div class="overview-24h-eyebrow">Coverage Access</div>
+    <div class="overview-24h-title">Tester accounts only see the Coverage Trend chart on the Pipeline KPIs page.</div>
+    <div class="overview-24h-copy">The overview layout stays available, but build charts are hidden for this role.</div>
+</div>
+{% endif %}
 
+{% if show_overview_latest_builds or show_overview_build_trend %}
 <div class="charts-grid">
+    {% if show_overview_latest_builds %}
     {{ latest_builds_chart() }}
+    {% endif %}
 
+    {% if show_overview_build_trend %}
     <div class="chart-card">
         <div class="chart-hdr">
             <div>
@@ -77,8 +93,11 @@
             <div class="leg-item"><span class="leg-dot" style="background:var(--red)"></span>Failure</div>
         </div>
     </div>
+    {% endif %}
 </div>
+{% endif %}
 
+{% if show_overview_build_history %}
 <div class="overview-history-card">
     <div class="overview-timeline-hdr">
         <div>
@@ -102,6 +121,7 @@
         <div class="overview-tl-empty">No builds in the last 24 hours.</div>
     </div>
 </div>
+{% endif %}
 
 {% endblock %}
 

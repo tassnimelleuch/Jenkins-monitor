@@ -56,6 +56,10 @@ function fmtDate(ts) {
          d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function currentUserCanManageBuilds() {
+  return (document.body.dataset.userRole || '').toLowerCase() === 'admin';
+}
+
 function segCls(status) {
   if (!status || status === 'IN_PROGRESS') return 'run';
   if (status === 'SUCCESS') return 'ok';
@@ -141,14 +145,17 @@ function buildRowHtml(b) {
   const runBar = isRunning
     ? `<div class="run-bar"><div class="run-bar-fill" id="rb-${b.number}" style="width:${pct}%"></div></div>`
     : '';
+  const abortButton = currentUserCanManageBuilds()
+    ? `<button class="br-abort" onclick="event.stopPropagation();confirmAbort(${b.number})" title="Abort build #${b.number}">
+         <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+       </button>`
+    : '';
 
   const resultCell = isRunning
     ? `<div>
          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
            <span class="br-result run">${pipelineResultLabel(b.result)}</span>
-           <button class="br-abort" onclick="event.stopPropagation();confirmAbort(${b.number})" title="Abort build #${b.number}">
-             <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-           </button>
+           ${abortButton}
          </div>
          <div style="font-size:9.5px;font-family:'JetBrains Mono',monospace;color:var(--text2);margin-top:4px;" id="brdur-${b.number}">${durText}</div>
          <div class="br-console">↗ console</div>
@@ -1225,6 +1232,16 @@ async function loadVmMetrics() {
   }
 }
 
-// Poll every 30 s
-loadVmMetrics();
-setInterval(loadVmMetrics, 30_000);
+function hasVmMetricCharts() {
+  return Boolean(
+    document.getElementById('vmCpuChart') ||
+    document.getElementById('vmRamChart') ||
+    document.getElementById('vmNetChart') ||
+    document.getElementById('vmDiskChart')
+  );
+}
+
+if (hasVmMetricCharts()) {
+  loadVmMetrics();
+  setInterval(loadVmMetrics, 30_000);
+}
