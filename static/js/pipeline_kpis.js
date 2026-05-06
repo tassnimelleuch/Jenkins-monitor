@@ -9,11 +9,20 @@ let _activeTimers = {};
 let _pollHandle = null;
 let _slowHandle = null;
 let _stagesHandle = null;
+let _durationGrouping = 'week';
+let _durationSourceBuilds = [];
+let _groupedDurationChart = null;
+let _coverageGrouping = 'week';
+let _coverageSourcePoints = [];
 
+// Legacy build-history helpers are intentionally kept in this file for
+// possible rollback, even though the current page no longer renders the
+// Build History timeline.
 // ── TOOLTIP
 const _tip = document.getElementById('segTip');
 
 function showSegTip(el, name, dur, stcls, sttext) {
+  if (!_tip) return;
   document.getElementById('stName').textContent = name;
   document.getElementById('stDur').textContent = dur || '';
   const st = document.getElementById('stStatus');
@@ -35,6 +44,7 @@ function showSegTip(el, name, dur, stcls, sttext) {
 }
 
 function hideSegTip() {
+  if (!_tip) return;
   _tip.classList.remove('show');
 }
 
@@ -253,6 +263,354 @@ function getSelectedBranchPayload(data) {
   return branches[selectedBranch] || {};
 }
 
+function formatPeriodDuration(ms) {
+  return fmtDur(ms || 0);
+}
+
+function buildDurationMs(build) {
+  return build.duration_ms ?? build.duration ?? ((build.duration_seconds ?? 0) * 1000);
+}
+
+function startOfWeek(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function endOfWeek(start) {
+  const d = new Date(start);
+  d.setDate(d.getDate() + 6);
+  return d;
+}
+
+function formatShortDate(date) {
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatMonthLabel(date) {
+  return date.toLocaleDateString([], { month: 'short', year: 'numeric' });
+}
+
+function buildGroupKey(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+function buildDurationGroups(builds, grouping) {
+  const grouped = new Map();
+  const finished = (builds || []).filter(build =>
+    build.result !== null &&
+    build.timestamp &&
+    buildDurationMs(build) > 0
+  );
+
+  finished.forEach(build => {
+    const buildDate = new Date(build.timestamp);
+    const start = grouping === 'month'
+      ? new Date(buildDate.getFullYear(), buildDate.getMonth(), 1)
+      : startOfWeek(buildDate);
+    start.setHours(0, 0, 0, 0);
+
+    const key = buildGroupKey(start);
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        startMs: start.getTime(),
+        buildCount: 0,
+        totalDurationMs: 0,
+      });
+    }
+
+    const group = grouped.get(key);
+    group.buildCount += 1;
+    group.totalDurationMs += buildDurationMs(build);
+  });
+
+  const groups = Array.from(grouped.values())
+    .sort((a, b) => a.startMs - b.startMs)
+    .map(group => {
+      const start = new Date(group.startMs);
+      const avgDurationMs = Math.round(group.totalDurationMs / group.buildCount);
+      const end = grouping === 'month'
+        ? new Date(start.getFullYear(), start.getMonth() + 1, 0)
+        : endOfWeek(start);
+
+      return {
+        ...group,
+        avgDurationMs,
+        label: grouping === 'month' ? formatMonthLabel(start) : formatShortDate(start),
+        detailLabel: grouping === 'month'
+          ? formatMonthLabel(start)
+          : `${formatShortDate(start)} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`,
+      };
+    });
+
+  const totalDurationMs = finished.reduce((sum, build) => sum + buildDurationMs(build), 0);
+  const overallAvgMs = finished.length ? Math.round(totalDurationMs / finished.length) : 0;
+
+  return {
+    groups,
+    finishedBuildCount: finished.length,
+    overallAvgMs,
+  };
+}
+
+function clearGroupedDurationChart(message = 'No finished build data available') {
+  const canvas = document.getElementById('pipelineGroupedDurationChart');
+  const summary = document.getElementById('pipelineDurationSummary');
+  const avgBadge = document.getElementById('latestBuildsAvg');
+  if (!canvas) return;
+
+  if (_groupedDurationChart) {
+    _groupedDurationChart.destroy();
+    _groupedDurationChart = null;
+  }
+
+  canvas.style.display = 'none';
+  const container = canvas.parentElement;
+  if (!container.querySelector('.chart-empty')) {
+    const empty = document.createElement('div');
+    empty.className = 'chart-empty';
+    empty.textContent = message;
+    container.appendChild(empty);
+  }
+
+  if (summary) summary.innerHTML = '';
+  if (avgBadge) avgBadge.textContent = 'Avg —';
+}
+
+function renderGroupedDurationChart(builds) {
+  const canvas = document.getElementById('pipelineGroupedDurationChart');
+  if (!canvas) return;
+  const container = canvas.parentElement;
+  const summary = document.getElementById('pipelineDurationSummary');
+  const subtitle = document.getElementById('pipelineDurationSub');
+  const avgBadge = document.getElementById('latestBuildsAvg');
+
+  const existingEmpty = container.querySelector('.chart-empty');
+  if (existingEmpty) existingEmpty.remove();
+
+  const { groups, finishedBuildCount, overallAvgMs } = buildDurationGroups(builds, _durationGrouping);
+  const periodLabel = _durationGrouping === 'month' ? 'month' : 'week';
+  const periodLabelPlural = _durationGrouping === 'month' ? 'months' : 'weeks';
+
+  if (subtitle) {
+    subtitle.textContent = `Average duration grouped by ${periodLabel}`;
+  }
+
+  if (!groups.length) {
+    clearGroupedDurationChart(`No finished builds available for ${periodLabel} grouping`);
+    return;
+  }
+
+  if (summary) {
+    summary.innerHTML =
+      `<span class="pipeline-duration-pill"><strong>${groups.length}</strong> ${periodLabelPlural}</span>` +
+      `<span class="pipeline-duration-pill"><strong>${finishedBuildCount}</strong> finished builds</span>` +
+      `<span class="pipeline-duration-pill"><strong>${formatPeriodDuration(groups[groups.length - 1].avgDurationMs)}</strong> latest ${periodLabel} avg</span>`;
+  }
+
+  if (avgBadge) {
+    avgBadge.textContent = `Avg: ${formatPeriodDuration(overallAvgMs)}`;
+  }
+
+  canvas.style.display = 'block';
+  if (_groupedDurationChart) {
+    _groupedDurationChart.destroy();
+    _groupedDurationChart = null;
+  }
+
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#9c9a92' : '#73726c';
+  const labelColor = isDark ? '#c2c0b6' : '#3d3d3a';
+
+  _groupedDurationChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: groups.map(group => group.label),
+      datasets: [{
+        label: `Average duration per ${periodLabel}`,
+        data: groups.map(group => group.avgDurationMs),
+        backgroundColor: 'rgba(58,184,248,0.72)',
+        borderColor: '#3ab8f8',
+        borderWidth: 1,
+        borderRadius: 6,
+        borderSkipped: false,
+        hoverBackgroundColor: 'rgba(58,184,248,0.88)',
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title(items) {
+              const group = groups[items[0].dataIndex];
+              return group.detailLabel;
+            },
+            label(ctx) {
+              return ` Avg duration: ${formatPeriodDuration(ctx.raw)}`;
+            },
+            afterLabel(ctx) {
+              const group = groups[ctx.dataIndex];
+              return ` Builds: ${group.buildCount}`;
+            }
+          },
+          backgroundColor: isDark ? '#2c2c2a' : '#fff',
+          titleColor: labelColor,
+          bodyColor: textColor,
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+          borderWidth: 0.5,
+          padding: 10,
+          cornerRadius: 8
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: {
+            color: textColor,
+            font: { size: 10 },
+            maxRotation: 0,
+            minRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 8,
+          }
+        },
+        y: {
+          grid: { color: gridColor, drawTicks: false },
+          border: { display: false },
+          ticks: {
+            color: textColor,
+            font: { size: 10 },
+            callback: value => formatPeriodDuration(Number(value)),
+            maxTicksLimit: 6,
+          }
+        }
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' }
+    }
+  });
+}
+
+function updateDurationGroupingButtons() {
+  document.querySelectorAll('.pipeline-duration-btn').forEach(button => {
+    button.classList.toggle('active', button.dataset.group === _durationGrouping);
+  });
+}
+
+function setDurationGrouping(grouping) {
+  if (grouping !== 'week' && grouping !== 'month') return;
+  _durationGrouping = grouping;
+  updateDurationGroupingButtons();
+  renderGroupedDurationChart(_durationSourceBuilds);
+}
+
+function buildCoverageGroups(points, grouping) {
+  const grouped = new Map();
+  const validPoints = (points || []).filter(point =>
+    typeof point.coverage === 'number' &&
+    point.timestamp
+  );
+
+  validPoints.forEach(point => {
+    const pointDate = new Date(point.timestamp);
+    const start = grouping === 'month'
+      ? new Date(pointDate.getFullYear(), pointDate.getMonth(), 1)
+      : startOfWeek(pointDate);
+    start.setHours(0, 0, 0, 0);
+
+    const key = buildGroupKey(start);
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        startMs: start.getTime(),
+        sampleCount: 0,
+        totalCoverage: 0,
+      });
+    }
+
+    const group = grouped.get(key);
+    group.sampleCount += 1;
+    group.totalCoverage += point.coverage;
+  });
+
+  const groups = Array.from(grouped.values())
+    .sort((a, b) => a.startMs - b.startMs)
+    .map(group => {
+      const start = new Date(group.startMs);
+      const end = grouping === 'month'
+        ? new Date(start.getFullYear(), start.getMonth() + 1, 0)
+        : endOfWeek(start);
+
+      return {
+        ...group,
+        avgCoverage: Number((group.totalCoverage / group.sampleCount).toFixed(1)),
+        label: grouping === 'month' ? formatMonthLabel(start) : formatShortDate(start),
+        detailLabel: grouping === 'month'
+          ? formatMonthLabel(start)
+          : `${formatShortDate(start)} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`,
+      };
+    });
+
+  const overallAvg = validPoints.length
+    ? Number((validPoints.reduce((sum, point) => sum + point.coverage, 0) / validPoints.length).toFixed(1))
+    : null;
+
+  return {
+    groups,
+    sampleCount: validPoints.length,
+    overallAvg,
+  };
+}
+
+function clearCoverageTrendChart(message = 'No coverage data available') {
+  const canvas = document.getElementById('coverageTrendChart');
+  const badge = document.getElementById('coverageAvgBadge');
+  const summary = document.getElementById('coverageTrendSummary');
+  if (!canvas) return;
+
+  if (window._coverageChart) {
+    window._coverageChart.destroy();
+    window._coverageChart = null;
+  }
+
+  canvas.style.display = 'none';
+  const container = canvas.parentElement;
+  if (!container.querySelector('.chart-empty')) {
+    const empty = document.createElement('div');
+    empty.className = 'chart-empty';
+    empty.textContent = message;
+    container.appendChild(empty);
+  }
+
+  if (summary) summary.innerHTML = '';
+  if (badge) badge.textContent = 'Avg —%';
+}
+
+function updateCoverageGroupingButtons() {
+  document.querySelectorAll('.pipeline-coverage-btn').forEach(button => {
+    button.classList.toggle('active', button.dataset.coverageGroup === _coverageGrouping);
+  });
+}
+
+function setCoverageGrouping(grouping) {
+  if (grouping !== 'week' && grouping !== 'month') return;
+  _coverageGrouping = grouping;
+  updateCoverageGroupingButtons();
+  renderCoverageTrend(_coverageSourcePoints);
+}
+
 function renderCharts(branchData) {
   const summary = branchData.summary || {};
   const stages = branchData.stages || {};
@@ -267,10 +625,10 @@ function renderCharts(branchData) {
     const el = document.getElementById('avgDurationValue');
     if (el) el.textContent = displayText;
     const avgEl = document.getElementById('latestBuildsAvg');
-    if (avgEl) avgEl.textContent = `Avg: ${displayText}`;
+    if (avgEl) avgEl.textContent = avgDur > 0 ? `Avg: ${displayText}` : 'Avg —';
   }
 
-  if (quality.avg_test_coverage !== undefined) {
+    if (quality.avg_test_coverage !== undefined) {
     const coverage = quality.avg_test_coverage;
     const el = document.getElementById('coverageValue');
     const badge = document.getElementById('coverageAvgBadge');
@@ -391,23 +749,21 @@ function renderCoverageTrend(coverageTrend) {
   const canvas = document.getElementById('coverageTrendChart');
   if (!canvas) return;
   const container = canvas.parentElement;
+  const subtitle = document.getElementById('coverageTrendSub');
+  const badge = document.getElementById('coverageAvgBadge');
+  const summary = document.getElementById('coverageTrendSummary');
+  const periodLabel = _coverageGrouping === 'month' ? 'month' : 'week';
+  const periodLabelPlural = _coverageGrouping === 'month' ? 'months' : 'weeks';
 
-  const points = coverageTrend
-    .filter(p => typeof p.coverage === 'number')
-    .map(p => ({ label: `#${p.number}`, value: p.coverage }));
+  _coverageSourcePoints = Array.isArray(coverageTrend) ? coverageTrend : [];
+  const { groups, sampleCount, overallAvg } = buildCoverageGroups(_coverageSourcePoints, _coverageGrouping);
 
-  if (!points.length) {
-    if (window._coverageChart) {
-      window._coverageChart.destroy();
-      window._coverageChart = null;
-    }
-    canvas.style.display = 'none';
-    if (!container.querySelector('.chart-empty')) {
-      const empty = document.createElement('div');
-      empty.className = 'chart-empty';
-      empty.textContent = 'No coverage data available';
-      container.appendChild(empty);
-    }
+  if (subtitle) {
+    subtitle.textContent = `Average coverage grouped by ${periodLabel}`;
+  }
+
+  if (!groups.length) {
+    clearCoverageTrendChart(`No coverage data available for ${periodLabel} grouping`);
     return;
   }
 
@@ -426,12 +782,22 @@ function renderCoverageTrend(coverageTrend) {
     window._coverageChart = null;
   }
 
+  if (summary) {
+    summary.innerHTML =
+      `<span class="pipeline-duration-pill"><strong>${groups.length}</strong> ${periodLabelPlural}</span>` +
+      `<span class="pipeline-duration-pill"><strong>${sampleCount}</strong> coverage points</span>` +
+      `<span class="pipeline-duration-pill"><strong>${groups[groups.length - 1].avgCoverage.toFixed(1)}%</strong> latest ${periodLabel} avg</span>`;
+  }
+  if (badge) {
+    badge.textContent = overallAvg === null ? 'Avg —%' : `Avg ${overallAvg.toFixed(1)}%`;
+  }
+
   window._coverageChart = new Chart(canvas, {
     type: 'line',
     data: {
-      labels: points.map(p => p.label),
+      labels: groups.map(group => group.label),
       datasets: [{
-        data: points.map(p => p.value),
+        data: groups.map(group => group.avgCoverage),
         borderColor: lineColor,
         backgroundColor: fillColor,
         fill: true,
@@ -448,7 +814,17 @@ function renderCoverageTrend(coverageTrend) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          callbacks: { label: ctx => ` ${ctx.raw.toFixed(1)}% coverage` },
+          callbacks: {
+            title(items) {
+              const group = groups[items[0].dataIndex];
+              return group.detailLabel;
+            },
+            label: ctx => ` Avg coverage: ${ctx.raw.toFixed(1)}%`,
+            afterLabel(ctx) {
+              const group = groups[ctx.dataIndex];
+              return ` Builds: ${group.sampleCount}`;
+            }
+          },
           backgroundColor: isDark ? '#2c2c2a' : '#fff',
           titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
           bodyColor: textColor,
@@ -462,7 +838,7 @@ function renderCoverageTrend(coverageTrend) {
         x: {
           grid: { color: gridColor, drawTicks: false },
           border: { display: false },
-          ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 6 }
+          ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 8 }
         },
         y: {
           min: 0,
@@ -633,12 +1009,19 @@ async function loadPipelineKPIs() {
     const branchData = getSelectedBranchPayload(data);
     const summary = branchData.summary || {};
     const builds = branchData.builds || [];
+    /*
+    Legacy timeline/latest-builds path kept for later rollback:
     const trendBuilds = (branchData.trends || {}).builds || [];
+    */
 
     if (!data.connected || !builds.length) {
       if (typeof clearStatRow === 'function') clearStatRow();
+      clearGroupedDurationChart('No build data available');
+      /*
+      Legacy empty state:
       document.getElementById('buildTimeline').innerHTML =
         '<div class="tl-empty">No build data — check Jenkins connection.</div>';
+      */
       return;
     }
 
@@ -669,18 +1052,26 @@ async function loadPipelineKPIs() {
       latestBuildTag.textContent = '#' + summary.last_build_number;
     }
 
+    _durationSourceBuilds = builds.map(b => ({
+      ...b,
+      duration: b.duration_ms ?? ((b.duration_seconds ?? 0) * 1000),
+    }));
+    renderGroupedDurationChart(_durationSourceBuilds);
+    /*
+    Legacy latest-builds + timeline rendering kept for later rollback:
     _allBuilds = builds.map(b => ({
       ...b,
-      duration: b.duration_seconds ?? 0,
+      duration: b.duration_ms ?? ((b.duration_seconds ?? 0) * 1000),
     }));
     if (typeof renderLatestBuildsChart === 'function') {
       const trendFinished = trendBuilds.filter(b => b.result !== null).map(b => ({
         ...b,
-        duration: b.duration_seconds ?? 0,
+        duration: b.duration_ms ?? ((b.duration_seconds ?? 0) * 1000),
       }));
       renderLatestBuildsChart(trendFinished);
     }
     renderTimeline();
+    */
     renderCharts(branchData);
 
     const hasRunning = builds.some(b => b.result === null);
@@ -690,14 +1081,15 @@ async function loadPipelineKPIs() {
       clearInterval(_pollHandle);
       _pollHandle = null;
     }
-    
-    // Only poll running stages when there are actually running builds
+    /*
+    Legacy running-stage polling kept for later rollback:
     if (hasRunning && !_stagesHandle) {
       _stagesHandle = setInterval(pollRunningStages, 2000);
     } else if (!hasRunning && _stagesHandle) {
       clearInterval(_stagesHandle);
       _stagesHandle = null;
     }
+    */
   } catch (e) {
     console.error('Pipeline KPI error:', e);
   }
@@ -709,6 +1101,16 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.removeAttribute('onclick');
     btn.addEventListener('click', triggerBuild);
   }
+
+  document.querySelectorAll('.pipeline-duration-btn').forEach(button => {
+    button.addEventListener('click', () => setDurationGrouping(button.dataset.group));
+  });
+  updateDurationGroupingButtons();
+
+  document.querySelectorAll('.pipeline-coverage-btn').forEach(button => {
+    button.addEventListener('click', () => setCoverageGrouping(button.dataset.coverageGroup));
+  });
+  updateCoverageGroupingButtons();
 
   _slowHandle = setInterval(() => {
     if (!_pollHandle) loadPipelineKPIs();

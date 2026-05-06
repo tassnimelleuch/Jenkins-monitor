@@ -1,6 +1,5 @@
 from flask import session, jsonify, render_template
 from deployment_kpis import deployment_kpis_bp
-from models import get_pending_count
 from services.access_service import role_required
 from services.deployment_kpis_service import get_deployment_kpis
 from services.metrics_service import get_cluster_metrics

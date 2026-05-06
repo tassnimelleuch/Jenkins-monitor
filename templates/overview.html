@@ -38,6 +38,12 @@
     </div>
 </div>
 
+<div class="overview-24h-info">
+    <div class="overview-24h-eyebrow">Last 24 Hours</div>
+    <div class="overview-24h-title">The charts below are filtered to builds from the last 24 hours.</div>
+ 
+</div>
+
 <div class="charts-grid">
     {{ latest_builds_chart() }}
 
@@ -45,7 +51,7 @@
         <div class="chart-hdr">
             <div>
                 <div class="chart-title">Build Trend</div>
-                <div class="chart-sub">Recent build stability trend</div>
+                <div class="chart-sub">Build stability trend for the last 24 hours</div>
             </div>
             <div class="cbadge cbadge-g" id="trendBadge">Not enough data</div>
         </div>
@@ -73,9 +79,40 @@
     </div>
 </div>
 
+<div class="overview-history-card">
+    <div class="overview-timeline-hdr">
+        <div>
+            <div class="timeline-title">Build History</div>
+            <div class="timeline-sub">Builds from the last 24 hours. Hover a stage segment for details and click a row to open the console.</div>
+        </div>
+        <div class="overview-tl-right">
+            <span class="overview-tl-badge-run" id="overviewRunningBadge" style="display:none;"></span>
+            <button class="overview-show-more-btn" id="overviewShowMoreBtn" onclick="toggleOverviewHistoryShowMore()" style="display:none;">Show more ↓</button>
+        </div>
+    </div>
+
+    <div class="overview-tl-col-header">
+        <span>Build</span>
+        <span></span>
+        <span>Stages</span>
+        <span>Result</span>
+    </div>
+
+    <div id="overviewBuildTimeline">
+        <div class="overview-tl-empty">No builds in the last 24 hours.</div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_markup %}
+<div id="overviewSegTip" class="overview-seg-tip">
+    <div class="overview-st-name" id="overviewTipName"></div>
+    <div class="overview-st-dur" id="overviewTipDur"></div>
+    <div class="overview-st-status" id="overviewTipStatus"></div>
+    <div class="overview-st-hint">click to open console</div>
+</div>
+
 <div id="chatPanel" class="chat-panel">
     <div class="chat-head">
         <div class="chat-avatar">🤖</div>

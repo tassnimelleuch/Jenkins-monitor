@@ -2,12 +2,279 @@
 // LOAD KPIs
 let _prevRunningNumbers = new Set();
 let _avgDurationMs      = 60000;
+const LAST_24_HOURS_MS  = 24 * 60 * 60 * 1000;
+const OVERVIEW_HISTORY_INITIAL_SHOW = 5;
+
+const _overviewSegTip = document.getElementById('overviewSegTip');
+let _overviewHistoryBuilds = [];
+let _overviewHistoryShowingAll = false;
+let _overviewHistoryTimers = {};
+
+function _isWithinLast24Hours(build, now = Date.now()) {
+    const ts = Number(build?.timestamp || 0);
+    return ts > 0 && (now - ts) <= LAST_24_HOURS_MS;
+}
+
+function fmtDate(ts) {
+    if (!ts) return '';
+    const date = new Date(ts);
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+        ' ' +
+        date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function showOverviewSegTip(el, name, dur, stcls, sttext) {
+    if (!_overviewSegTip) return;
+
+    document.getElementById('overviewTipName').textContent = name;
+    document.getElementById('overviewTipDur').textContent = dur || '';
+    const statusEl = document.getElementById('overviewTipStatus');
+    statusEl.textContent = sttext;
+    statusEl.className = 'overview-st-status ' + stcls;
+    _overviewSegTip.classList.add('show');
+
+    const rect = el.getBoundingClientRect();
+    const tipWidth = _overviewSegTip.offsetWidth || 160;
+    let left = rect.left + rect.width / 2 - tipWidth / 2;
+    let top = rect.top - (_overviewSegTip.offsetHeight || 80) - 10;
+
+    if (left < 8) left = 8;
+    if (left + tipWidth > window.innerWidth - 8) left = window.innerWidth - tipWidth - 8;
+    if (top < 8) top = rect.bottom + 8;
+
+    _overviewSegTip.style.left = left + 'px';
+    _overviewSegTip.style.top = top + 'px';
+}
+
+function hideOverviewSegTip() {
+    if (_overviewSegTip) _overviewSegTip.classList.remove('show');
+}
+
+function historySegCls(status) {
+    if (!status || status === 'IN_PROGRESS') return 'run';
+    if (status === 'SUCCESS') return 'ok';
+    if (status === 'FAILED' || status === 'FAILURE') return 'fail';
+    return 'skip';
+}
+
+function historyStageStatusText(status) {
+    if (!status || status === 'IN_PROGRESS') return 'In progress';
+    if (status === 'SUCCESS') return 'Passed';
+    if (status === 'FAILED' || status === 'FAILURE') return 'Failed';
+    return status;
+}
+
+function historyDotCls(result) {
+    return !result ? 'run' : result === 'SUCCESS' ? 'pass' : result === 'FAILURE' ? 'fail' : 'abrt';
+}
+
+function historyResultCls(result) {
+    return !result ? 'run' : result === 'SUCCESS' ? 'pass' : result === 'FAILURE' ? 'fail' : 'abrt';
+}
+
+function historyResultLabel(result) {
+    if (!result) return '● Running';
+    if (result === 'SUCCESS') return '✓ Success';
+    if (result === 'FAILURE') return '✗ Failure';
+    return '⊘ ' + result;
+}
+
+function buildOverviewStageSegmentsHtml(buildNumber, stages) {
+    if (!Array.isArray(stages) || stages.length === 0) {
+        return '<span class="no-stage-txt">No stage data</span>';
+    }
+
+    return stages.map(stage => {
+        const cls = historySegCls(stage.status);
+        const tipDur = fmtDur(stage.duration_ms) || '';
+        const tipStatus = historyStageStatusText(stage.status);
+        const safeName = escapeHtml(stage.name || 'Stage');
+
+        return `<div class="seg ${cls}"
+            data-name="${safeName}"
+            data-dur="${tipDur}"
+            data-stcls="${cls}"
+            data-sttext="${tipStatus}"
+            onmouseenter="showOverviewSegTip(this,this.dataset.name,this.dataset.dur,this.dataset.stcls,this.dataset.sttext)"
+            onmouseleave="hideOverviewSegTip()"
+            onclick="event.stopPropagation();openConsole(${buildNumber})"></div>`;
+    }).join('');
+}
+
+function buildOverviewHistoryRowHtml(build) {
+    const isRunning = build.result === null;
+    const stages = Array.isArray(build.stages) ? build.stages : [];
+    const elapsedSeconds = isRunning ? Math.round((Date.now() - build.timestamp) / 1000) : 0;
+    const avgSeconds = Math.max(1, Math.round(_avgDurationMs / 1000));
+    const pct = isRunning ? Math.min(95, Math.round((elapsedSeconds / avgSeconds) * 100)) : 0;
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    const durText = isRunning ? `${minutes}m ${String(seconds).padStart(2, '0')}s` : '';
+    const resultCell = isRunning
+        ? `<div>
+             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+               <span class="br-result run">${historyResultLabel(build.result)}</span>
+               <button class="br-abort" onclick="event.stopPropagation();confirmAbort(${build.number})" title="Abort build #${build.number}">
+                 <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+               </button>
+             </div>
+             <div style="font-size:9.5px;font-family:'JetBrains Mono',monospace;color:var(--text2);margin-top:4px;" id="brdur-${build.number}">${durText}</div>
+             <div class="br-console">↗ console</div>
+           </div>`
+        : `<div>
+             <span class="br-result ${historyResultCls(build.result)}">${historyResultLabel(build.result)}</span>
+             <div style="font-size:9.5px;font-family:'JetBrains Mono',monospace;color:var(--text2);margin-top:4px;"></div>
+             <div class="br-console">↗ console</div>
+           </div>`;
+
+    return `
+        <div class="build-row ${isRunning ? 'is-running' : ''}" id="brow-${build.number}" onclick="openConsole(${build.number})">
+            <div>
+                <div class="br-num">#${build.number}</div>
+                <div class="br-date">${fmtDate(build.timestamp)}</div>
+            </div>
+            <div class="br-dot ${historyDotCls(build.result)}"></div>
+            <div class="stage-strip">${buildOverviewStageSegmentsHtml(build.number, stages)}</div>
+            ${resultCell}
+            ${isRunning ? `<div class="run-bar"><div class="run-bar-fill" id="rb-${build.number}" style="width:${pct}%"></div></div>` : ''}
+        </div>`;
+}
+
+function startOverviewHistoryTimers(runningBuilds) {
+    const runningNumbers = new Set(runningBuilds.map(build => build.number));
+
+    Object.keys(_overviewHistoryTimers).forEach(number => {
+        if (!runningNumbers.has(parseInt(number, 10))) {
+            clearInterval(_overviewHistoryTimers[number]);
+            delete _overviewHistoryTimers[number];
+        }
+    });
+
+    runningBuilds.forEach(build => {
+        if (_overviewHistoryTimers[build.number]) return;
+
+        _overviewHistoryTimers[build.number] = setInterval(() => {
+            const elapsedSeconds = Math.round((Date.now() - build.timestamp) / 1000);
+            const avgSeconds = Math.max(1, Math.round(_avgDurationMs / 1000));
+            const pct = Math.min(95, Math.round((elapsedSeconds / avgSeconds) * 100));
+            const minutes = Math.floor(elapsedSeconds / 60);
+            const seconds = elapsedSeconds % 60;
+
+            const durationEl = document.getElementById('brdur-' + build.number);
+            const progressEl = document.getElementById('rb-' + build.number);
+
+            if (durationEl) durationEl.textContent = `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+            if (progressEl) progressEl.style.width = pct + '%';
+        }, 1000);
+    });
+}
+
+function clearOverviewHistory() {
+    Object.values(_overviewHistoryTimers).forEach(clearInterval);
+    _overviewHistoryTimers = {};
+    _overviewHistoryBuilds = [];
+    _overviewHistoryShowingAll = false;
+    if (_runningStagesHandle) {
+        clearInterval(_runningStagesHandle);
+        _runningStagesHandle = null;
+    }
+
+    const container = document.getElementById('overviewBuildTimeline');
+    if (container) {
+        container.innerHTML = '<div class="overview-tl-empty">No builds in the last 24 hours.</div>';
+    }
+
+    const badge = document.getElementById('overviewRunningBadge');
+    if (badge) {
+        badge.style.display = 'none';
+        badge.textContent = '';
+    }
+
+    const button = document.getElementById('overviewShowMoreBtn');
+    if (button) button.style.display = 'none';
+}
+
+function renderOverviewHistory() {
+    const container = document.getElementById('overviewBuildTimeline');
+    const badge = document.getElementById('overviewRunningBadge');
+    const button = document.getElementById('overviewShowMoreBtn');
+    if (!container) return;
+
+    const running = _overviewHistoryBuilds.filter(build => build.result === null);
+    const finished = _overviewHistoryBuilds.filter(build => build.result !== null);
+    const finishedToShow = _overviewHistoryShowingAll
+        ? finished
+        : finished.slice(0, OVERVIEW_HISTORY_INITIAL_SHOW);
+    const buildsToRender = [...running, ...finishedToShow];
+
+    container.innerHTML = buildsToRender.length
+        ? buildsToRender.map(buildOverviewHistoryRowHtml).join('')
+        : '<div class="overview-tl-empty">No builds in the last 24 hours.</div>';
+
+    if (badge) {
+        badge.style.display = running.length ? 'inline-flex' : 'none';
+        badge.textContent = running.length ? `● ${running.length} running` : '';
+    }
+
+    if (button) {
+        if (finished.length > OVERVIEW_HISTORY_INITIAL_SHOW) {
+            button.style.display = 'block';
+            button.textContent = _overviewHistoryShowingAll
+                ? 'Show less ↑'
+                : `Show more ↓  (${finished.length - OVERVIEW_HISTORY_INITIAL_SHOW} more)`;
+        } else {
+            button.style.display = 'none';
+        }
+    }
+
+    startOverviewHistoryTimers(running);
+}
+
+function toggleOverviewHistoryShowMore() {
+    _overviewHistoryShowingAll = !_overviewHistoryShowingAll;
+    renderOverviewHistory();
+}
+
+function clearOverviewHistoryCharts() {
+    const wrap = document.getElementById('barsWrap');
+    if (wrap) {
+        wrap.innerHTML = '<div class="no-builds" style="width:100%;text-align:center;">No finished builds in the last 24 hours</div>';
+    }
+
+    const sumRow = document.getElementById('buildSummaryRow');
+    if (sumRow) sumRow.innerHTML = '';
+
+    const avg = document.getElementById('latestBuildsAvg');
+    if (avg) avg.textContent = 'Avg —';
+
+    ['trendSuccessArea', 'trendFailArea', 'trendSuccessLine', 'trendFailLine'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.setAttribute('d', '');
+    });
+
+    ['trendDots', 'trendXLabels'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
+    });
+
+    const badge = document.getElementById('trendBadge');
+    if (badge) {
+        badge.textContent = 'No builds in last 24h';
+        badge.style.background = 'rgba(170,170,183,.1)';
+        badge.style.color = 'var(--text2)';
+        badge.style.border = '1px solid rgba(170,170,183,.15)';
+    }
+}
 
 async function loadKPIs() {
     try {
         const res = await fetch(document.body.dataset.kpisUrl);
         const d   = await res.json();
-        if (!d.connected) { clearDashboard(); return; }
+        if (!d.connected) {
+            clearDashboard();
+            clearOverviewHistory();
+            return;
+        }
 
         if (d.avg_duration_ms) _avgDurationMs = d.avg_duration_ms;
 
@@ -18,19 +285,43 @@ async function loadKPIs() {
         updateCircle('health',       d.health_score ?? 0, 'health-val', 'health-badge');
         updateCircle('success-rate', d.success_rate ?? 0, 'rate-val',   'rate-badge');
 
-        const trend      = d.build_trend || [];
+        const trend = (d.build_trend || []).map(build => ({
+            ...build,
+            duration: build.duration ?? build.duration_ms ?? ((build.duration_seconds ?? 0) * 1000),
+            stages: Array.isArray(build.stages) ? build.stages : [],
+        }));
         const nowRunning = new Set(trend.filter(b => b.result === null).map(b => b.number));
         trend.filter(b => b.result !== null && _prevRunningNumbers.has(b.number))
              .forEach(notifyBuildFinished);
         _prevRunningNumbers = nowRunning;
 
+        const hasRunning = trend.some(build => build.result === null);
+        if (hasRunning && !_runningStagesHandle) {
+            _runningStagesHandle = setInterval(pollRunningStages, 2000);
+            pollRunningStages();
+        } else if (!hasRunning && _runningStagesHandle) {
+            clearInterval(_runningStagesHandle);
+            _runningStagesHandle = null;
+        }
+
         updateActiveBuilds(d.running ?? 0, trend);
 
-        const finished = trend.filter(b => b.result !== null);
-        if (finished.length > 0) {
-            renderBarChart(finished);
-            renderTrendChart(finished);
+        const now = Date.now();
+        const historyLast24h = trend
+            .filter(build => _isWithinLast24Hours(build, now))
+            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0));
+        const finishedLast24h = trend.filter(
+            b => b.result !== null && _isWithinLast24Hours(b, now)
+        );
+        if (finishedLast24h.length > 0) {
+            renderBarChart(finishedLast24h);
+            renderTrendChart(finishedLast24h);
+        } else {
+            clearOverviewHistoryCharts();
         }
+
+        _overviewHistoryBuilds = historyLast24h;
+        renderOverviewHistory();
     } catch (e) {
         console.error('KPI fetch error:', e);
     }
@@ -248,12 +539,8 @@ async function pollRunningStages() {
     const data = await (await fetch('/api/running_stages')).json();
     data.forEach(b => {
       const strip = document.querySelector('#brow-' + b.number + ' .stage-strip');
-      if (!strip || !b.stages.length) return;
-      strip.innerHTML = b.stages.map(st => {
-        const cls  = segCls(st.status);
-        const name = (st.name || 'Stage').replace(/"/g, '&quot;');
-        return `<span class="seg ${cls}" title="${name}: ${st.status || 'UNKNOWN'}"></span>`;
-      }).join('');
+      if (!strip || !Array.isArray(b.stages) || !b.stages.length) return;
+      strip.innerHTML = buildOverviewStageSegmentsHtml(b.number, b.stages);
     });
   } catch (e) {}
 }

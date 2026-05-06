@@ -7,9 +7,15 @@ from config import Config
 from deployment_kpis import deployment_kpis_bp
 from sonarcloud import sonarcloud_bp
 from github import github_bp
-from models import get_pending_count
 from finops import finops_bp
 from extensions import cache, db
+from services.user_account_service import (
+    ensure_admin_account,
+    get_active_session_user,
+    get_pending_count,
+    normalize_role,
+    role_matches,
+)
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -17,9 +23,11 @@ cache.init_app(app)
 db.init_app(app)
 app.secret_key = app.config['SECRET_KEY']
 
+from auth_models import UserAccount
 from pipeline_storage_models import PipelineBuildDuration, PipelineStageDuration
 with app.app_context():
     db.create_all()
+    ensure_admin_account()
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(overview_bp)
@@ -48,8 +56,12 @@ def _display_pipeline_name(job_path, branch_name=None):
 
 @app.route('/')
 def home():
-    if session.get('role') in ('admin', 'dev', 'qa'):
-        return redirect(url_for('overview.dashboard'))
+    if session.get('username'):
+        current_user = get_active_session_user(session.get('username'))
+        if current_user and role_matches(current_user.role, ('admin', 'developer', 'tester')):
+            session['role'] = normalize_role(current_user.role)
+            return redirect(url_for('overview.dashboard'))
+        session.clear()
     return redirect(url_for('auth.login'))
 
 

@@ -1,5 +1,8 @@
 {% extends 'base.html' %}
+{% from 'partials/kpi_cards.html' import stat_row, metrics_grid %}
+{# Legacy import kept for possible rollback:
 {% from 'partials/kpi_cards.html' import stat_row, latest_builds_chart, metrics_grid %}
+#}
 
 {% block title %}Pipeline KPIs — Jenkins Monitor{% endblock %}
 
@@ -12,12 +15,14 @@
 
 {% block page_content %}
 
+<!-- Legacy build-history tooltip kept for later rollback.
 <div class="seg-tip" id="segTip">
   <div class="st-name" id="stName"></div>
   <div class="st-dur" id="stDur"></div>
   <div class="st-status" id="stStatus"></div>
   <div class="st-hint">click to open console</div>
 </div>
+-->
 
 {{ stat_row() }}
 
@@ -25,6 +30,7 @@
   {% include 'partials/kpi_cards.html' %}
 </div>
 
+<!-- Legacy timeline block kept for later rollback.
 <div class="timeline-card">
   <div class="timeline-hdr">
     <div>
@@ -63,9 +69,34 @@
     </div>
   </div>
 </div>
+-->
 
 <div class="pipeline-charts-grid">
+  {# Legacy chart block kept for later rollback.
   {{ latest_builds_chart() }}
+  #}
+
+  <div class="chart-card pipeline-duration-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Latest Builds</div>
+        <div class="chart-sub" id="pipelineDurationSub">Average duration grouped by week</div>
+      </div>
+      <div class="pipeline-duration-toolbar">
+        <div class="pipeline-duration-toggle" role="tablist" aria-label="Choose duration grouping">
+          <button type="button" class="pipeline-duration-btn active" data-group="week">Week</button>
+          <button type="button" class="pipeline-duration-btn" data-group="month">Month</button>
+        </div>
+        <div class="latest-builds-avg" id="latestBuildsAvg">Avg —</div>
+      </div>
+    </div>
+
+    <div class="pipeline-duration-summary" id="pipelineDurationSummary"></div>
+
+    <div class="chart-area pipeline-chart-area">
+      <canvas id="pipelineGroupedDurationChart"></canvas>
+    </div>
+  </div>
 
   <div class="chart-card pipeline-stage-card">
     <div class="pipeline-section-title">Failure Rate by Stage</div>
@@ -78,10 +109,17 @@
     <div class="chart-hdr">
       <div>
         <div class="chart-title">Coverage Trend</div>
-        <div class="chart-sub">Line coverage per build</div>
+        <div class="chart-sub" id="coverageTrendSub">Average coverage grouped by week</div>
       </div>
-      <div class="cbadge cbadge-g" id="coverageAvgBadge">Avg —%</div>
+      <div class="pipeline-duration-toolbar">
+        <div class="pipeline-duration-toggle" role="tablist" aria-label="Choose coverage grouping">
+          <button type="button" class="pipeline-coverage-btn active" data-coverage-group="week">Week</button>
+          <button type="button" class="pipeline-coverage-btn" data-coverage-group="month">Month</button>
+        </div>
+        <div class="cbadge cbadge-g" id="coverageAvgBadge">Avg —%</div>
+      </div>
     </div>
+    <div class="pipeline-duration-summary" id="coverageTrendSummary"></div>
     <div class="chart-area pipeline-chart-area">
       <canvas id="coverageTrendChart"></canvas>
     </div>

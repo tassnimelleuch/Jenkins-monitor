@@ -10,7 +10,12 @@ from collectors.jenkins_collector import (
 )
 from flask import current_app
 from services.parallel_executor import parallel_execute
-from services.pipeline_storage_service import sync_pipeline_durations
+from services.pipeline_storage_service import (
+    get_stored_overview_kpis,
+    get_stored_pipeline_kpis,
+    sync_pipeline_durations,
+    sync_pipeline_snapshot,
+)
 
 DEPLOY_STAGE = 'Deploy to AKS'
 ROLLOUT_STAGE = 'Wait for AKS Rollout'
@@ -200,7 +205,7 @@ def _summarize_builds(all_builds):
     }
 
 
-def get_kpis():
+def _collect_overview_kpis_from_jenkins():
     all_builds = get_all_builds()
     if all_builds is None:
         return {'connected': False}
@@ -222,7 +227,7 @@ def get_kpis():
     }
 
 
-def get_pipeline_kpis():
+def _collect_pipeline_kpis_from_jenkins():
     selected_branch = _get_selected_branch_name()
     all_builds = get_all_builds()
     if all_builds is None:
@@ -318,6 +323,7 @@ def get_pipeline_kpis():
             'branch': selected_branch,
             'number': num,
             'coverage': coverage,
+            'timestamp': b.get('timestamp', 0),
         })
 
         report = test_reports_by_build.get(num) if num else None
@@ -411,7 +417,6 @@ def get_pipeline_kpis():
         }
         branches = ordered_branches
 
-    sync_pipeline_durations(builds_data)
     return {
         'connected': True,
         'pipeline': {
@@ -421,3 +426,44 @@ def get_pipeline_kpis():
         },
         'branches': branches,
     }
+
+
+def refresh_pipeline_storage_from_jenkins():
+    payload = _collect_pipeline_kpis_from_jenkins()
+    if not payload.get('connected'):
+        return payload
+
+    sync_pipeline_snapshot(payload)
+
+    selected_branch = (payload.get('pipeline') or {}).get('selected_branch')
+    selected_payload = ((payload.get('branches') or {}).get(selected_branch) or {})
+    sync_pipeline_durations(selected_payload.get('builds') or [])
+    return payload
+
+
+def get_kpis():
+    stored = get_stored_overview_kpis()
+    if stored:
+        return stored
+
+    live = refresh_pipeline_storage_from_jenkins()
+    if live.get('connected'):
+        stored = get_stored_overview_kpis()
+        if stored:
+            return stored
+
+    return _collect_overview_kpis_from_jenkins()
+
+
+def get_pipeline_kpis():
+    stored = get_stored_pipeline_kpis()
+    if stored:
+        return stored
+
+    live = refresh_pipeline_storage_from_jenkins()
+    if live.get('connected'):
+        stored = get_stored_pipeline_kpis()
+        if stored:
+            return stored
+
+    return live

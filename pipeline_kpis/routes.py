@@ -5,8 +5,8 @@ from pipeline_kpis import pipeline_kpis_bp
 from services.access_service import role_required
 from services.jenkins_service import get_pipeline_kpis
 from collectors.jenkins_collector import get_running_stages, trigger_build, abort_build
-from models import get_pending_count
 from services.metrics_service import get_vm_metrics
+from services.user_account_service import get_pending_count
 
 @pipeline_kpis_bp.route('/pipeline_kpis')
 @role_required('admin', 'dev', 'qa')
