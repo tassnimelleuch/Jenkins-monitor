@@ -1,14 +1,27 @@
 import os
+import importlib.util
 from dotenv import load_dotenv
 
 load_dotenv()  
+
+
+def _require_postgres_driver():
+    if importlib.util.find_spec('psycopg2') is None:
+        raise RuntimeError(
+            'PostgreSQL is required, but the psycopg2 driver is not installed in the active Python environment.'
+        )
 
 
 def _build_database_uri():
     database_url = os.getenv('DATABASE_URL')
     if database_url:
         if database_url.startswith('postgres://'):
-            return database_url.replace('postgres://', 'postgresql://', 1)
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        if not database_url.startswith('postgresql://'):
+            raise RuntimeError(
+                'Only PostgreSQL is supported. Set DATABASE_URL to a postgresql:// URL.'
+            )
+        _require_postgres_driver()
         return database_url
 
     host = os.getenv('POSTGRES_HOST')
@@ -18,9 +31,12 @@ def _build_database_uri():
     port = os.getenv('POSTGRES_PORT', '5432')
 
     if all([host, db_name, user, password]):
+        _require_postgres_driver()
         return f'postgresql://{user}:{password}@{host}:{port}/{db_name}'
 
-    return 'sqlite:///jenkins_monitor.db'
+    raise RuntimeError(
+        'PostgreSQL configuration is required. Set DATABASE_URL or POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD.'
+    )
 
 
 class Config:
