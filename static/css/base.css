@@ -88,6 +88,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .btn-ai:hover{border-color:rgba(124,111,255,.52);box-shadow:0 14px 28px rgba(124,111,255,.18),0 0 0 1px rgba(124,111,255,.16);transform:translateY(-1px);}
 .btn-ai:hover::before{transform:translateX(130%);}
 .btn-ai .chatbot-icon{width:20px;height:20px;flex-shrink:0;}
+.btn-ai-badge{position:relative;z-index:1;padding:2px 7px;border-radius:999px;font-size:9px;font-weight:800;font-family:'JetBrains Mono',monospace;letter-spacing:.02em;border:1px solid transparent;white-space:nowrap;}
+.btn-ai-badge.is-online{background:rgba(0,219,160,.14);color:var(--green);border-color:rgba(0,219,160,.25);}
+.btn-ai-badge.is-offline{background:rgba(255,69,96,.14);color:var(--red);border-color:rgba(255,69,96,.24);}
+.btn-ai-badge.is-checking{background:rgba(245,197,66,.14);color:var(--yellow);border-color:rgba(245,197,66,.24);}
 .page{padding:20px 24px 40px;flex:1;}
 
 /* ── SHARED CHATBOT ICON ── */
@@ -110,6 +114,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .chat-name{font-size:13px;font-weight:700;color:#fff;}
 .chat-status{font-size:10px;color:rgba(255,255,255,.72);display:flex;align-items:center;gap:4px;margin-top:1px;}
 .chat-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#00e5a0;display:inline-block;}
+.chat-status.is-online{color:rgba(255,255,255,.8);}
+.chat-status.is-online::before{background:#00e5a0;}
+.chat-status.is-offline{color:rgba(255,255,255,.84);}
+.chat-status.is-offline::before{background:#ff7586;box-shadow:0 0 0 3px rgba(255,117,134,.15);}
+.chat-status.is-checking{color:rgba(255,255,255,.84);}
+.chat-status.is-checking::before{background:#f5c542;box-shadow:0 0 0 3px rgba(245,197,66,.14);animation:breathe 1.8s ease-in-out infinite;}
 .chat-head-actions{margin-left:auto;display:flex;align-items:center;gap:8px;}
 .chat-head-btn{width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,.15);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .15s;}
 .chat-head-btn:hover{background:rgba(255,255,255,.28);transform:translateY(-1px);}

@@ -219,6 +219,67 @@ let chatOpen=false;
 let chatFullscreen=false;
 let chatSending=false;
 let chatHistory=[];
+let chatStatusState='checking';
+let chatHealthRequest=null;
+function getChatHealthEndpoint(){
+  const panel=document.getElementById('chatPanel');
+  return panel?.dataset.chatHealthUrl || '/api/chatbot/health';
+}
+function setChatStatus(state,message,detail=''){
+  const status=document.getElementById('chatStatus');
+  const badge=document.getElementById('chatbotStatusBadge');
+  const safeState=['online','offline','checking'].includes(state)?state:'checking';
+  const safeMessage=message||'Checking Ollama...';
+  const safeDetail=detail||safeMessage;
+  chatStatusState=safeState;
+
+  if(status){
+    status.className=`chat-status is-${safeState}`;
+    status.textContent=safeMessage;
+    status.title=safeDetail;
+  }
+
+  if(badge){
+    badge.className=`btn-ai-badge is-${safeState}`;
+    badge.textContent=safeState==='online' ? 'Online' : safeState==='offline' ? 'Offline' : 'Checking';
+    badge.title=safeDetail;
+  }
+}
+async function refreshChatStatus(opts={}){
+  if(chatHealthRequest)return chatHealthRequest;
+  if(opts.forceChecking || chatStatusState==='checking'){
+    setChatStatus('checking','Checking Ollama...');
+  }
+
+  chatHealthRequest=(async()=>{
+    try{
+      const res=await fetch(getChatHealthEndpoint(), {
+        headers:{ Accept:'application/json' }
+      });
+      const payload=await res.json().catch(() => ({}));
+
+      if(!res.ok || payload.ok === false){
+        const errorMessage=payload.error || 'Ollama is unreachable from the dashboard.';
+        setChatStatus('offline','Ollama unreachable',errorMessage);
+        return { ok:false, error:errorMessage };
+      }
+
+      const modelLabel=payload.model ? `Ollama reachable · ${payload.model}` : 'Ollama reachable';
+      const detailParts=[payload.base_url, payload.chat_endpoint].filter(Boolean);
+      const detail=detailParts.length ? `${modelLabel} @ ${detailParts.join('')}` : modelLabel;
+      setChatStatus('online',modelLabel,detail);
+      return payload;
+    }catch(e){
+      const errorMessage=e.message || 'Ollama health check failed.';
+      setChatStatus('offline','Ollama unreachable',errorMessage);
+      return { ok:false, error:errorMessage };
+    }finally{
+      chatHealthRequest=null;
+    }
+  })();
+
+  return chatHealthRequest;
+}
 function setChatFullscreen(fullscreen){
   const panel=document.getElementById('chatPanel');
   const button=document.getElementById('chatFullscreenBtn');
@@ -239,7 +300,10 @@ function toggleChat(){
   chatOpen=!chatOpen;
   panel.classList.toggle('open',chatOpen);
   panel.setAttribute('aria-hidden', chatOpen ? 'false' : 'true');
-  if(chatOpen)setTimeout(()=>document.getElementById('chatInput')?.focus(),320);
+  if(chatOpen){
+    refreshChatStatus();
+    setTimeout(()=>document.getElementById('chatInput')?.focus(),320);
+  }
 }
 function resize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,78)+'px';}
 function onKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}
@@ -316,10 +380,13 @@ async function send(){
   try{
     const payload=await requestChatReply(pendingMessages);
     const reply=payload.reply;
+    const modelLabel=payload.model ? `Ollama reachable · ${payload.model}` : 'Ollama reachable';
+    setChatStatus('online', modelLabel, modelLabel);
     hideTyping();
     addMsg(reply,'bot');
     chatHistory=trimChatHistory([...pendingMessages,{ role:'assistant', content:reply }]);
   }catch(e){
+    setChatStatus('offline','Ollama unreachable', e.message || 'Ollama is unreachable from the dashboard.');
     hideTyping();
     addMsg(e.message || 'The chatbot is unavailable right now.','bot');
   }finally{
@@ -340,6 +407,11 @@ document.addEventListener('keydown',e=>{
     return;
   }
   closeChat();
+});
+document.addEventListener('DOMContentLoaded',()=>{
+  if(!document.getElementById('chatPanel'))return;
+  refreshChatStatus({ forceChecking:true });
+  window.setInterval(()=>refreshChatStatus(),60000);
 });
 
 // ── Toast

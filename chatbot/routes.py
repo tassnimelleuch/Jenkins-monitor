@@ -2,7 +2,7 @@ from flask import jsonify, request
 
 from chatbot import chatbot_bp
 from services.access_service import role_required
-from services.chatbot_service import chat_with_ollama
+from services.chatbot_service import chat_with_ollama, get_ollama_status
 
 
 @chatbot_bp.route('/api/chatbot/chat', methods=['POST'])
@@ -23,3 +23,12 @@ def chat_api():
         return jsonify({'error': str(exc)}), 502
 
     return jsonify(result)
+
+
+@chatbot_bp.route('/api/chatbot/health', methods=['GET'])
+@role_required('admin', 'developer', 'tester')
+def chatbot_health_api():
+    try:
+        return jsonify(get_ollama_status())
+    except RuntimeError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 502
