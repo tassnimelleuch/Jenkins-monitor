@@ -127,9 +127,7 @@ def _build_branch_summary(branch_row, build_rows):
     if avg_duration_seconds is None:
         avg_duration_seconds = int(avg_duration_ms / 1000) if avg_duration_ms else 0
 
-    success_rate = branch_row.success_rate
-    if success_rate is None:
-        success_rate = round((successful / finished_count) * 100, 1) if finished_count > 0 else 0
+    success_rate = round((successful / finished_count) * 100, 1) if finished_count > 0 else 0
 
     last_build = build_rows[0] if build_rows else None
     last_completed = next((row for row in build_rows if row.result is not None), None)
@@ -140,11 +138,11 @@ def _build_branch_summary(branch_row, build_rows):
             branch_row.last_completed_build_number
             or (last_completed.build_number if last_completed else None)
         ),
-        'total_builds': branch_row.total_builds if branch_row.total_builds is not None else len(finished_rows),
-        'successful': branch_row.successful_builds if branch_row.successful_builds is not None else successful,
-        'failed': branch_row.failed_builds if branch_row.failed_builds is not None else failed,
-        'aborted': branch_row.aborted_builds if branch_row.aborted_builds is not None else aborted,
-        'running': branch_row.running_builds if branch_row.running_builds is not None else running,
+        'total_builds': len(finished_rows),
+        'successful': successful,
+        'failed': failed,
+        'aborted': aborted,
+        'running': running,
         'success_rate': success_rate,
         'health_score': branch_row.health_score if branch_row.health_score is not None else 0,
         'avg_duration_ms': avg_duration_ms,
@@ -279,8 +277,7 @@ def get_stored_pipeline_kpis():
     }
 
 
-def get_stored_overview_kpis():
-    stored = get_stored_pipeline_kpis()
+def get_overview_kpis_from_stored_pipeline(stored):
     if not stored:
         return None
 
@@ -324,6 +321,11 @@ def get_stored_overview_kpis():
         'build_trend': build_trend,
         'avg_duration_ms': summary.get('avg_duration_ms'),
     }
+
+
+def get_stored_overview_kpis():
+    stored = get_stored_pipeline_kpis()
+    return get_overview_kpis_from_stored_pipeline(stored)
 
 
 def _prepare_branch_build_payloads(branch_payload):

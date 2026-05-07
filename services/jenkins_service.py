@@ -1,6 +1,10 @@
+from datetime import datetime, timedelta, timezone
+import threading
+
 from collectors.jenkins_collector import (
     get_all_builds,
     get_branch_jobs,
+    get_selected_branch_build_head,
     get_last_n_finished,
     get_running_builds,
     get_health_score,
@@ -11,7 +15,7 @@ from collectors.jenkins_collector import (
 from flask import current_app
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import (
-    get_stored_overview_kpis,
+    get_overview_kpis_from_stored_pipeline,
     get_stored_pipeline_kpis,
     sync_pipeline_durations,
     sync_pipeline_snapshot,
@@ -19,6 +23,15 @@ from services.pipeline_storage_service import (
 
 DEPLOY_STAGE = 'Deploy to AKS'
 ROLLOUT_STAGE = 'Wait for AKS Rollout'
+PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS = 15
+
+_pipeline_head_cache = {
+    'checked_at': None,
+    'head': None,
+}
+_pipeline_head_cache_lock = threading.Lock()
+_pipeline_refresh_lock = threading.Lock()
+_pipeline_refresh_in_progress = False
 
 
 def _stage_status_map(stages):
@@ -52,6 +65,129 @@ def _get_pipeline_name(branch_name=None):
     if branch and len(parts) > 1 and parts[-1] == branch:
         parts = parts[:-1]
     return parts[-1] if parts else raw_job
+
+
+def _snapshot_is_stale(timestamp, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS, now=None):
+    if timestamp is None:
+        return True
+
+    snapshot_time = timestamp
+    if snapshot_time.tzinfo is None:
+        snapshot_time = snapshot_time.replace(tzinfo=timezone.utc)
+
+    current_time = now or datetime.now(timezone.utc)
+    return current_time - snapshot_time >= timedelta(seconds=max_age_seconds)
+
+
+def _selected_branch_data(payload):
+    pipeline = payload.get('pipeline') or {}
+    selected_branch = pipeline.get('selected_branch')
+    branches = payload.get('branches') or {}
+    return selected_branch, (branches.get(selected_branch) or {})
+
+
+def _build_identity(build):
+    build = build or {}
+    return (
+        build.get('number'),
+        build.get('result'),
+        build.get('timestamp'),
+    )
+
+
+def _pipeline_head_has_changed(stored_payload, live_head):
+    if not stored_payload:
+        return True
+    if not live_head:
+        return False
+
+    _, branch_payload = _selected_branch_data(stored_payload)
+    if not branch_payload:
+        return True
+
+    stored_last_build = branch_payload.get('last_build') or {}
+    stored_last_completed = branch_payload.get('last_completed_build') or {}
+
+    return (
+        _build_identity(stored_last_build) != _build_identity(live_head.get('last_build'))
+        or _build_identity(stored_last_completed)
+        != _build_identity(live_head.get('last_completed_build'))
+    )
+
+
+def _get_cached_pipeline_head(force=False):
+    now = datetime.now(timezone.utc)
+    with _pipeline_head_cache_lock:
+        checked_at = _pipeline_head_cache.get('checked_at')
+        cached_head = _pipeline_head_cache.get('head')
+        if (
+            not force
+            and checked_at is not None
+            and not _snapshot_is_stale(checked_at, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS, now=now)
+        ):
+            return cached_head
+
+    live_head = get_selected_branch_build_head()
+
+    with _pipeline_head_cache_lock:
+        _pipeline_head_cache['checked_at'] = now
+        _pipeline_head_cache['head'] = live_head
+
+    return live_head
+
+
+def _cache_pipeline_head_from_payload(payload):
+    selected_branch, branch_payload = _selected_branch_data(payload)
+    if not selected_branch or not branch_payload:
+        return
+
+    with _pipeline_head_cache_lock:
+        _pipeline_head_cache['checked_at'] = datetime.now(timezone.utc)
+        _pipeline_head_cache['head'] = {
+            'name': selected_branch,
+            'color': (branch_payload.get('status') or {}).get('color'),
+            'health_score': (branch_payload.get('summary') or {}).get('health_score'),
+            'last_build': branch_payload.get('last_build'),
+            'last_completed_build': branch_payload.get('last_completed_build'),
+        }
+
+
+def _run_async_pipeline_refresh(app):
+    global _pipeline_refresh_in_progress
+
+    try:
+        with app.app_context():
+            refresh_pipeline_storage_from_jenkins()
+    except Exception:
+        app.logger.exception('Background pipeline refresh failed.')
+    finally:
+        with _pipeline_refresh_lock:
+            _pipeline_refresh_in_progress = False
+
+
+def _start_async_pipeline_refresh():
+    global _pipeline_refresh_in_progress
+
+    with _pipeline_refresh_lock:
+        if _pipeline_refresh_in_progress:
+            return False
+        _pipeline_refresh_in_progress = True
+
+    app = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_run_async_pipeline_refresh,
+        args=(app,),
+        daemon=True,
+        name='pipeline-refresh',
+    )
+    thread.start()
+    return True
+
+
+def _refresh_pipeline_if_changed(stored_payload):
+    live_head = _get_cached_pipeline_head()
+    if _pipeline_head_has_changed(stored_payload, live_head):
+        _start_async_pipeline_refresh()
 
 
 def _serialize_build(build, branch_name):
@@ -434,6 +570,7 @@ def refresh_pipeline_storage_from_jenkins():
         return payload
 
     sync_pipeline_snapshot(payload)
+    _cache_pipeline_head_from_payload(payload)
 
     selected_branch = (payload.get('pipeline') or {}).get('selected_branch')
     selected_payload = ((payload.get('branches') or {}).get(selected_branch) or {})
@@ -442,15 +579,19 @@ def refresh_pipeline_storage_from_jenkins():
 
 
 def get_kpis():
-    stored = get_stored_overview_kpis()
-    if stored:
-        return stored
+    stored_pipeline = get_stored_pipeline_kpis()
+    if stored_pipeline:
+        _refresh_pipeline_if_changed(stored_pipeline)
+        stored_overview = get_overview_kpis_from_stored_pipeline(stored_pipeline)
+        if stored_overview:
+            return stored_overview
 
     live = refresh_pipeline_storage_from_jenkins()
     if live.get('connected'):
-        stored = get_stored_overview_kpis()
-        if stored:
-            return stored
+        stored_pipeline = get_stored_pipeline_kpis()
+        stored_overview = get_overview_kpis_from_stored_pipeline(stored_pipeline)
+        if stored_overview:
+            return stored_overview
 
     return _collect_overview_kpis_from_jenkins()
 
@@ -458,6 +599,7 @@ def get_kpis():
 def get_pipeline_kpis():
     stored = get_stored_pipeline_kpis()
     if stored:
+        _refresh_pipeline_if_changed(stored)
         return stored
 
     live = refresh_pipeline_storage_from_jenkins()
@@ -466,4 +608,4 @@ def get_pipeline_kpis():
         if stored:
             return stored
 
-    return live
+    return stored or live

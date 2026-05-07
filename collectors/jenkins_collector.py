@@ -200,6 +200,33 @@ def get_branch_jobs():
     return branches
 
 
+def get_selected_branch_build_head():
+    data = _get_json(
+        f'{_get_base()}/api/json?tree='
+        'color,healthReport[score,description],'
+        'lastBuild[number,result,timestamp,duration],'
+        'lastCompletedBuild[number,result,timestamp,duration]'
+    )
+    if not isinstance(data, dict):
+        return None
+
+    branch_name = _get_branch_name() or ''
+    return {
+        'name': branch_name,
+        'color': data.get('color'),
+        'health_score': (
+            (data.get('healthReport') or [{}])[0].get('score', 0)
+            if isinstance(data.get('healthReport'), list)
+            else 0
+        ),
+        'last_build': _serialize_branch_build(data.get('lastBuild'), branch_name),
+        'last_completed_build': _serialize_branch_build(
+            data.get('lastCompletedBuild'),
+            branch_name,
+        ),
+    }
+
+
 def get_last_n_finished(n=10, builds=None):
     if builds is None:
         builds = get_all_builds()
