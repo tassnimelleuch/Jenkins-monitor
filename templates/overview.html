@@ -12,10 +12,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 {% block page_content %}
-{% set show_overview_latest_builds = can_view_chart('overview_latest_builds') %}
-{% set show_overview_build_trend = can_view_chart('overview_build_trend') %}
-{% set show_overview_build_history = can_view_chart('overview_build_history') %}
-{% set show_overview_charts = show_overview_latest_builds or show_overview_build_trend or show_overview_build_history %}
+{% set show_overview_build_charts = has_role('admin', 'developer') %}
 
 <div id="disconnectedBanner" class="disconnected-banner">
     <svg viewBox="0 0 24 24">
@@ -42,7 +39,7 @@
     </div>
 </div>
 
-{% if show_overview_charts %}
+{% if show_overview_build_charts %}
 <div class="overview-24h-info">
     <div class="overview-24h-eyebrow">Last 24 Hours</div>
     <div class="overview-24h-title">The charts below are filtered to builds from the last 24 hours.</div>
@@ -51,18 +48,13 @@
 {% else %}
 <div class="overview-role-info">
     <div class="overview-24h-eyebrow">Coverage Access</div>
-    <div class="overview-24h-title">Tester accounts only see the Coverage Trend chart on the Pipeline KPIs page.</div>
-    <div class="overview-24h-copy">The overview layout stays available, but build charts are hidden for this role.</div>
+    <div class="overview-24h-title">Tester accounts only see the QA and tests - related charts .</div>
 </div>
 {% endif %}
 
-{% if show_overview_latest_builds or show_overview_build_trend %}
+{% if show_overview_build_charts %}
 <div class="charts-grid">
-    {% if show_overview_latest_builds %}
     {{ latest_builds_chart() }}
-    {% endif %}
-
-    {% if show_overview_build_trend %}
     <div class="chart-card">
         <div class="chart-hdr">
             <div>
@@ -93,11 +85,10 @@
             <div class="leg-item"><span class="leg-dot" style="background:var(--red)"></span>Failure</div>
         </div>
     </div>
-    {% endif %}
 </div>
 {% endif %}
 
-{% if show_overview_build_history %}
+{% if show_overview_build_charts %}
 <div class="overview-history-card">
     <div class="overview-timeline-hdr">
         <div>
@@ -132,37 +123,8 @@
     <div class="overview-st-status" id="overviewTipStatus"></div>
     <div class="overview-st-hint">click to open console</div>
 </div>
+{% endblock %}
 
-<div id="chatPanel" class="chat-panel">
-    <div class="chat-head">
-        <div class="chat-avatar">🤖</div>
-        <div>
-            <div class="chat-name">Pipeline Assistant</div>
-            <div class="chat-status">Online</div>
-        </div>
-        <button class="chat-close" onclick="toggleChat()">✕</button>
-    </div>
-
-    <div class="chat-msgs" id="chatMsgs">
-        <div class="msg bot">
-            <div class="bubble">Hi! Ask me about failures, coverage, health, or deployments.</div>
-            <div class="msg-time">Now</div>
-        </div>
-    </div>
-
-    <div class="chat-sugg" id="chatSugg">
-        <button class="sugg" onclick="useSugg(this)">Why did the last build fail?</button>
-        <button class="sugg" onclick="useSugg(this)">Show coverage trend</button>
-        <button class="sugg" onclick="useSugg(this)">How is pipeline health?</button>
-    </div>
-
-    <div class="chat-input-row">
-        <textarea id="chatInput" class="chat-input" rows="1" placeholder="Ask something..."
-                  oninput="resize(this)" onkeydown="onKey(event)"></textarea>
-        <button class="send-btn" onclick="send()">➤</button>
-    </div>
-</div>
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/overview.js') }}"></script>
-{% endblock %}
 {% endblock %}

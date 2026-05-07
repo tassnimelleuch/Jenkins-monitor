@@ -1,12 +1,12 @@
 from flask import session, jsonify, render_template
 from overview import overview_bp
-from services.access_service import dashboard_user_required
+from services.access_service import role_required
 from services.jenkins_service import get_kpis
 from collectors.jenkins_collector import check_connection, get_console_log
 from services.azure_service import get_connection_status
 
 @overview_bp.route('/overview')
-@dashboard_user_required
+@role_required('admin', 'developer', 'tester')
 def dashboard():
     return render_template(
         'overview.html',
@@ -16,26 +16,26 @@ def dashboard():
 
 
 @overview_bp.route('/api/pipeline/kpis')
-@dashboard_user_required
+@role_required('admin', 'developer', 'tester')
 def kpis():
     return jsonify(get_kpis())
 
 
 @overview_bp.route('/api/status')
-@dashboard_user_required
+@role_required('admin', 'developer', 'tester')
 def status():
     return jsonify({'connected': check_connection()})
 
 
 @overview_bp.route('/api/log/<int:build_number>')
-@dashboard_user_required
+@role_required('admin', 'developer', 'tester')
 def log_api(build_number):
     log = get_console_log(build_number)
     return jsonify({'log': log, 'build_number': build_number})
 
 
 @overview_bp.route('/console/<int:build_number>')
-@dashboard_user_required
+@role_required('admin', 'developer', 'tester')
 def console(build_number):
     return render_template(
         'console.html',
@@ -45,7 +45,7 @@ def console(build_number):
     )
 
 @overview_bp.route('/api/latest_build')
-@dashboard_user_required
+@role_required('admin', 'developer', 'tester')
 def latest_build():
     kpis = get_kpis()
     return jsonify({
@@ -53,6 +53,7 @@ def latest_build():
     })
 
 @overview_bp.route('/api/azure/status', methods=['GET'])
+@role_required('admin', 'developer', 'tester')
 def azure_status():
     result = get_connection_status()
     status_code = 200 if result['connected'] else 503

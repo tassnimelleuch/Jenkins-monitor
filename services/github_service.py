@@ -3,7 +3,12 @@ from datetime import date, datetime, timedelta, timezone
 
 from flask import current_app
 from services.parallel_executor import parallel_execute
-from collectors.github_collector import get_repo, get_commits, get_commit, get_pull_requests
+from collectors.github_collector import (
+    get_branches,
+    get_latest_commit_for_branch,
+    get_pull_requests,
+    get_repo,
+)
 from collectors.jenkins_collector import (
     get_last_failed_build,
     get_build_info,
@@ -13,10 +18,6 @@ from collectors.jenkins_collector import (
 )
 
 logger = logging.getLogger(__name__)
-
-ANALYTICS_LOOKBACK_DAYS = 210
-MONTH_CHURN_PERIODS = 6
-WEEK_CHURN_PERIODS = 12
 
 def _derive_repo_from_project_key(project_key):
     if not project_key or '_' not in project_key:
@@ -43,6 +44,7 @@ def _commit_item(c):
     author_user = c.get('author') or {}
     committer_user = c.get('committer') or {}
     sha = c.get('sha')
+    branch_name = c.get('branch_name')
     
     # Use author name from commit metadata first, then from GitHub user object
     author_name = author.get('name') or author_user.get('name') or committer.get('name')
@@ -60,6 +62,7 @@ def _commit_item(c):
         'committer_login': committer_user.get('login'),
         'committer_avatar': committer_user.get('avatar_url'),
         'committer_profile_url': committer_user.get('html_url'),
+        'branch_name': branch_name,
         'date': author.get('date') or committer.get('date'),
         'html_url': c.get('html_url'),
     }
@@ -68,15 +71,6 @@ def _commit_item(c):
 def _run_in_app_context(app, func):
     with app.app_context():
         return func()
-
-
-def _utcnow():
-    return datetime.now(timezone.utc)
-
-
-def _isoformat_z(dt):
-    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
-
 
 def _parse_commit_datetime(commit_raw):
     commit_obj = commit_raw.get('commit', {}) if isinstance(commit_raw, dict) else {}
@@ -265,29 +259,71 @@ def _build_file_change_groups(commits_raw, code_churn_by_period):
     return datasets
 
 
-def _fetch_commit_details(app, owner, repo, commits_raw):
-    if not commits_raw:
+def _sort_commits_raw(commits_raw):
+    earliest = datetime.min.replace(tzinfo=timezone.utc)
+    return sorted(
+        [item for item in commits_raw if isinstance(item, dict)],
+        key=lambda item: _parse_commit_datetime(item) or earliest,
+        reverse=True,
+    )
+
+
+def _fetch_branch_head_commits(app, owner, repo, branches_raw):
+    if not branches_raw:
         return []
 
     tasks = {
-        item.get('sha'): (
-            lambda s=item.get('sha'): _run_in_app_context(app, lambda: get_commit(owner, repo, s))
+        branch.get('name'): (
+            lambda branch_name=branch.get('name'): _run_in_app_context(
+                app,
+                lambda: get_latest_commit_for_branch(owner, repo, branch_name),
+            )
         )
-        for item in commits_raw
-        if item.get('sha')
+        for branch in branches_raw
+        if branch.get('name')
     }
-    details_by_sha = (
-        parallel_execute(tasks, max_workers=6, timeout=20)
+    latest_by_branch = (
+        parallel_execute(tasks, max_workers=4, timeout=20)
         if tasks
         else {}
     )
 
-    detailed = []
-    for item in commits_raw:
-        sha = item.get('sha')
-        commit_raw = details_by_sha.get(sha) if sha else None
-        detailed.append(commit_raw or item)
-    return detailed
+    commits = []
+    for branch in branches_raw:
+        branch_name = branch.get('name')
+        commit_raw = latest_by_branch.get(branch_name) if branch_name else None
+        if not isinstance(commit_raw, dict):
+            continue
+        commits.append({**commit_raw, 'branch_name': branch_name})
+
+    return _sort_commits_raw(commits)
+
+
+def _fallback_commit_item(owner, repo, sha, message=None, author_name=None, date=None, branch_name=None):
+    return {
+        'sha': sha,
+        'short_sha': sha[:7] if sha else None,
+        'message': message,
+        'author_name': author_name,
+        'author_login': None,
+        'author_avatar': None,
+        'author_profile_url': None,
+        'committer_name': None,
+        'committer_login': None,
+        'committer_avatar': None,
+        'committer_profile_url': None,
+        'branch_name': branch_name,
+        'date': date,
+        'html_url': f'https://github.com/{owner}/{repo}/commit/{sha}' if sha else None,
+    }
+
+
+def _merge_commit_items(primary, fallback):
+    merged = dict(fallback)
+    for key, value in (primary or {}).items():
+        if value not in (None, '', []):
+            merged[key] = value
+    return merged
 
 
 def get_github_summary():
@@ -299,39 +335,25 @@ def get_github_summary():
         }
 
     app = current_app._get_current_object()
-    analytics_until = _utcnow()
-    analytics_since = analytics_until - timedelta(days=ANALYTICS_LOOKBACK_DAYS)
     tasks = {
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
-        'commits': lambda: _run_in_app_context(
-            app,
-            lambda: get_commits(
-                owner,
-                repo,
-                per_page=100,
-                since=_isoformat_z(analytics_since),
-                until=_isoformat_z(analytics_until),
-            )
-        ),
+        'branches': lambda: _run_in_app_context(app, lambda: get_branches(owner, repo, per_page=100)),
         'failed_build': lambda: _run_in_app_context(app, get_last_failed_build),
         'pull_requests': lambda: _run_in_app_context(app, lambda: get_pull_requests(owner, repo, state='all', per_page=50)),
     }
     results = parallel_execute(tasks, max_workers=4, timeout=20)
     repo_raw = results.get('repo')
-    commits_raw = results.get('commits')
+    branches_raw = results.get('branches')
 
-    if repo_raw is None and commits_raw is None:
+    if repo_raw is None and branches_raw is None:
         return {
             'connected': False,
             'message': 'Unable to fetch GitHub data.',
         }
 
-    commits = []
-    detailed_commits_raw = []
-    if isinstance(commits_raw, list):
-        logger.info(f"[GitHub] Fetched {len(commits_raw)} commits. Sample dates: {[c.get('commit', {}).get('author', {}).get('date') for c in commits_raw[:3]]}")
-        commits = [_commit_item(c) for c in commits_raw]
-        detailed_commits_raw = _fetch_commit_details(app, owner, repo, commits_raw)
+    branch_head_commits_raw = _fetch_branch_head_commits(app, owner, repo, branches_raw or [])
+    commits = [_commit_item(c) for c in branch_head_commits_raw]
+    commits_by_sha = {item.get('sha'): item for item in commits if item.get('sha')}
 
     failing_commit = None
 
@@ -344,38 +366,27 @@ def get_github_summary():
         culprits = extract_build_culprits(build_info)
 
         commit_items = []
-        commit_tasks = {
-            item.get('sha'): (
-                lambda s=item.get('sha'): _run_in_app_context(app, lambda: get_commit(owner, repo, s))
-            )
-            for item in build_commits
-            if item.get('sha')
-        }
-        commits_by_sha = (
-            parallel_execute(commit_tasks, max_workers=6, timeout=20)
-            if commit_tasks
-            else {}
-        )
         for item in build_commits:
             sha = item.get('sha')
-            commit_raw = commits_by_sha.get(sha) if sha else None
-            if commit_raw:
-                commit_items.append(_commit_item(commit_raw))
-            else:
-                commit_items.append({
-                    'sha': sha,
-                    'short_sha': sha[:7] if sha else None,
-                    'message': item.get('message'),
-                    'author_name': item.get('author_name'),
-                    'author_login': None,
-                    'committer_name': None,
-                    'committer_login': None,
-                    'date': None,
-                    'html_url': f'https://github.com/{owner}/{repo}/commit/{sha}' if sha else None,
-                })
+            fallback = _fallback_commit_item(
+                owner,
+                repo,
+                sha,
+                message=item.get('message'),
+                author_name=item.get('author_name'),
+            )
+            branch_commit = commits_by_sha.get(sha) if sha else None
+            commit_items.append(_merge_commit_items(branch_commit, fallback) if branch_commit else fallback)
 
         if failed_sha:
-            commit_raw = _run_in_app_context(app, lambda: get_commit(owner, repo, failed_sha))
+            failed_commit_item = commits_by_sha.get(failed_sha)
+            if not failed_commit_item:
+                failed_commit_item = next(
+                    (item for item in commit_items if item.get('sha') == failed_sha),
+                    None,
+                )
+            if not failed_commit_item:
+                failed_commit_item = _fallback_commit_item(owner, repo, failed_sha)
             failing_commit = {
                 'build_number': build_number,
                 'build_result': failed_build.get('result'),
@@ -383,17 +394,7 @@ def get_github_summary():
                 'build_url': (build_info or {}).get('url'),
                 'culprits': culprits,
                 'commits': commit_items,
-                'commit': _commit_item(commit_raw) if commit_raw else {
-                    'sha': failed_sha,
-                    'short_sha': failed_sha[:7],
-                    'message': None,
-                    'author_name': None,
-                    'author_login': None,
-                    'committer_name': None,
-                    'committer_login': None,
-                    'date': None,
-                    'html_url': f'https://github.com/{owner}/{repo}/commit/{failed_sha}',
-                }
+                'commit': failed_commit_item,
             }
             
             if commits:
@@ -417,22 +418,8 @@ def get_github_summary():
 
     code_churn_by_period = {'week': [], 'month': []}
     file_changes_by_period = {'week': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'}, 'month': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'}}
-    if detailed_commits_raw:
-        code_churn_by_period = {
-            'week': _calculate_code_churn(detailed_commits_raw, grouping='week', max_periods=WEEK_CHURN_PERIODS),
-            'month': _calculate_code_churn(detailed_commits_raw, grouping='month', max_periods=MONTH_CHURN_PERIODS),
-        }
-        file_changes_by_period = _build_file_change_groups(detailed_commits_raw, code_churn_by_period)
-
-    code_churn_list = [
-        {
-            'month': item['period_key'],
-            'additions': item['additions'],
-            'deletions': item['deletions'],
-        }
-        for item in code_churn_by_period.get('month', [])
-    ]
-    file_changes = file_changes_by_period.get('month', {}).get('items', [])
+    code_churn_list = []
+    file_changes = []
 
     # Process pull requests
     prs_open = []
@@ -473,11 +460,12 @@ def get_github_summary():
             'html_url': repo_raw.get('html_url') if repo_raw else f'https://github.com/{owner}/{repo}',
         },
         'analytics_window': {
-            'since': _isoformat_z(analytics_since),
-            'until': _isoformat_z(analytics_until),
-            'weeks': WEEK_CHURN_PERIODS,
-            'months': MONTH_CHURN_PERIODS,
+            'branches': len(branches_raw or []),
+            'branch_heads': len(commits),
         },
+        'analytics_mode': 'branch_heads',
+        'analytics_message': 'Analytics are limited to the latest commit on each branch to reduce GitHub API requests.',
+        'commit_scope_label': 'Latest commit on each branch',
         'commits': commits,
         'failing_commit': failing_commit,
         'code_churn': code_churn_list,

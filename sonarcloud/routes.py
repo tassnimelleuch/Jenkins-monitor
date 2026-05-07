@@ -9,7 +9,7 @@ from services.sonarcloud_service import (
 
 
 @sonarcloud_bp.route('/sonarcloud')
-@role_required('admin', 'dev', 'qa')
+@role_required('admin', 'developer', 'tester')
 def dashboard():
     return render_template(
         'sonarcloud.html',
@@ -19,13 +19,13 @@ def dashboard():
 
 
 @sonarcloud_bp.route('/api/sonarcloud')
-@role_required('admin', 'dev', 'qa')
+@role_required('admin', 'developer', 'tester')
 def sonarcloud_api():
     return jsonify(get_sonarcloud_summary())
 
 
 @sonarcloud_bp.route('/api/sonarcloud/bugs')
-@role_required('admin', 'dev', 'qa')
+@role_required('admin', 'developer', 'tester')
 def sonarcloud_bug_details_api():
     level = request.args.get('level')  # low, medium, high
     page = request.args.get('page', default=1, type=int)
@@ -35,7 +35,7 @@ def sonarcloud_bug_details_api():
 
 
 @sonarcloud_bp.route('/api/sonarcloud/issues')
-@role_required('admin', 'dev', 'qa')
+@role_required('admin', 'developer', 'tester')
 def sonarcloud_issues_api():
     issue_type = request.args.get('type')  # BUG, VULNERABILITY, CODE_SMELL, SECURITY_HOTSPOT
     severity = request.args.get('severity')

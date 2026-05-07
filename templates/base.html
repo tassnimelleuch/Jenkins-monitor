@@ -12,7 +12,15 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
     {% block extra_css %}{% endblock %}
 </head>
-<body data-pipeline-name="{{ pipeline_name }}" data-branch-name="{{ branch_name }}" data-user-role="{{ role or '' }}" {% block body_attrs %}{% endblock %}>
+<body
+    data-pipeline-name="{{ pipeline_name }}"
+    data-branch-name="{{ branch_name }}"
+    data-can-manage-builds="{{ 'true' if has_role('admin', 'developer') else 'false' }}"
+    data-time-format="{{ user_preferences.time_format }}"
+    data-date-format="{{ user_preferences.date_format }}"
+    data-time-zone="{{ user_preferences.timezone }}"
+    data-show-seconds="{{ 'true' if user_preferences.show_seconds else 'false' }}"
+    {% block body_attrs %}{% endblock %}>
 
     {% include 'partials/sidebar.html' %}
 
@@ -25,6 +33,7 @@
     </main>
 
     <div id="toast" class="toast"></div>
+    {% include 'partials/chat_panel.html' %}
 
     {% block extra_markup %}{% endblock %}
 

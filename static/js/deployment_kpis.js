@@ -120,7 +120,7 @@ function renderDiskChart(key, canvasId, labels, values, colors) {
 }
 
 // ── AKS metrics ─────────────────────────────────────────────────────────────
-const CLUSTER_METRICS_URL = document.body.dataset.clusterMetricsUrl || '/jenkins/api/cluster-metrics';
+const CLUSTER_METRICS_URL = document.body.dataset.clusterMetricsUrl || '';
 let aksCpuNsChart = null;
 let aksRamNsChart = null;
 let aksNetNsChart = null;
@@ -172,6 +172,7 @@ function renderNamespaceSeriesChart(canvasId, seriesMap, chartRef, palette, opts
 }
 
 async function loadClusterMetrics() {
+  if (!CLUSTER_METRICS_URL || !document.getElementById('aksCpuNsChart')) return;
   try {
     const res = await fetch(CLUSTER_METRICS_URL);
     const d = await res.json();
@@ -387,6 +388,8 @@ async function loadDeploymentKpis() {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadDeploymentKpis();
-  loadClusterMetrics();
-  setInterval(loadClusterMetrics, 30000);
+  if (CLUSTER_METRICS_URL && document.getElementById('aksCpuNsChart')) {
+    loadClusterMetrics();
+    setInterval(loadClusterMetrics, 30000);
+  }
 });

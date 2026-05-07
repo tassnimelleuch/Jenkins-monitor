@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% block title %}Settings — Jenkins Monitor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+{% endblock %}
+
+{% block body_attrs %}data-page="settings"{% endblock %}
+
+{% block page_content %}
+<div class="settings-shell">
+  <div class="settings-hero">
+    <div>
+      <div class="settings-title">Settings</div>
+      <div class="settings-sub">Personalize how timestamps appear across the dashboards, reports, and exports.</div>
+    </div>
+    <div class="settings-pill">Applies to your account only</div>
+  </div>
+
+  {% if saved %}
+  <div class="settings-banner is-success">Your date and time preferences were saved.</div>
+  {% endif %}
+  {% if error %}
+  <div class="settings-banner is-error">{{ error }}</div>
+  {% endif %}
+
+  <form class="settings-grid" method="POST" action="{{ url_for('settings.settings_page') }}">
+    <section class="settings-card">
+      <div class="settings-card-title">Date & Time</div>
+      <div class="settings-card-sub">Choose the format used for build times, commit dates, chart labels, and PDF export timestamps.</div>
+
+      <label class="settings-field">
+        <span class="settings-label">Time format</span>
+        <select class="settings-select" name="time_format">
+          {% for value, label in options.time_formats %}
+          <option value="{{ value }}" {% if preferences.time_format == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Date format</span>
+        <select class="settings-select" name="date_format">
+          {% for value, label in options.date_formats %}
+          <option value="{{ value }}" {% if preferences.date_format == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Timezone</span>
+        <select class="settings-select" name="timezone">
+          {% for value, label in options.timezones %}
+          <option value="{{ value }}" {% if preferences.timezone == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="settings-toggle">
+        <input type="checkbox" name="show_seconds" {% if preferences.show_seconds %}checked{% endif %}>
+        <span>Show seconds in times</span>
+      </label>
+    </section>
+
+    <div class="settings-actions">
+      <button class="btn btn-green" type="submit">Save Settings</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

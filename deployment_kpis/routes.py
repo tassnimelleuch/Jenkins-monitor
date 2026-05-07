@@ -5,7 +5,7 @@ from services.deployment_kpis_service import get_deployment_kpis
 from services.metrics_service import get_cluster_metrics
 
 @deployment_kpis_bp.route('/deployment_kpis')
-@role_required('admin', 'dev', 'qa')
+@role_required('admin', 'developer')
 def deployment_kpis():
     return render_template(
         'deployment_kpis.html',
@@ -15,7 +15,7 @@ def deployment_kpis():
 
 
 @deployment_kpis_bp.route('/deployment_kpis/api/cluster')
-@role_required('admin', 'dev', 'qa')
+@role_required('admin', 'developer')
 def deployment_kpis_cluster():
     result = get_deployment_kpis()
     status_code = 200 if result.get('connected') else 503
@@ -23,6 +23,7 @@ def deployment_kpis_cluster():
 
 
 @deployment_kpis_bp.route('/api/cluster-metrics')
+@role_required('admin')
 def cluster_metrics_api():
     from flask import jsonify
     return jsonify(get_cluster_metrics())
@@ -30,6 +31,7 @@ def cluster_metrics_api():
 
 
 @deployment_kpis_bp.route('/api/debug-metrics')
+@role_required('admin')
 def debug_metrics():
     from flask import jsonify
     from collectors.prometheus_collector import query_range_series, query

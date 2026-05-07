@@ -3,11 +3,126 @@ function getCssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function formatTimeLabel(tsSeconds) {
-  return new Date(tsSeconds * 1000).toLocaleTimeString([], {
+function getUserDisplayPreferences() {
+  const body = document.body;
+  return {
+    timeFormat: body?.dataset.timeFormat === '12h' ? '12h' : '24h',
+    dateFormat: ['dd/mm/yyyy', 'mm/dd/yyyy', 'yyyy-mm-dd'].includes(body?.dataset.dateFormat)
+      ? body.dataset.dateFormat
+      : 'dd/mm/yyyy',
+    timeZone: body?.dataset.timeZone || 'browser',
+    showSeconds: body?.dataset.showSeconds === 'true'
+  };
+}
+
+function getDisplayTimeZone() {
+  const { timeZone } = getUserDisplayPreferences();
+  return timeZone && timeZone !== 'browser' ? timeZone : undefined;
+}
+
+function normalizeDateValue(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (value === null || value === undefined || value === '') return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getUserDateParts(dateValue) {
+  const date = normalizeDateValue(dateValue);
+  if (!date) return null;
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: getDisplayTimeZone(),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+
+  return parts.reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+}
+
+function formatUserDate(dateValue, opts = {}) {
+  const parts = getUserDateParts(dateValue);
+  if (!parts) return opts.fallback ?? '--';
+
+  const { dateFormat } = getUserDisplayPreferences();
+  const includeYear = opts.includeYear !== false;
+  const year = parts.year;
+  const month = parts.month;
+  const day = parts.day;
+
+  if (!includeYear) {
+    if (dateFormat === 'mm/dd/yyyy') return `${month}/${day}`;
+    if (dateFormat === 'yyyy-mm-dd') return `${month}-${day}`;
+    return `${day}/${month}`;
+  }
+
+  if (dateFormat === 'mm/dd/yyyy') return `${month}/${day}/${year}`;
+  if (dateFormat === 'yyyy-mm-dd') return `${year}-${month}-${day}`;
+  return `${day}/${month}/${year}`;
+}
+
+function formatUserTime(dateValue, opts = {}) {
+  const date = normalizeDateValue(dateValue);
+  if (!date) return opts.fallback ?? '--';
+
+  const { timeFormat, showSeconds } = getUserDisplayPreferences();
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: getDisplayTimeZone(),
     hour: '2-digit',
-    minute: '2-digit'
-  });
+    minute: '2-digit',
+    second: (opts.includeSeconds ?? showSeconds) ? '2-digit' : undefined,
+    hour12: timeFormat === '12h'
+  }).format(date);
+}
+
+function formatUserDateTime(dateValue, opts = {}) {
+  const date = normalizeDateValue(dateValue);
+  if (!date) return opts.fallback ?? '--';
+
+  const includeDate = opts.includeDate !== false;
+  const includeTime = opts.includeTime !== false;
+  const parts = [];
+
+  if (includeDate) {
+    parts.push(formatUserDate(date, {
+      includeYear: opts.includeYear !== false,
+      fallback: opts.fallback
+    }));
+  }
+  if (includeTime) {
+    parts.push(formatUserTime(date, {
+      includeSeconds: opts.includeSeconds,
+      fallback: opts.fallback
+    }));
+  }
+  return parts.join(' ');
+}
+
+function formatUserDateRange(startValue, endValue) {
+  const start = normalizeDateValue(startValue);
+  const end = normalizeDateValue(endValue);
+  if (!start || !end) return '--';
+  return `${formatUserDate(start, { includeYear: false })} - ${formatUserDate(end)}`;
+}
+
+function formatUserMonthYearLabel(dateValue, style = 'long') {
+  const date = normalizeDateValue(dateValue);
+  if (!date) return '--';
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: getDisplayTimeZone(),
+    month: style === 'short' ? 'short' : 'long',
+    year: 'numeric'
+  }).format(date);
+}
+
+function formatTimeLabel(tsSeconds) {
+  return formatUserTime(new Date(tsSeconds * 1000), { includeSeconds: false, fallback: '--' });
 }
 
 function avgValue(values = [], digits = 1) {
@@ -102,41 +217,64 @@ function buildLineChart(ctx, labels, datasets, opts = {}) {
 // ── Chatbot ( for later )
 let chatOpen=false;
 function toggleChat(){
+  const panel=document.getElementById('chatPanel');
+  if(!panel)return;
   chatOpen=!chatOpen;
-  document.getElementById('chatPanel').classList.toggle('open',chatOpen);
-  if(chatOpen)setTimeout(()=>document.getElementById('chatInput').focus(),320);
+  panel.classList.toggle('open',chatOpen);
+  panel.setAttribute('aria-hidden', chatOpen ? 'false' : 'true');
+  if(chatOpen)setTimeout(()=>document.getElementById('chatInput')?.focus(),320);
 }
 function resize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,78)+'px';}
 function onKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}
-function useSugg(el){document.getElementById('chatInput').value=el.textContent;document.getElementById('chatSugg').style.display='none';send();}
-function nowStr(){return new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
+function closeChat(){
+  if(!chatOpen)return;
+  const panel=document.getElementById('chatPanel');
+  if(!panel)return;
+  chatOpen=false;
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden','true');
+}
+function useSugg(el){
+  const input=document.getElementById('chatInput');
+  const suggestions=document.getElementById('chatSugg');
+  if(!input)return;
+  input.value=el.textContent;
+  if(suggestions)suggestions.style.display='none';
+  send();
+}
+function nowStr(){return formatUserTime(new Date(), { includeSeconds: false, fallback: '--' });}
 function addMsg(txt,role){
   const box=document.getElementById('chatMsgs');
+  if(!box)return;
   const d=document.createElement('div');d.className='msg '+role;
-  d.innerHTML=`<div class="bubble">${txt}</div><div class="msg-time">${nowStr()}</div>`;
+  d.innerHTML=`<div class="bubble">${escapeHtml(txt)}</div><div class="msg-time">${nowStr()}</div>`;
   box.appendChild(d);box.scrollTop=box.scrollHeight;
 }
-function showTyping(){const box=document.getElementById('chatMsgs');const t=document.createElement('div');t.className='typing-bbl';t.id='typing';t.innerHTML='<span></span><span></span><span></span>';box.appendChild(t);box.scrollTop=box.scrollHeight;}
+function showTyping(){const box=document.getElementById('chatMsgs');if(!box)return;const t=document.createElement('div');t.className='typing-bbl';t.id='typing';t.innerHTML='<span></span><span></span><span></span>';box.appendChild(t);box.scrollTop=box.scrollHeight;}
 function hideTyping(){const t=document.getElementById('typing');if(t)t.remove();}
-const BOT=[
-  {p:/fail|error/i,      r:"The last failure was likely due to a test timeout or environment issue. Check the build console for details."},
-  {p:/coverage|trend/i,  r:"Coverage has been trending upward. Check the Pipeline KPIs section for the full breakdown."},
-  {p:/slow|duration/i,   r:"The slowest builds are usually the ones running full integration test suites."},
-  {p:/deploy|status/i,   r:"Last deployment completed successfully. All health checks passed."},
-  {p:/hello|hi|hey/i,    r:"Hey! What would you like to know about your pipeline?"},
-  {p:/success|rate/i,    r:"Your current success rate is shown in the KPI circles on the dashboard."},
-  {p:/health/i,          r:"Health score reflects the ratio of successful builds over the last 10 runs."},
-];
+
 function getBotReply(m){for(const b of BOT)if(b.p.test(m))return b.r;return "I don't have specific data on that yet. Try asking about failures, coverage, or deployments.";}
 async function send(){
   const inp=document.getElementById('chatInput');
+  const suggestions=document.getElementById('chatSugg');
+  if(!inp)return;
   const txt=inp.value.trim();if(!txt)return;
   addMsg(txt,'user');inp.value='';inp.style.height='auto';
-  document.getElementById('chatSugg').style.display='none';
+  if(suggestions)suggestions.style.display='none';
   showTyping();
   await new Promise(r=>setTimeout(r,800+Math.random()*600));
   hideTyping();addMsg(getBotReply(txt),'bot');
 }
+document.addEventListener('click',e=>{
+  const panel=document.getElementById('chatPanel');
+  const target=e.target;
+  if(!chatOpen||!panel)return;
+  if(panel.contains(target)||(target instanceof Element&&target.closest('[data-chat-toggle]')))return;
+  closeChat();
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape')closeChat();
+});
 
 // ── Toast
 function showToast(msg,cls=''){
@@ -165,6 +303,10 @@ function escapeHtml(value) {
 
 function pipelineStrongLabel() {
   return `<strong>${escapeHtml(getPipelineName())}</strong>`;
+}
+
+function toggleBuild() {
+  showToast('Build controls are available on dashboard pages.', 'abort-toast');
 }
 
 // Shared pipeline actions
@@ -205,24 +347,34 @@ function triggerBuildWithConfirmation(opts = {}) {
   );
 }
 
-// ── PDF Export ( for later )
+// ── PDF Export 
 function exportPDF(){
   const {jsPDF}=window.jspdf;
+  const totalEl=document.getElementById('sv-total');
+  const succEl=document.getElementById('sv-success');
+  const failEl=document.getElementById('sv-failed');
+  const abrtEl=document.getElementById('sv-aborted');
+  const healthEl=document.getElementById('health-val');
+  const rateEl=document.getElementById('rate-val');
+  if(!totalEl||!succEl||!failEl||!abrtEl||!healthEl||!rateEl){
+    showToast('PDF export is available on dashboard pages.', 'abort-toast');
+    return;
+  }
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const dark=document.documentElement.getAttribute('data-theme')==='dark';
-  const ts=new Date().toLocaleString();
+  const ts=formatUserDateTime(new Date(), { includeSeconds: false, fallback: '--' });
   doc.setFillColor(dark?11:240,dark?11:240,dark?18:248);doc.rect(0,0,297,210,'F');
   doc.setFillColor(124,111,255);doc.rect(0,0,297,22,'F');
   doc.setTextColor(255,255,255);doc.setFontSize(14);doc.setFont('helvetica','bold');
   doc.text('Jenkins Monitor — KPI Report',14,13);
   doc.setFontSize(8);doc.setFont('helvetica','normal');
   doc.text(`Generated: ${ts}  |  Pipeline: ${getPipelineName()}  |  Branch: ${getBranchName()}`,14,20);
-  const total=document.getElementById('sv-total').textContent;
-  const succ=document.getElementById('sv-success').textContent;
-  const fail=document.getElementById('sv-failed').textContent;
-  const abrt=document.getElementById('sv-aborted').textContent;
-  const health=document.getElementById('health-val').textContent+'%';
-  const rate=document.getElementById('rate-val').textContent+'%';
+  const total=totalEl.textContent;
+  const succ=succEl.textContent;
+  const fail=failEl.textContent;
+  const abrt=abrtEl.textContent;
+  const health=healthEl.textContent+'%';
+  const rate=rateEl.textContent+'%';
   const kpis=[
     {l:'Total Builds',v:total,s:'All time',c:[124,111,255]},
     {l:'Successful',v:succ,s:'Last 30 days',c:[0,219,160]},

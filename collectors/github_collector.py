@@ -42,101 +42,117 @@ def _get_json(url, params=None, timeout=8):
         return None
 
 
+def _get_paginated_json(url, base_params=None, per_page=20, timeout=8, page_limit=None, item_label='items'):
+    params = dict(base_params or {})
+    params['per_page'] = per_page
+
+    all_items = []
+    page = 1
+
+    while True:
+        page_params = {**params, 'page': page}
+        try:
+            resp = requests.get(
+                url,
+                params=page_params,
+                headers=_get_headers(),
+                timeout=timeout
+            )
+            if resp.status_code == 404:
+                break
+            resp.raise_for_status()
+            items = resp.json()
+
+            if not items or not isinstance(items, list):
+                break
+
+            all_items.extend(items)
+            logger.info(f'[GitHub] Page {page}: fetched {len(items)} {item_label}')
+
+            if len(items) < per_page or (page_limit and page >= page_limit):
+                break
+            page += 1
+        except Exception as e:
+            logger.warning(f'[GitHub] {item_label.capitalize()} fetch error on page {page}: {e}')
+            break
+
+    return all_items if all_items else None
+
+
 def get_repo(owner, repo):
     url = f"{_get_base_url()}/repos/{owner}/{repo}"
     return _get_json(url)
 
 
 def get_commits(owner, repo, per_page=8, since=None, until=None):
-    """Fetch all commits with pagination support."""
+    """Fetch commits with optional pagination support."""
+    return _get_commits(owner, repo, per_page=per_page, since=since, until=until)
+
+
+def _get_commits(owner, repo, per_page=8, since=None, until=None, sha=None, page_limit=None):
     url = f"{_get_base_url()}/repos/{owner}/{repo}/commits"
-    base_params = {'per_page': per_page}
+    base_params = {}
     if since:
         base_params['since'] = since
     if until:
         base_params['until'] = until
-    
+    if sha:
+        base_params['sha'] = sha
+
     logger.info(f"[GitHub] Fetching commits with params: {base_params}")
-    
-    all_commits = []
-    page = 1
-    
-    while True:
-        params = {**base_params, 'page': page}
-        try:
-            resp = requests.get(
-                url,
-                params=params,
-                headers=_get_headers(),
-                timeout=8
-            )
-            if resp.status_code == 404:
-                break
-            resp.raise_for_status()
-            commits = resp.json()
-            
-            if not commits or not isinstance(commits, list):
-                break
-            
-            all_commits.extend(commits)
-            logger.info(f"[GitHub] Page {page}: fetched {len(commits)} commits")
-            
-            # Check if there's a next page
-            if len(commits) < per_page:
-                break
-            page += 1
-        except Exception as e:
-            logger.warning(f'[GitHub] Commit fetch error on page {page}: {e}')
-            break
-    
-    logger.info(f"[GitHub] Total commits fetched: {len(all_commits)}")
-    return all_commits if all_commits else None
+
+    all_commits = _get_paginated_json(
+        url,
+        base_params=base_params,
+        per_page=per_page,
+        timeout=8,
+        page_limit=page_limit,
+        item_label='commits'
+    )
+    logger.info(f"[GitHub] Total commits fetched: {len(all_commits or [])}")
+    return all_commits
 
 
-def get_commit(owner, repo, sha):
-    url = f"{_get_base_url()}/repos/{owner}/{repo}/commits/{sha}"
-    return _get_json(url)
+def get_latest_commit_for_branch(owner, repo, branch_name):
+    commits = _get_commits(
+        owner,
+        repo,
+        per_page=1,
+        sha=branch_name,
+        page_limit=1,
+    )
+    return commits[0] if commits else None
+
+
+def get_branches(owner, repo, per_page=100):
+    url = f"{_get_base_url()}/repos/{owner}/{repo}/branches"
+    logger.info('[GitHub] Fetching branches')
+    branches = _get_paginated_json(
+        url,
+        per_page=per_page,
+        timeout=8,
+        item_label='branches'
+    )
+    logger.info(f"[GitHub] Total branches fetched: {len(branches or [])}")
+    return branches
 
 
 def get_pull_requests(owner, repo, state='all', per_page=20):
     """Fetch pull requests (open, closed, or all)."""
     url = f"{_get_base_url()}/repos/{owner}/{repo}/pulls"
-    base_params = {'per_page': per_page, 'state': state, 'sort': 'updated', 'direction': 'desc'}
+    base_params = {'state': state, 'sort': 'updated', 'direction': 'desc'}
     
     logger.info(f"[GitHub] Fetching pull requests with state={state}")
-    
-    all_prs = []
-    page = 1
-    
-    while True:
-        params = {**base_params, 'page': page}
-        try:
-            resp = requests.get(
-                url,
-                params=params,
-                headers=_get_headers(),
-                timeout=8
-            )
-            if resp.status_code == 404:
-                break
-            resp.raise_for_status()
-            prs = resp.json()
-            
-            if not prs or not isinstance(prs, list):
-                break
-            
-            all_prs.extend(prs)
-            logger.info(f"[GitHub] Page {page}: fetched {len(prs)} pull requests")
-            
-            if len(prs) < per_page:
-                break
-            page += 1
-        except Exception as e:
-            logger.warning(f'[GitHub] Pull request fetch error on page {page}: {e}')
-            break
-    
-    logger.info(f"[GitHub] Total pull requests fetched: {len(all_prs)}")
-    return all_prs if all_prs else None
+
+    all_prs = _get_paginated_json(
+        url,
+        base_params=base_params,
+        per_page=per_page,
+        timeout=8,
+        item_label='pull requests'
+    )
+    logger.info(f"[GitHub] Total pull requests fetched: {len(all_prs or [])}")
+    return all_prs
 
 
 def create_tag(owner, repo, tag_name, sha, message=None):

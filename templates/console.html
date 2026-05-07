@@ -12,7 +12,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/console.css') }}">
 </head>
-<body class="console-page">
+<body
+  class="console-page"
+  data-time-format="{{ user_preferences.time_format }}"
+  data-date-format="{{ user_preferences.date_format }}"
+  data-time-zone="{{ user_preferences.timezone }}"
+  data-show-seconds="{{ 'true' if user_preferences.show_seconds else 'false' }}">
 
   <div class="topbar">
     <a class="back-btn" href="javascript:window.close()">

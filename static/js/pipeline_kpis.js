@@ -57,7 +57,7 @@ function fmtDate(ts) {
 }
 
 function currentUserCanManageBuilds() {
-  return (document.body.dataset.userRole || '').toLowerCase() === 'admin';
+  return document.body.dataset.canManageBuilds === 'true';
 }
 
 function segCls(status) {
@@ -1128,7 +1128,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 // ── VM metrics polling ────────────────────────────────────────────────────────
-const VM_METRICS_URL = document.body.dataset.vmMetricsUrl || '/api/vm-metrics';
+const VM_METRICS_URL = document.body.dataset.vmMetricsUrl || '';
 let vmCpuChart = null;
 let vmRamChart = null;
 let vmNetChart = null;
@@ -1159,6 +1159,7 @@ function renderVmLineChart(canvasId, series, chartRef, opts = {}) {
 }
 
 async function loadVmMetrics() {
+  if (!VM_METRICS_URL || !hasVmMetricCharts()) return;
   try {
     const res = await fetch(VM_METRICS_URL);
     const d = await res.json();
@@ -1241,7 +1242,7 @@ function hasVmMetricCharts() {
   );
 }
 
-if (hasVmMetricCharts()) {
+if (VM_METRICS_URL && hasVmMetricCharts()) {
   loadVmMetrics();
   setInterval(loadVmMetrics, 30_000);
 }

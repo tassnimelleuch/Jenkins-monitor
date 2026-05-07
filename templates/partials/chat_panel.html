@@ -1,0 +1,39 @@
+<div id="chatPanel" class="chat-panel" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="chatPanelTitle">
+    <div class="chat-head">
+        <div class="chat-avatar">
+            {% with icon_class='chatbot-icon chatbot-icon--avatar' %}
+                {% include 'partials/chatbot_icon.html' %}
+            {% endwith %}
+        </div>
+        <div>
+            <div class="chat-name" id="chatPanelTitle">AI Assistant</div>
+            <div class="chat-status">Connected</div>
+        </div>
+        <button class="chat-close" type="button" onclick="toggleChat()" aria-label="Close AI Assistant">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M6 6l12 12"/>
+                <path d="M18 6L6 18"/>
+            </svg>
+        </button>
+    </div>
+
+    <div class="chat-msgs" id="chatMsgs">
+        <div class="msg bot">
+            <div class="bubble">Hi! How can I help you today?</div>
+            <div class="msg-time">Now</div>
+        </div>
+    </div>
+
+  
+
+    <div class="chat-input-row">
+        <textarea id="chatInput" class="chat-input" rows="1" placeholder="Ask something..."
+                  oninput="resize(this)" onkeydown="onKey(event)"></textarea>
+        <button class="send-btn" type="button" onclick="send()" aria-label="Send message">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M22 2L11 13"/>
+                <path d="M22 2L15 22l-4-9-9-4z"/>
+            </svg>
+        </button>
+    </div>
+</div>

@@ -44,6 +44,67 @@
 .gh-row{display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:8px 0;border-top:1px dashed var(--border);}
 .gh-row span:last-child{font-weight:700;}
 .gh-divider{height:1px;background:var(--border);margin:14px 0;}
+.gh-analytics-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+}
+.gh-analytics-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:4px;
+  border-radius:12px;
+  background:var(--bg3);
+  border:1px solid var(--border);
+}
+.gh-analytics-btn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  color:var(--text2);
+  font-size:11px;
+  font-weight:700;
+  font-family:'Plus Jakarta Sans',sans-serif;
+  padding:7px 12px;
+  border-radius:8px;
+  cursor:pointer;
+  transition:background .15s,color .15s,transform .15s;
+}
+.gh-analytics-btn:hover{
+  color:var(--text);
+  transform:translateY(-1px);
+}
+.gh-analytics-btn.active{
+  background:linear-gradient(135deg,var(--accent),rgba(58,123,232,.88));
+  color:#fff;
+  box-shadow:0 6px 18px rgba(58,123,232,.18);
+}
+.gh-analytics-summary{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin:8px 0 10px;
+}
+.gh-summary-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:10px;
+  background:var(--bg3);
+  border:1px solid var(--border);
+  color:var(--text2);
+  font-size:11px;
+  font-weight:600;
+}
+.gh-summary-pill strong{
+  color:var(--text1);
+  font-weight:800;
+}
 
 .gh-commits{display:flex;flex-direction:column;gap:8px;}
 .gh-commit{
@@ -80,6 +141,19 @@
 .gh-commit-meta{font-size:10.5px;color:var(--text2);}
 .gh-commit-link{font-size:10.5px;color:var(--accent);text-decoration:none;}
 .gh-empty{font-size:11px;color:var(--text2);}
+.gh-branch-pill{
+  display:inline-flex;
+  align-items:center;
+  margin-left:8px;
+  padding:2px 7px;
+  border-radius:999px;
+  background:rgba(58,123,232,.12);
+  border:1px solid rgba(58,123,232,.18);
+  color:var(--accent);
+  font-size:9.5px;
+  font-weight:700;
+  vertical-align:middle;
+}
 
 .gh-culprit{
   color:#b42318;

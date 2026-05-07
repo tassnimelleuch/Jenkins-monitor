@@ -18,6 +18,11 @@ function setText(id, value) {
 let _ghAnalyticsPayload = null;
 let _ghAnalyticsGrouping = 'month';
 
+function analyticsLimitedMessage(data) {
+  if (data?.analytics_mode !== 'branch_heads') return null;
+  return data.analytics_message || 'Analytics are limited to the latest commit on each branch.';
+}
+
 function formatMonthKey(key, format = 'short') {
   if (!key || typeof key !== 'string') return key || '--';
   const [year, month] = key.split('-');
@@ -192,13 +197,16 @@ function renderCommits(container, commits) {
   }
   container.innerHTML = '';
   commits.forEach(c => {
+    const branchPill = c.branch_name
+      ? `<span class="gh-branch-pill">${c.branch_name}</span>`
+      : '';
     const div = document.createElement('div');
     div.className = 'gh-commit';
     div.innerHTML = `
       <div class="gh-commit-sha">${c.short_sha || '--'}</div>
       <div class="gh-commit-body">
         <div class="gh-commit-msg">${(c.message || '').split('\\n')[0]}</div>
-        <div class="gh-commit-meta">${c.author_name || 'Unknown'} · ${fmtDate(c.date)}</div>
+        <div class="gh-commit-meta">${c.author_name || 'Unknown'} · ${fmtDate(c.date)} ${branchPill}</div>
         <div class="gh-commit-actions">
           ${c.html_url ? `<a class="gh-commit-link" href="${c.html_url}" target="_blank" rel="noopener">View commit</a>` : ''}
           <button class="gh-tag-btn" onclick="openTagModal('${c.sha}', '${c.short_sha}')">Tag</button>
@@ -252,6 +260,7 @@ async function loadGitHub() {
 
     const link = document.getElementById('ghRepoLink');
     if (link && repo.html_url) link.href = repo.html_url;
+    setText('ghCommitScope', data.commit_scope_label || 'Most recent commit on each branch');
 
     renderCommits(document.getElementById('ghCommits'), data.commits || []);
     renderPullRequests(document.getElementById('ghOpenPRs'), data.pull_requests_open || [], 'open');
@@ -494,12 +503,38 @@ function renderTimeToFix(data) {
 // MOST CHANGED FILES
 function renderMostChanged(data) {
   const container = document.getElementById('ghMostChanged');
+  const subtitle = document.getElementById('ghMostChangedSub');
+  const summary = document.getElementById('ghMostChangedSummary');
   if (!container) return;
 
-  const files = data.file_changes;
+  const limitedMessage = analyticsLimitedMessage(data);
+  if (limitedMessage) {
+    if (subtitle) subtitle.textContent = 'Reduced to branch heads';
+    if (summary) summary.innerHTML = '';
+    container.innerHTML = `<div class="gh-empty">${limitedMessage}</div>`;
+    return;
+  }
+
+  const dataset = getFileChangeDataset(data);
+  const files = dataset.items || [];
+  if (subtitle) subtitle.textContent = dataset.scope_label || `Top 10 files touched across recent ${analyticsUnitLabel()}s`;
+
   if (!files || files.length === 0) {
+    if (summary) summary.innerHTML = '';
     container.innerHTML = '<div class="gh-empty">No file changes data available.</div>';
     return;
+  }
+
+  const totalTouches = files.reduce((sum, file) => sum + (file.changes || 0), 0);
+  const totalLinesAdded = files.reduce((sum, file) => sum + (file.additions || 0), 0);
+  const totalLinesDeleted = files.reduce((sum, file) => sum + (file.deletions || 0), 0);
+  if (summary) {
+    summary.innerHTML = `
+      <span class="gh-summary-pill"><strong>${files.length}</strong> files</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalTouches)}</strong> touches</span>
+      <span class="gh-summary-pill"><strong>+${fmtNum(totalLinesAdded)}</strong> lines</span>
+      <span class="gh-summary-pill"><strong>-${fmtNum(totalLinesDeleted)}</strong> lines</span>
+    `;
   }
 
   // Find max changes for scaling
@@ -511,13 +546,14 @@ function renderMostChanged(data) {
     const pct = Math.round((file.changes / maxChanges) * 100);
     const bgColor = idx % 2 === 0 ? '#3a7be8' : '#ff8c42';
     const filename = file.filename.length > 45 ? file.filename.substring(0, 42) + '...' : file.filename;
+    const tooltip = `${file.filename}\n${fmtNum(file.changes)} touches\n+${fmtNum(file.additions || 0)} / -${fmtNum(file.deletions || 0)}`;
     
     html += `
-      <div class="file-bar-row" title="${file.filename}">
+      <div class="file-bar-row" title="${tooltip}">
         <div class="file-bar-name">${filename}</div>
         <div class="file-bar-container">
           <div class="file-bar" style="width: ${pct}%; background-color: ${bgColor};">
-            <span class="file-bar-value">${file.changes}</span>
+            <span class="file-bar-value">${file.changes}x</span>
           </div>
         </div>
       </div>
@@ -528,21 +564,50 @@ function renderMostChanged(data) {
   container.innerHTML = html;
 }
 
-// CODE CHURN CHART (Lines added/deleted per month)
+// CODE CHURN CHART (Lines added/deleted per week or month)
 function renderCodeChurn(data) {
   const container = document.getElementById('ghCodeChurn');
+  const subtitle = document.getElementById('ghCodeChurnSub');
+  const summary = document.getElementById('ghCodeChurnSummary');
   if (!container) return;
 
-  const churnData = data.code_churn;
+  const limitedMessage = analyticsLimitedMessage(data);
+  if (limitedMessage) {
+    if (subtitle) subtitle.textContent = 'Reduced to branch heads';
+    if (summary) summary.innerHTML = '';
+    container.innerHTML = `<div class="gh-empty">${limitedMessage}</div>`;
+    return;
+  }
+
+  const churnData = getCodeChurnDataset(data);
+  if (subtitle) {
+    subtitle.textContent = `Real code churn grouped by ${analyticsUnitLabel()}`;
+  }
   if (!churnData || churnData.length === 0) {
+    if (summary) summary.innerHTML = '';
     container.innerHTML = '<div class="gh-empty">No code churn data available.</div>';
     return;
   }
 
-  const lastMonths = churnData.slice(-6);
+  const periods = churnData;
+  const totalAdded = periods.reduce((sum, d) => sum + (d.additions || 0), 0);
+  const totalDeleted = periods.reduce((sum, d) => sum + (d.deletions || 0), 0);
+  const totalCommits = periods.reduce((sum, d) => sum + (d.commits || 0), 0);
+  const totalFilesAdded = periods.reduce((sum, d) => sum + (d.files_added || 0), 0);
+  const totalFilesDeleted = periods.reduce((sum, d) => sum + (d.files_removed || 0), 0);
+  const totalFilesModified = periods.reduce((sum, d) => sum + (d.files_modified || 0), 0);
+  const totalFilesRenamed = periods.reduce((sum, d) => sum + (d.files_renamed || 0), 0);
 
-  const totalAdded = lastMonths.reduce((sum, d) => sum + (d.additions || 0), 0);
-  const totalDeleted = lastMonths.reduce((sum, d) => sum + (d.deletions || 0), 0);
+  if (summary) {
+    summary.innerHTML = `
+      <span class="gh-summary-pill"><strong>${periods.length}</strong> ${analyticsUnitLabel()}s</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalCommits)}</strong> commits</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalFilesAdded)}</strong> files added</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalFilesDeleted)}</strong> files deleted</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalFilesModified)}</strong> files modified</span>
+      ${totalFilesRenamed ? `<span class="gh-summary-pill"><strong>${fmtNum(totalFilesRenamed)}</strong> files renamed</span>` : ''}
+    `;
+  }
 
   // Chart dimensions
   const width = 520;
@@ -553,7 +618,7 @@ function renderCodeChurn(data) {
 
   // Find max value for scaling
   let maxValue = 0;
-  lastMonths.forEach(d => {
+  periods.forEach(d => {
     maxValue = Math.max(maxValue, d.additions + d.deletions);
   });
   maxValue = Math.ceil(maxValue / 100) * 100; // Round up to nearest 100
@@ -566,11 +631,11 @@ function renderCodeChurn(data) {
   svg.classList.add('churn-svg');
 
   // Draw bars
-  const barWidth = (chartWidth / lastMonths.length) * 0.32;
-  const spaceBetweenBars = (chartWidth / lastMonths.length) * 0.12;
+  const barWidth = (chartWidth / periods.length) * 0.32;
+  const spaceBetweenBars = (chartWidth / periods.length) * 0.12;
 
-  lastMonths.forEach((d, idx) => {
-    const x = padding + (idx * (chartWidth / lastMonths.length)) + spaceBetweenBars;
+  periods.forEach((d, idx) => {
+    const x = padding + (idx * (chartWidth / periods.length)) + spaceBetweenBars;
     const addHeight = (d.additions / maxValue) * chartHeight;
     const delHeight = (d.deletions / maxValue) * chartHeight;
 
@@ -584,7 +649,7 @@ function renderCodeChurn(data) {
       addBar.setAttribute('fill', '#22c55e');
       addBar.setAttribute('opacity', '0.85');
       const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      title.textContent = `${d.month} - Added: ${fmtNum(d.additions)}`;
+      title.textContent = `${d.detail_label || d.period_key} - Added: ${fmtNum(d.additions)}`;
       addBar.appendChild(title);
       svg.appendChild(addBar);
     }
@@ -599,24 +664,20 @@ function renderCodeChurn(data) {
       delBar.setAttribute('fill', '#ef4444');
       delBar.setAttribute('opacity', '0.85');
       const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      title.textContent = `${d.month} - Deleted: ${fmtNum(d.deletions)}`;
+      title.textContent = `${d.detail_label || d.period_key} - Deleted: ${fmtNum(d.deletions)}`;
       delBar.appendChild(title);
       svg.appendChild(delBar);
     }
 
-    // X-axis label (month)
-    const monthLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    monthLabel.setAttribute('x', x + spaceBetweenBars / 2);
-    monthLabel.setAttribute('y', padding + chartHeight + 16);
-    monthLabel.setAttribute('font-size', '10.5');
-    monthLabel.setAttribute('fill', 'var(--text2)');
-    monthLabel.setAttribute('text-anchor', 'middle');
-    // Format month: "2024-03" -> "Mar"
-    const [year, month] = d.month.split('-');
-    const monthDate = new Date(year, parseInt(month) - 1);
-    const monthStr = monthDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-    monthLabel.textContent = monthStr;
-    svg.appendChild(monthLabel);
+    // X-axis label (period)
+    const periodLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    periodLabel.setAttribute('x', x + spaceBetweenBars / 2);
+    periodLabel.setAttribute('y', padding + chartHeight + 16);
+    periodLabel.setAttribute('font-size', '10.5');
+    periodLabel.setAttribute('fill', 'var(--text2)');
+    periodLabel.setAttribute('text-anchor', 'middle');
+    periodLabel.textContent = d.label || d.period_key || '--';
+    svg.appendChild(periodLabel);
   });
 
   // Axes
@@ -640,6 +701,10 @@ function renderCodeChurn(data) {
     <div class="churn-legend-item">
       <div class="churn-legend-dot" style="background: #ef4444;"></div>
       <span>Deleted ${fmtNum(totalDeleted)}</span>
+    </div>
+    <div class="churn-legend-item">
+      <div class="churn-legend-dot" style="background: #3a7be8;"></div>
+      <span>Files +${fmtNum(totalFilesAdded)} / -${fmtNum(totalFilesDeleted)} / ~${fmtNum(totalFilesModified)}</span>
     </div>
   `;
 
@@ -702,5 +767,9 @@ function renderPullRequests(container, prs, type) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.gh-analytics-btn').forEach((button) => {
+      button.addEventListener('click', () => setGitHubAnalyticsGrouping(button.dataset.ghGroup));
+    });
+    updateGitHubAnalyticsButtons();
     loadGitHub();
 });

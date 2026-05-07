@@ -20,6 +20,10 @@ class UserAccount(db.Model):
     last_logout_at = db.Column(db.DateTime(timezone=True), nullable=True)
     approved_at = db.Column(db.DateTime(timezone=True), nullable=True)
     rejected_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    time_format = db.Column(db.String(10), nullable=False, default='24h')
+    date_format = db.Column(db.String(20), nullable=False, default='dd/mm/yyyy')
+    time_zone = db.Column(db.String(64), nullable=False, default='browser')
+    show_seconds = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = db.Column(
         db.DateTime(timezone=True),

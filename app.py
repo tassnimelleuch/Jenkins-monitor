@@ -8,15 +8,17 @@ from deployment_kpis import deployment_kpis_bp
 from sonarcloud import sonarcloud_bp
 from github import github_bp
 from finops import finops_bp
+from settings import settings_bp
 from extensions import cache, db
 from services.user_account_service import (
+    ensure_user_preference_columns,
     ensure_admin_account,
     get_active_session_user,
+    get_user_preferences,
     get_pending_count,
     normalize_role,
     role_matches,
 )
-from services.access_service import can_view_chart
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -28,6 +30,7 @@ from auth_models import UserAccount
 from pipeline_storage_models import PipelineBuildDuration, PipelineStageDuration
 with app.app_context():
     db.create_all()
+    ensure_user_preference_columns()
     ensure_admin_account()
 
 app.register_blueprint(auth_bp)
@@ -38,6 +41,7 @@ app.register_blueprint(deployment_kpis_bp)
 app.register_blueprint(sonarcloud_bp)
 app.register_blueprint(github_bp)
 app.register_blueprint(finops_bp)
+app.register_blueprint(settings_bp)
 
 
 def _display_pipeline_name(job_path, branch_name=None):
@@ -69,11 +73,18 @@ def home():
 @app.context_processor
 def inject_pending_count():
     branch_name = (app.config.get('JENKINS_BRANCH') or 'main').strip() or 'main'
+    current_user = None
     current_role = session.get('role')
+    if session.get('username'):
+        current_user = get_active_session_user(session.get('username'))
+        if current_user:
+            current_role = normalize_role(current_user.role)
+            session['role'] = current_role
     context = {
         'pipeline_name': _display_pipeline_name(app.config.get('JENKINS_JOB'), branch_name),
         'branch_name': branch_name,
-        'can_view_chart': lambda chart_key, role=current_role: can_view_chart(role, chart_key),
+        'has_role': lambda *roles, role=current_role: role_matches(role, roles),
+        'user_preferences': get_user_preferences(current_user),
     }
     if current_role == 'admin':
         context['pending_count'] = get_pending_count()

@@ -24,7 +24,7 @@ function fmtDate(ts) {
 }
 
 function currentUserCanManageBuilds() {
-    return (document.body.dataset.userRole || '').toLowerCase() === 'admin';
+    return document.body.dataset.canManageBuilds === 'true';
 }
 
 function showOverviewSegTip(el, name, dur, stcls, sttext) {

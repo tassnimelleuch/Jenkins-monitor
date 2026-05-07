@@ -16,7 +16,7 @@ finops_bp = Blueprint("finops", __name__)
 
 
 @finops_bp.route("/finops")
-@role_required("admin", "dev", "qa")
+@role_required("admin")
 def finops_dashboard():
     return render_template(
         "finops.html",
@@ -85,6 +85,7 @@ def _delete_finops_keys():
 
 
 @finops_bp.route("/api/finops/daily-cost")
+@role_required("admin")
 def daily_cost():
     service, subscription_id = _make_service()
     if not service:
@@ -116,6 +117,7 @@ def daily_cost():
 
 
 @finops_bp.route("/api/finops/resource-groups")
+@role_required("admin")
 def resource_group_costs():
     service, subscription_id = _make_service()
     if not service:
