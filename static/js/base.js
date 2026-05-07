@@ -216,6 +216,8 @@ function buildLineChart(ctx, labels, datasets, opts = {}) {
 
 // ── Chatbot ( for later )
 let chatOpen=false;
+let chatSending=false;
+let chatHistory=[];
 function toggleChat(){
   const panel=document.getElementById('chatPanel');
   if(!panel)return;
@@ -252,24 +254,67 @@ function addMsg(txt,role){
 }
 function showTyping(){const box=document.getElementById('chatMsgs');if(!box)return;const t=document.createElement('div');t.className='typing-bbl';t.id='typing';t.innerHTML='<span></span><span></span><span></span>';box.appendChild(t);box.scrollTop=box.scrollHeight;}
 function hideTyping(){const t=document.getElementById('typing');if(t)t.remove();}
+function getChatEndpoint(){
+  const panel=document.getElementById('chatPanel');
+  return panel?.dataset.chatUrl || '/api/assistant/chat';
+}
+function setChatBusy(busy){
+  chatSending=busy;
+  const input=document.getElementById('chatInput');
+  const button=document.getElementById('chatSendBtn');
+  if(input)input.disabled=busy;
+  if(button)button.disabled=busy;
+}
+function trimChatHistory(messages){
+  return messages.slice(-12);
+}
+async function requestChatReply(messages){
+  const res = await fetch(getChatEndpoint(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages })
+  });
 
-function getBotReply(m){for(const b of BOT)if(b.p.test(m))return b.r;return "I don't have specific data on that yet. Try asking about failures, coverage, or deployments.";}
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(payload.error || 'The assistant is unavailable right now.');
+  }
+
+  const reply = (payload.reply || '').trim();
+  if (!reply) {
+    throw new Error('The assistant returned an empty response.');
+  }
+
+  return payload;
+}
 async function send(){
   const inp=document.getElementById('chatInput');
   const suggestions=document.getElementById('chatSugg');
   if(!inp)return;
-  const txt=inp.value.trim();if(!txt)return;
+  const txt=inp.value.trim();if(!txt||chatSending)return;
+  const pendingMessages=trimChatHistory([...chatHistory,{ role:'user', content:txt }]);
   addMsg(txt,'user');inp.value='';inp.style.height='auto';
   if(suggestions)suggestions.style.display='none';
+  setChatBusy(true);
   showTyping();
-  await new Promise(r=>setTimeout(r,800+Math.random()*600));
-  hideTyping();addMsg(getBotReply(txt),'bot');
+  try{
+    const payload=await requestChatReply(pendingMessages);
+    const reply=(payload.reply||'').trim();
+    hideTyping();
+    addMsg(reply,'bot');
+    chatHistory=trimChatHistory([...pendingMessages,{ role:'assistant', content:reply }]);
+  }catch(e){
+    hideTyping();
+    addMsg(e.message || 'The assistant is unavailable right now.','bot');
+  }finally{
+    setChatBusy(false);
+    inp.focus();
+  }
 }
 document.addEventListener('click',e=>{
   const panel=document.getElementById('chatPanel');
-  const target=e.target;
   if(!chatOpen||!panel)return;
-  if(panel.contains(target)||(target instanceof Element&&target.closest('[data-chat-toggle]')))return;
+  if(panel.contains(e.target)||e.target.closest('[data-chat-toggle]'))return;
   closeChat();
 });
 document.addEventListener('keydown',e=>{
@@ -303,10 +348,6 @@ function escapeHtml(value) {
 
 function pipelineStrongLabel() {
   return `<strong>${escapeHtml(getPipelineName())}</strong>`;
-}
-
-function toggleBuild() {
-  showToast('Build controls are available on dashboard pages.', 'abort-toast');
 }
 
 // Shared pipeline actions
@@ -350,16 +391,6 @@ function triggerBuildWithConfirmation(opts = {}) {
 // ── PDF Export 
 function exportPDF(){
   const {jsPDF}=window.jspdf;
-  const totalEl=document.getElementById('sv-total');
-  const succEl=document.getElementById('sv-success');
-  const failEl=document.getElementById('sv-failed');
-  const abrtEl=document.getElementById('sv-aborted');
-  const healthEl=document.getElementById('health-val');
-  const rateEl=document.getElementById('rate-val');
-  if(!totalEl||!succEl||!failEl||!abrtEl||!healthEl||!rateEl){
-    showToast('PDF export is available on dashboard pages.', 'abort-toast');
-    return;
-  }
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const dark=document.documentElement.getAttribute('data-theme')==='dark';
   const ts=formatUserDateTime(new Date(), { includeSeconds: false, fallback: '--' });
@@ -369,12 +400,12 @@ function exportPDF(){
   doc.text('Jenkins Monitor — KPI Report',14,13);
   doc.setFontSize(8);doc.setFont('helvetica','normal');
   doc.text(`Generated: ${ts}  |  Pipeline: ${getPipelineName()}  |  Branch: ${getBranchName()}`,14,20);
-  const total=totalEl.textContent;
-  const succ=succEl.textContent;
-  const fail=failEl.textContent;
-  const abrt=abrtEl.textContent;
-  const health=healthEl.textContent+'%';
-  const rate=rateEl.textContent+'%';
+  const total=document.getElementById('sv-total').textContent;
+  const succ=document.getElementById('sv-success').textContent;
+  const fail=document.getElementById('sv-failed').textContent;
+  const abrt=document.getElementById('sv-aborted').textContent;
+  const health=document.getElementById('health-val').textContent+'%';
+  const rate=document.getElementById('rate-val').textContent+'%';
   const kpis=[
     {l:'Total Builds',v:total,s:'All time',c:[124,111,255]},
     {l:'Successful',v:succ,s:'Last 30 days',c:[0,219,160]},
