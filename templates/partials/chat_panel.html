@@ -1,4 +1,4 @@
-<div id="chatPanel" class="chat-panel" data-chat-url="{{ url_for('assistant.chat_api') }}" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="chatPanelTitle">
+<div id="chatPanel" class="chat-panel" data-chat-url="{{ url_for('chatbot.chat_api') }}" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="chatPanelTitle">
     <div class="chat-head">
         <div class="chat-avatar">
             {% with icon_class='chatbot-icon chatbot-icon--avatar' %}
@@ -6,15 +6,28 @@
             {% endwith %}
         </div>
         <div>
-            <div class="chat-name" id="chatPanelTitle">AI Assistant</div>
-            <div class="chat-status">Connected</div>
+            <div class="chat-name" id="chatPanelTitle">Dashboard's Chatbot</div>
         </div>
-        <button class="chat-close" type="button" onclick="toggleChat()" aria-label="Close AI Assistant">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M6 6l12 12"/>
-                <path d="M18 6L6 18"/>
-            </svg>
-        </button>
+        <div class="chat-head-actions">
+            <button id="chatFullscreenBtn" class="chat-head-btn" type="button" onclick="toggleChatFullscreen()" aria-label="Open fullscreen chat" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M8 3H3v5"/>
+                    <path d="M3 3l7 7"/>
+                    <path d="M16 3h5v5"/>
+                    <path d="M21 3l-7 7"/>
+                    <path d="M8 21H3v-5"/>
+                    <path d="M3 21l7-7"/>
+                    <path d="M16 21h5v-5"/>
+                    <path d="M21 21l-7-7"/>
+                </svg>
+            </button>
+            <button class="chat-head-btn" type="button" onclick="closeChat()" aria-label="Close chatbot">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M6 6l12 12"/>
+                    <path d="M18 6L6 18"/>
+                </svg>
+            </button>
+        </div>
     </div>
 
     <div class="chat-msgs" id="chatMsgs">

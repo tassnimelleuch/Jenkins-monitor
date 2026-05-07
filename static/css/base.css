@@ -103,21 +103,25 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 /* ── CHATBOT ── */
 .chat-panel{position:fixed;bottom:24px;right:26px;width:min(356px,calc(100vw - 28px));height:min(510px,calc(100vh - 48px));background:var(--bg2);border:1px solid var(--border2);border-radius:20px;box-shadow:0 28px 70px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow:hidden;transform:scale(.9) translateY(20px);transform-origin:bottom right;opacity:0;pointer-events:none;transition:transform .3s cubic-bezier(.34,1.56,.64,1),opacity .22s ease;z-index:500;}
 .chat-panel.open{opacity:1;transform:scale(1) translateY(0);pointer-events:all;}
+.chat-panel.fullscreen{top:18px;right:18px;bottom:18px;left:calc(var(--sw) + 18px);width:auto;height:auto;max-width:none;border-radius:22px;transform-origin:center;}
 .chat-head{padding:13px 15px;background:var(--accent);display:flex;align-items:center;gap:10px;flex-shrink:0;}
 .chat-avatar{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.12);}
 .chat-avatar .chatbot-icon{width:22px;height:22px;color:#fff;}
 .chat-name{font-size:13px;font-weight:700;color:#fff;}
 .chat-status{font-size:10px;color:rgba(255,255,255,.72);display:flex;align-items:center;gap:4px;margin-top:1px;}
 .chat-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#00e5a0;display:inline-block;}
-.chat-close{margin-left:auto;width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,.15);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;}
-.chat-close:hover{background:rgba(255,255,255,.28);}
-.chat-close svg{width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round;}
-.chat-msgs{flex:1;padding:12px 12px 6px;overflow-y:auto;display:flex;flex-direction:column;gap:9px;}
+.chat-head-actions{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.chat-head-btn{width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,.15);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .15s;}
+.chat-head-btn:hover{background:rgba(255,255,255,.28);transform:translateY(-1px);}
+.chat-head-btn svg{width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;}
+.chat-head-btn[aria-pressed="true"]{background:rgba(255,255,255,.3);}
+.chat-msgs{flex:1;padding:12px 12px 6px;overflow-y:auto;display:flex;flex-direction:column;gap:9px;min-height:0;}
 .chat-msgs::-webkit-scrollbar{width:3px;}
 .chat-msgs::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
 .msg{display:flex;flex-direction:column;max-width:82%;}
 .msg.bot{align-self:flex-start;}.msg.user{align-self:flex-end;}
-.bubble{padding:9px 12px;border-radius:16px;font-size:12.5px;line-height:1.5;word-break:break-word;}
+.chat-panel.fullscreen .msg{max-width:min(82%,900px);}
+.bubble{padding:9px 12px;border-radius:16px;font-size:12.5px;line-height:1.5;word-break:break-word;white-space:pre-wrap;}
 .msg.bot  .bubble{background:var(--bg3);color:var(--text);border-bottom-left-radius:4px;}
 .msg.user .bubble{background:var(--accent);color:#fff;border-bottom-right-radius:4px;}
 .msg-time{font-size:9px;color:var(--text2);margin-top:3px;padding:0 3px;}
@@ -164,6 +168,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
   .topbar-actions{width:100%;justify-content:flex-end;flex-wrap:wrap;}
   .page{padding:18px 16px 32px;}
   .chat-panel{left:14px;right:14px;bottom:14px;width:auto;height:min(510px,calc(100vh - 28px));transform-origin:bottom center;}
+  .chat-panel.fullscreen{top:8px;right:8px;bottom:8px;left:8px;}
 }
 
 /* ── Shared Chart Badges ── */

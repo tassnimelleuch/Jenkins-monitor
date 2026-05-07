@@ -9,7 +9,7 @@ from sonarcloud import sonarcloud_bp
 from github import github_bp
 from finops import finops_bp
 from settings import settings_bp
-from assistant import assistant_bp
+from chatbot import chatbot_bp
 from extensions import cache, db
 from services.user_account_service import (
     ensure_user_preference_columns,
@@ -43,7 +43,7 @@ app.register_blueprint(sonarcloud_bp)
 app.register_blueprint(github_bp)
 app.register_blueprint(finops_bp)
 app.register_blueprint(settings_bp)
-app.register_blueprint(assistant_bp)
+app.register_blueprint(chatbot_bp)
 
 
 def _display_pipeline_name(job_path, branch_name=None):

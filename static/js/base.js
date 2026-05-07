@@ -216,8 +216,23 @@ function buildLineChart(ctx, labels, datasets, opts = {}) {
 
 // ── Chatbot ( for later )
 let chatOpen=false;
+let chatFullscreen=false;
 let chatSending=false;
 let chatHistory=[];
+function setChatFullscreen(fullscreen){
+  const panel=document.getElementById('chatPanel');
+  const button=document.getElementById('chatFullscreenBtn');
+  chatFullscreen=Boolean(fullscreen);
+  if(panel)panel.classList.toggle('fullscreen',chatFullscreen);
+  if(button){
+    button.setAttribute('aria-pressed', chatFullscreen ? 'true' : 'false');
+    button.setAttribute('aria-label', chatFullscreen ? 'Exit fullscreen chat' : 'Open fullscreen chat');
+  }
+}
+function toggleChatFullscreen(){
+  setChatFullscreen(!chatFullscreen);
+  if(chatOpen)setTimeout(()=>document.getElementById('chatInput')?.focus(),120);
+}
 function toggleChat(){
   const panel=document.getElementById('chatPanel');
   if(!panel)return;
@@ -232,6 +247,7 @@ function closeChat(){
   if(!chatOpen)return;
   const panel=document.getElementById('chatPanel');
   if(!panel)return;
+  setChatFullscreen(false);
   chatOpen=false;
   panel.classList.remove('open');
   panel.setAttribute('aria-hidden','true');
@@ -256,7 +272,7 @@ function showTyping(){const box=document.getElementById('chatMsgs');if(!box)retu
 function hideTyping(){const t=document.getElementById('typing');if(t)t.remove();}
 function getChatEndpoint(){
   const panel=document.getElementById('chatPanel');
-  return panel?.dataset.chatUrl || '/api/assistant/chat';
+  return panel?.dataset.chatUrl || '/api/chatbot/chat';
 }
 function setChatBusy(busy){
   chatSending=busy;
@@ -277,12 +293,12 @@ async function requestChatReply(messages){
 
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(payload.error || 'The assistant is unavailable right now.');
+    throw new Error(payload.error || 'The chatbot is unavailable right now.');
   }
 
-  const reply = (payload.reply || '').trim();
-  if (!reply) {
-    throw new Error('The assistant returned an empty response.');
+  const reply = payload.reply;
+  if (typeof reply !== 'string' || reply === '') {
+    throw new Error('The chatbot returned an empty response.');
   }
 
   return payload;
@@ -299,13 +315,13 @@ async function send(){
   showTyping();
   try{
     const payload=await requestChatReply(pendingMessages);
-    const reply=(payload.reply||'').trim();
+    const reply=payload.reply;
     hideTyping();
     addMsg(reply,'bot');
     chatHistory=trimChatHistory([...pendingMessages,{ role:'assistant', content:reply }]);
   }catch(e){
     hideTyping();
-    addMsg(e.message || 'The assistant is unavailable right now.','bot');
+    addMsg(e.message || 'The chatbot is unavailable right now.','bot');
   }finally{
     setChatBusy(false);
     inp.focus();
@@ -318,7 +334,12 @@ document.addEventListener('click',e=>{
   closeChat();
 });
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape')closeChat();
+  if(e.key!=='Escape'||!chatOpen)return;
+  if(chatFullscreen){
+    setChatFullscreen(false);
+    return;
+  }
+  closeChat();
 });
 
 // ── Toast

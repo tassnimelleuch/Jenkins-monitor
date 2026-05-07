@@ -1,18 +1,18 @@
 from flask import jsonify, request
 
-from assistant import assistant_bp
+from chatbot import chatbot_bp
 from services.access_service import role_required
-from services.assistant_service import chat_with_ollama
+from services.chatbot_service import chat_with_ollama
 
 
-@assistant_bp.route('/api/assistant/chat', methods=['POST'])
+@chatbot_bp.route('/api/chatbot/chat', methods=['POST'])
 @role_required('admin', 'developer', 'tester')
 def chat_api():
     payload = request.get_json(silent=True) or {}
     messages = payload.get('messages')
-    message = (payload.get('message') or '').strip()
+    message = payload.get('message')
 
-    if messages is None and message:
+    if messages is None and isinstance(message, str) and message:
         messages = [{'role': 'user', 'content': message}]
 
     try:
