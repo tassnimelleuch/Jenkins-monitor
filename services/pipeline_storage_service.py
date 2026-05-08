@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from flask import current_app
 from sqlalchemy.exc import SQLAlchemyError
 
-from extensions import db
+from extensions import cache, db
 from pipeline_storage_models import (
     PipelineBranch,
     PipelineBranchBuild,
@@ -13,6 +13,9 @@ from pipeline_storage_models import (
     PipelineDefinition,
     PipelineStageDuration,
 )
+
+PIPELINE_SNAPSHOT_CACHE_VERSION = 'v1'
+PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS = 86400
 
 
 def _utcnow():
@@ -74,6 +77,16 @@ def _load_pipeline_definition():
         if pipeline is not None:
             return pipeline
     return query.order_by(PipelineDefinition.last_synced_at.desc()).first()
+
+
+def _stored_pipeline_cache_key():
+    job_path = _pipeline_job_path_from_config() or 'default'
+    return f'pipeline_snapshot:{PIPELINE_SNAPSHOT_CACHE_VERSION}:{job_path}'
+
+
+def _stored_overview_cache_key():
+    job_path = _pipeline_job_path_from_config() or 'default'
+    return f'overview_snapshot:{PIPELINE_SNAPSHOT_CACHE_VERSION}:{job_path}'
 
 
 def _serialize_branch_build(build, branch_name):
@@ -242,7 +255,7 @@ def _branch_payload_from_row(branch_row, selected_branch):
     }
 
 
-def get_stored_pipeline_kpis():
+def _load_stored_pipeline_kpis():
     pipeline = _load_pipeline_definition()
     if pipeline is None:
         return None
@@ -275,6 +288,21 @@ def get_stored_pipeline_kpis():
         },
         'branches': branches,
     }
+
+
+def get_stored_pipeline_kpis():
+    cached = cache.get(_stored_pipeline_cache_key())
+    if cached is not None:
+        return cached
+
+    stored = _load_stored_pipeline_kpis()
+    if stored is not None:
+        cache.set(
+            _stored_pipeline_cache_key(),
+            stored,
+            timeout=PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS,
+        )
+    return stored
 
 
 def get_overview_kpis_from_stored_pipeline(stored):
@@ -324,8 +352,45 @@ def get_overview_kpis_from_stored_pipeline(stored):
 
 
 def get_stored_overview_kpis():
+    cached = cache.get(_stored_overview_cache_key())
+    if cached is not None:
+        return cached
+
     stored = get_stored_pipeline_kpis()
-    return get_overview_kpis_from_stored_pipeline(stored)
+    overview = get_overview_kpis_from_stored_pipeline(stored)
+    if overview is not None:
+        cache.set(
+            _stored_overview_cache_key(),
+            overview,
+            timeout=PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS,
+        )
+    return overview
+
+
+def warm_pipeline_snapshot_cache():
+    stored = _load_stored_pipeline_kpis()
+    if stored is None:
+        cache.delete(_stored_pipeline_cache_key())
+        cache.delete(_stored_overview_cache_key())
+        return None
+
+    cache.set(
+        _stored_pipeline_cache_key(),
+        stored,
+        timeout=PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS,
+    )
+
+    overview = get_overview_kpis_from_stored_pipeline(stored)
+    if overview is not None:
+        cache.set(
+            _stored_overview_cache_key(),
+            overview,
+            timeout=PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS,
+        )
+    else:
+        cache.delete(_stored_overview_cache_key())
+
+    return stored
 
 
 def _prepare_branch_build_payloads(branch_payload):

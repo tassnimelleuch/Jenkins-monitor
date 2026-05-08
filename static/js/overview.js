@@ -469,7 +469,7 @@ function triggerBuild() {
         triggerErrorMessage: 'Failed to trigger build',
         onQueued() {
             startPolling(5000);
-            setTimeout(() => startPolling(30000), 30000);
+            setTimeout(() => startPolling(10000), 10000);
         }
     });
 }
@@ -586,5 +586,5 @@ document.addEventListener('DOMContentLoaded', () => {
     requestNotificationPermission();
     checkStatus();
     loadKPIs();
-    startPolling(30000);
+    startPolling(10000);
 });

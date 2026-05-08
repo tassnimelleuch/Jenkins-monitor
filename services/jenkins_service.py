@@ -15,10 +15,11 @@ from collectors.jenkins_collector import (
 from flask import current_app
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import (
-    get_overview_kpis_from_stored_pipeline,
     get_stored_pipeline_kpis,
+    get_stored_overview_kpis,
     sync_pipeline_durations,
     sync_pipeline_snapshot,
+    warm_pipeline_snapshot_cache,
 )
 
 DEPLOY_STAGE = 'Deploy to AKS'
@@ -152,11 +153,16 @@ def _cache_pipeline_head_from_payload(payload):
         }
 
 
-def _run_async_pipeline_refresh(app):
+def _run_async_pipeline_refresh(app, stored_payload=None):
     global _pipeline_refresh_in_progress
 
     try:
         with app.app_context():
+            if stored_payload is not None:
+                live_head = _get_cached_pipeline_head()
+                if not _pipeline_head_has_changed(stored_payload, live_head):
+                    return
+
             refresh_pipeline_storage_from_jenkins()
     except Exception:
         app.logger.exception('Background pipeline refresh failed.')
@@ -165,7 +171,7 @@ def _run_async_pipeline_refresh(app):
             _pipeline_refresh_in_progress = False
 
 
-def _start_async_pipeline_refresh():
+def _start_async_pipeline_refresh(stored_payload=None):
     global _pipeline_refresh_in_progress
 
     with _pipeline_refresh_lock:
@@ -176,7 +182,7 @@ def _start_async_pipeline_refresh():
     app = current_app._get_current_object()
     thread = threading.Thread(
         target=_run_async_pipeline_refresh,
-        args=(app,),
+        args=(app, stored_payload),
         daemon=True,
         name='pipeline-refresh',
     )
@@ -184,10 +190,14 @@ def _start_async_pipeline_refresh():
     return True
 
 
-def _refresh_pipeline_if_changed(stored_payload):
-    live_head = _get_cached_pipeline_head()
-    if _pipeline_head_has_changed(stored_payload, live_head):
-        _start_async_pipeline_refresh()
+def _schedule_pipeline_refresh_if_due(stored_payload):
+    with _pipeline_head_cache_lock:
+        checked_at = _pipeline_head_cache.get('checked_at')
+
+    if not _snapshot_is_stale(checked_at, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS):
+        return False
+
+    return _start_async_pipeline_refresh(stored_payload=stored_payload)
 
 
 def _serialize_build(build, branch_name):
@@ -570,6 +580,7 @@ def refresh_pipeline_storage_from_jenkins():
         return payload
 
     sync_pipeline_snapshot(payload)
+    warm_pipeline_snapshot_cache()
     _cache_pipeline_head_from_payload(payload)
 
     selected_branch = (payload.get('pipeline') or {}).get('selected_branch')
@@ -581,15 +592,15 @@ def refresh_pipeline_storage_from_jenkins():
 def get_kpis():
     stored_pipeline = get_stored_pipeline_kpis()
     if stored_pipeline:
-        _refresh_pipeline_if_changed(stored_pipeline)
-        stored_overview = get_overview_kpis_from_stored_pipeline(stored_pipeline)
+        _schedule_pipeline_refresh_if_due(stored_pipeline)
+        stored_overview = get_stored_overview_kpis()
         if stored_overview:
             return stored_overview
 
     live = refresh_pipeline_storage_from_jenkins()
     if live.get('connected'):
         stored_pipeline = get_stored_pipeline_kpis()
-        stored_overview = get_overview_kpis_from_stored_pipeline(stored_pipeline)
+        stored_overview = get_stored_overview_kpis()
         if stored_overview:
             return stored_overview
 
@@ -599,7 +610,7 @@ def get_kpis():
 def get_pipeline_kpis():
     stored = get_stored_pipeline_kpis()
     if stored:
-        _refresh_pipeline_if_changed(stored)
+        _schedule_pipeline_refresh_if_due(stored)
         return stored
 
     live = refresh_pipeline_storage_from_jenkins()
