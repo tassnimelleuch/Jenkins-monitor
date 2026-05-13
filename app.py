@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, redirect, request, url_for, session
 from auth import auth_bp
+from alerts import alerts_bp
 from overview import overview_bp
 from pipeline_kpis import pipeline_kpis_bp
 from user_management import user_management_bp
@@ -35,6 +36,7 @@ with app.app_context():
     ensure_admin_account()
 
 app.register_blueprint(auth_bp)
+app.register_blueprint(alerts_bp)
 app.register_blueprint(overview_bp)
 app.register_blueprint(pipeline_kpis_bp)
 app.register_blueprint(user_management_bp)

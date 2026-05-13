@@ -1,6 +1,6 @@
 const INITIAL_SHOW = 5;
 const POLL_MS = 5000;
-const SLOW_POLL_MS = 30000;
+const SLOW_POLL_MS = 10000;
 
 let _allBuilds = [];
 let _showingAll = false;

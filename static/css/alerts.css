@@ -1,0 +1,130 @@
+.alerts-hero{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:20px;
+}
+
+.alerts-title{
+  font-size:30px;
+  font-weight:800;
+  letter-spacing:-.03em;
+}
+
+.alerts-sub{
+  margin-top:6px;
+  color:var(--text2);
+  font-size:13px;
+}
+
+.alerts-pill{
+  border:1px solid var(--border2);
+  background:var(--bg2);
+  color:var(--text2);
+  border-radius:999px;
+  padding:8px 12px;
+  font-size:12px;
+  font-weight:700;
+  white-space:nowrap;
+}
+
+.alerts-pill.is-alert{
+  color:var(--red);
+  border-color:rgba(255,69,96,.28);
+  background:rgba(255,69,96,.10);
+}
+
+.alerts-list-card{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:18px;
+}
+
+.alerts-list-hdr{
+  align-items:flex-start;
+}
+
+.alerts-updated{
+  color:var(--text2);
+  font-size:12px;
+  font-weight:600;
+}
+
+.alerts-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  margin-top:18px;
+}
+
+.alert-row{
+  border:1px solid rgba(255,69,96,.16);
+  background:linear-gradient(180deg,rgba(255,69,96,.08),rgba(255,69,96,.03));
+  border-radius:16px;
+  padding:16px;
+}
+
+.alert-row-top{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+}
+
+.alert-build-tag{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  background:rgba(255,69,96,.12);
+  color:var(--red);
+  border:1px solid rgba(255,69,96,.20);
+  border-radius:999px;
+  padding:5px 10px;
+  font-size:12px;
+  font-weight:800;
+  font-family:'JetBrains Mono',monospace;
+}
+
+.alert-severity{
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-size:10px;
+  font-weight:800;
+  color:var(--orange);
+}
+
+.alert-message{
+  font-size:15px;
+  font-weight:700;
+  margin-bottom:12px;
+}
+
+.alert-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  color:var(--text2);
+  font-size:12px;
+}
+
+.alerts-empty{
+  border:1px dashed var(--border2);
+  border-radius:16px;
+  padding:22px 18px;
+  text-align:center;
+  color:var(--text2);
+  background:var(--bg3);
+}
+
+.alerts-empty-standalone{
+  margin-top:8px;
+}
+
+@media (max-width: 980px){
+  .alerts-hero{
+    flex-direction:column;
+  }
+}

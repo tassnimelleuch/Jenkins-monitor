@@ -586,5 +586,5 @@ document.addEventListener('DOMContentLoaded', () => {
     requestNotificationPermission();
     checkStatus();
     loadKPIs();
-    startPolling(10000);
+    startPolling(2000);
 });

@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block title %}Alerts — Jenkins Monitor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}">
+{% endblock %}
+
+{% block body_attrs %}data-alerts-url="{{ url_for('alerts.alerts_api') }}" data-page="alerts"{% endblock %}
+
+{% block page_content %}
+<div class="alerts-hero">
+  <div>
+    <div class="alerts-title">Alerts</div>
+    <div class="alerts-sub" id="alertsSubtitle">Watching for running builds that pass the 1 minute test threshold</div>
+  </div>
+  <div class="alerts-pill" id="alertsStatusPill" hidden>Checking...</div>
+</div>
+
+<div class="alerts-list-card" id="alertsCard" hidden>
+  <div class="chart-hdr alerts-list-hdr">
+    <div>
+      <div class="chart-title">Duration Alerts</div>
+      <div class="chart-sub" id="alertsRuleText">Running builds whose duration is above 1 minute</div>
+    </div>
+    <div class="alerts-updated" id="alertsUpdatedAt">Updated just now</div>
+  </div>
+
+  <div class="alerts-list" id="alertsList">
+    <div class="alerts-empty">Checking active alerts...</div>
+  </div>
+</div>
+
+<div class="alerts-empty alerts-empty-standalone" id="alertsIdleState">
+  No active alerts right now. This page will only show alert cards when a running build exceeds 1 minute.
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
+{% endblock %}

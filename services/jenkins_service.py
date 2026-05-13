@@ -24,7 +24,7 @@ from services.pipeline_storage_service import (
 
 DEPLOY_STAGE = 'Deploy to AKS'
 ROLLOUT_STAGE = 'Wait for AKS Rollout'
-PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS = 15
+PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS = 2
 
 _pipeline_head_cache = {
     'checked_at': None,
