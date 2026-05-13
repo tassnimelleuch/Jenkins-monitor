@@ -1,0 +1,287 @@
+.ecoops-hero{
+  position:relative;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at top right, rgba(58,184,248,.22), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(0,219,160,.18), transparent 28%),
+    linear-gradient(135deg, var(--bg2), rgba(20, 34, 54, .96));
+  border:1px solid var(--border);
+  border-radius:22px;
+  padding:24px;
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:18px;
+  animation:fadeUp .45s ease both;
+}
+
+.ecoops-kicker{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(58,184,248,.24);
+  background:rgba(58,184,248,.1);
+  color:var(--blue);
+  font-size:10.5px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.ecoops-title{
+  margin-top:12px;
+  font-size:32px;
+  line-height:1;
+  font-weight:800;
+  letter-spacing:-.04em;
+}
+
+.ecoops-sub{
+  margin-top:10px;
+  max-width:760px;
+  color:var(--text2);
+  font-size:12.5px;
+  line-height:1.7;
+}
+
+.ecoops-status-panel{
+  min-width:220px;
+  padding:14px 16px;
+  border-radius:16px;
+  background:rgba(8,12,20,.26);
+  border:1px solid rgba(255,255,255,.08);
+  backdrop-filter:blur(10px);
+}
+
+.ecoops-status-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+
+.ecoops-status-badge.is-live{
+  background:rgba(0,219,160,.14);
+  color:var(--green);
+  border:1px solid rgba(0,219,160,.24);
+}
+
+.ecoops-status-badge.is-error{
+  background:rgba(255,69,96,.14);
+  color:var(--red);
+  border:1px solid rgba(255,69,96,.24);
+}
+
+.ecoops-status-line{
+  margin-top:10px;
+  color:var(--text2);
+  font-size:11.5px;
+  font-weight:600;
+}
+
+.ecoops-error{
+  margin-top:14px;
+  padding:12px 14px;
+  border-radius:14px;
+  border:1px solid rgba(255,69,96,.24);
+  background:rgba(255,69,96,.08);
+  color:var(--red);
+  font-size:12px;
+  font-weight:700;
+}
+
+.ecoops-grid{
+  margin-top:14px;
+  display:grid;
+  gap:12px;
+}
+
+.ecoops-grid-primary{
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+}
+
+.ecoops-grid-secondary{
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+}
+
+.ecoops-card{
+  position:relative;
+  overflow:hidden;
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:18px;
+  animation:fadeUp .5s ease both;
+}
+
+.ecoops-card::before{
+  content:'';
+  position:absolute;
+  inset:auto -12% -40% auto;
+  width:160px;
+  height:160px;
+  border-radius:50%;
+  background:radial-gradient(circle, rgba(255,255,255,.08), transparent 68%);
+  pointer-events:none;
+}
+
+.ecoops-card-accent{
+  background:linear-gradient(160deg, rgba(0,219,160,.1), var(--bg2) 54%);
+}
+
+.ecoops-card-blue{
+  background:linear-gradient(160deg, rgba(58,184,248,.12), var(--bg2) 54%);
+}
+
+.ecoops-card-glow{
+  background:linear-gradient(160deg, rgba(245,197,66,.1), var(--bg2) 54%);
+}
+
+.ecoops-card-label{
+  color:var(--text2);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.ecoops-card-value{
+  margin-top:12px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:28px;
+  line-height:1.15;
+  font-weight:800;
+  letter-spacing:-.04em;
+}
+
+.ecoops-card-value-sm{
+  font-size:22px;
+}
+
+.ecoops-card-meta{
+  margin-top:10px;
+  color:var(--text2);
+  font-size:12px;
+  line-height:1.6;
+}
+
+.ecoops-chart-card,
+.ecoops-formula-card{
+  margin-top:14px;
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:20px;
+  padding:18px;
+}
+
+.ecoops-chart-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+}
+
+.ecoops-chart-title,
+.ecoops-formula-title{
+  font-size:14px;
+  font-weight:800;
+  letter-spacing:-.02em;
+}
+
+.ecoops-chart-sub{
+  margin-top:4px;
+  color:var(--text2);
+  font-size:11.5px;
+}
+
+.ecoops-legend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
+.ecoops-legend-item{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  color:var(--text2);
+  font-size:11px;
+  font-weight:700;
+}
+
+.ecoops-legend-swatch{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+}
+
+.ecoops-legend-swatch.aks{background:var(--green);}
+.ecoops-legend-swatch.vm{background:var(--blue);}
+.ecoops-legend-swatch.total{background:var(--yellow);}
+
+.ecoops-chart-wrap{
+  margin-top:14px;
+  height:340px;
+}
+
+.ecoops-formulas{
+  margin-top:14px;
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:10px;
+}
+
+.ecoops-formula-item{
+  padding:12px 14px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background:var(--bg3);
+  color:var(--text3);
+  font-family:'JetBrains Mono', monospace;
+  font-size:11.5px;
+  line-height:1.6;
+}
+
+@media (max-width: 980px){
+  .ecoops-hero{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .ecoops-status-panel{
+    width:100%;
+    min-width:0;
+  }
+
+  .ecoops-grid-primary,
+  .ecoops-grid-secondary,
+  .ecoops-formulas{
+    grid-template-columns:1fr;
+  }
+}
+
+@media (max-width: 680px){
+  .ecoops-title{
+    font-size:26px;
+  }
+
+  .ecoops-card-value{
+    font-size:22px;
+  }
+
+  .ecoops-chart-head{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .ecoops-chart-wrap{
+    height:280px;
+  }
+}

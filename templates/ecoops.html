@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block title %}EcoOps - Jenkins Monitor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ecoops.css') }}">
+{% endblock %}
+
+{% block body_attrs %}data-page="ecoops" data-ecoops-url="{{ url_for('ecoops.ecoops_live') }}"{% endblock %}
+
+{% block page_content %}
+<section class="ecoops-hero">
+  <div class="ecoops-hero-copy">
+    <div class="ecoops-kicker">Live sustainability telemetry</div>
+    <h1 class="ecoops-title">EcoOps</h1>
+    <p class="ecoops-sub">
+      Real-time CO2 estimation for the AKS cluster and virtual machine, calculated from live Prometheus CPU and memory usage over the latest hour.
+    </p>
+  </div>
+
+</section>
+
+<div class="ecoops-error" id="ecoopsError" style="display:none;"></div>
+
+<section class="ecoops-grid ecoops-grid-primary">
+  <article class="ecoops-card ecoops-card-accent">
+    <div class="ecoops-card-label">AKS CO2 / hour</div>
+    <div class="ecoops-card-value" id="aksCo2Hour">-</div>
+    <div class="ecoops-card-meta" id="aksPowerMeta">-</div>
+  </article>
+  <article class="ecoops-card ecoops-card-blue">
+    <div class="ecoops-card-label">VM CO2 / hour</div>
+    <div class="ecoops-card-value" id="vmCo2Hour">-</div>
+    <div class="ecoops-card-meta" id="vmPowerMeta">-</div>
+  </article>
+  <article class="ecoops-card ecoops-card-glow">
+    <div class="ecoops-card-label">Combined last hour</div>
+    <div class="ecoops-card-value" id="combinedLastHour">-</div>
+    <div class="ecoops-card-meta" id="combinedPowerMeta">-</div>
+  </article>
+</section>
+
+
+<section class="ecoops-chart-card">
+  <div class="ecoops-chart-head">
+    <div>
+      <div class="ecoops-chart-title">CO2 Emission Rate - Latest Hour</div>
+    </div>
+    <div class="ecoops-legend">
+      <span class="ecoops-legend-item">
+        <span class="ecoops-legend-swatch aks"></span>
+        AKS
+      </span>
+      <span class="ecoops-legend-item">
+        <span class="ecoops-legend-swatch vm"></span>
+        VM
+      </span>
+      <span class="ecoops-legend-item">
+        <span class="ecoops-legend-swatch total"></span>
+        Combined
+      </span>
+    </div>
+  </div>
+  <div class="ecoops-chart-wrap">
+    <canvas id="ecoopsCo2Chart"></canvas>
+  </div>
+</section>
+
+<section class="ecoops-formula-card">
+  <div class="ecoops-formula-title">Applied model</div>
+  <div class="ecoops-formulas">
+    <div class="ecoops-formula-item">CPU Power = vCPUs x [0.74 + (CPU% / 100) x 2.76]</div>
+    <div class="ecoops-formula-item">RAM Power = RAM used (GB) x 0.38</div>
+    <div class="ecoops-formula-item">Wall Power = (CPU Power + RAM Power) x 1.125</div>
+    <div class="ecoops-formula-item">CO2 / hour = (Wall Power / 1000) x 56</div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="{{ url_for('static', filename='js/ecoops.js') }}"></script>
+{% endblock %}

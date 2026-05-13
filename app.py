@@ -9,6 +9,7 @@ from deployment_kpis import deployment_kpis_bp
 from sonarcloud import sonarcloud_bp
 from github import github_bp
 from finops import finops_bp
+from ecoops import ecoops_bp
 from settings import settings_bp
 from chatbot import chatbot_bp
 from extensions import cache, db
@@ -44,6 +45,7 @@ app.register_blueprint(deployment_kpis_bp)
 app.register_blueprint(sonarcloud_bp)
 app.register_blueprint(github_bp)
 app.register_blueprint(finops_bp)
+app.register_blueprint(ecoops_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(chatbot_bp)
 

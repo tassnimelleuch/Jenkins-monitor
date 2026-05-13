@@ -126,7 +126,8 @@
     {% endif %}
 
     {% if has_role('admin') %}
-    <div class="nav-item" onclick="setActive(this)">
+    <a class="nav-item {% if request.endpoint == 'ecoops.ecoops_dashboard' %}active{% endif %}"
+       href="{{ url_for('ecoops.ecoops_dashboard') }}">
       <span class="nav-icon">
         <svg viewBox="0 0 24 24">
           <path d="M12 22c6-3 8-7 8-12a8 8 0 0 0-16 0c0 5 2 9 8 12z"/>
@@ -136,7 +137,7 @@
         </svg>
       </span>
       <span class="nav-label">EcoOps</span>
-    </div>
+    </a>
     {% endif %}
 
     <div class="nav-item" onclick="setActive(this)">

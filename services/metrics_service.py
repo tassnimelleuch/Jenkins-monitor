@@ -1,70 +1,60 @@
 import logging
 from collectors.prometheus_collector import query, query_range, query_range_series
-from datetime import datetime, timedelta, timezone
+from services.prometheus_queries import (
+    CLUSTER_NODE_COUNT_QUERY,
+    CLUSTER_NODE_CPU_PCT_QUERY,
+    CLUSTER_NODE_RAM_PCT_QUERY,
+    CLUSTER_POD_COUNT_QUERY,
+    CLUSTER_POD_CPU_PCT_QUERY,
+    CLUSTER_POD_RAM_LIMIT_BYTES_QUERY,
+    CLUSTER_POD_RAM_USED_BYTES_QUERY,
+    DEFAULT_HISTORY_STEP,
+    NAMESPACE_CPU_HISTORY_QUERIES,
+    NAMESPACE_DISK_HISTORY_QUERIES,
+    NAMESPACE_NET_HISTORY_QUERIES,
+    NAMESPACE_RAM_HISTORY_QUERIES,
+    VM_CPU_PCT_QUERY,
+    VM_DISK_USED_PCT_QUERY,
+    VM_NET_RX_MBPS_QUERY,
+    VM_NET_TX_MBPS_QUERY,
+    VM_RAM_PCT_HISTORY_QUERY,
+    VM_RAM_PCT_QUERY,
+    VM_RAM_TOTAL_BYTES_QUERY,
+    VM_RAM_USED_BYTES_QUERY,
+    now_range_iso,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _now_range(minutes=30):
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(minutes=minutes)
-    return start.isoformat(), end.isoformat()
+    return now_range_iso(minutes)
 
 
 # ── VM metrics (Jenkins Azure VM, scraped via node_exporter) ─────────────────
 def get_vm_metrics():
     """CPU and RAM for the Azure VM running Jenkins."""
     try:
-        cpu = query(
-            '100 - (avg by(instance) (rate(node_cpu_seconds_total'
-            '{mode="idle", job="jenkins-vm"}[5m])) * 100)'
-        )
-        ram_used = query(
-            '(1 - (node_memory_MemAvailable_bytes{job="jenkins-vm"} '
-            '/ node_memory_MemTotal_bytes{job="jenkins-vm"})) * 100'
-        )
-        ram_total_bytes = query(
-            'node_memory_MemTotal_bytes{job="jenkins-vm"}'
-        )
-        ram_used_bytes = query(
-            'node_memory_MemTotal_bytes{job="jenkins-vm"} '
-            '- node_memory_MemAvailable_bytes{job="jenkins-vm"}'
-        )
-        disk_used_pct = query(
-            'node_filesystem_avail_bytes{job="jenkins-vm",mountpoint="/"} '
-            '/ node_filesystem_size_bytes{job="jenkins-vm",mountpoint="/"}'
-            ' * 100'
-        )
-        disk_used_pct = 100 - disk_used_pct if disk_used_pct is not None else None
+        cpu = query(VM_CPU_PCT_QUERY)
+        ram_used = query(VM_RAM_PCT_QUERY)
+        ram_total_bytes = query(VM_RAM_TOTAL_BYTES_QUERY)
+        ram_used_bytes = query(VM_RAM_USED_BYTES_QUERY)
+        disk_used_pct = query(VM_DISK_USED_PCT_QUERY)
 
-        start, end = _now_range(30)
+        start, end = now_range_iso(30)
 
-        cpu_history = query_range(
-            '100 - (avg by(instance) (rate(node_cpu_seconds_total'
-            '{mode="idle", job="jenkins-vm"}[5m])) * 100)',
-            start, end, step="60s"
-        )
+        cpu_history = query_range(VM_CPU_PCT_QUERY, start, end, step=DEFAULT_HISTORY_STEP)
         ram_history = query_range(
-            '100 - ((node_memory_MemAvailable_bytes{job="jenkins-vm"} '
-            '/ node_memory_MemTotal_bytes{job="jenkins-vm"}) * 100)',
-            start, end, step="60s"
+            VM_RAM_PCT_HISTORY_QUERY, start, end, step=DEFAULT_HISTORY_STEP
         )
         net_rx_history = query_range(
-            'sum by(instance) (rate(node_network_receive_bytes_total'
-            '{job="jenkins-vm",device!~"lo|docker.*|veth.*|br-.*"}[5m]))'
-            ' / 1024 / 1024',
-            start, end, step="60s"
+            VM_NET_RX_MBPS_QUERY, start, end, step=DEFAULT_HISTORY_STEP
         )
         net_tx_history = query_range(
-            'sum by(instance) (rate(node_network_transmit_bytes_total'
-            '{job="jenkins-vm",device!~"lo|docker.*|veth.*|br-.*"}[5m]))'
-            ' / 1024 / 1024',
-            start, end, step="60s"
+            VM_NET_TX_MBPS_QUERY, start, end, step=DEFAULT_HISTORY_STEP
         )
         disk_used_pct_history = query_range(
-            '100 - ((node_filesystem_avail_bytes{job="jenkins-vm",mountpoint="/"} '
-            '/ node_filesystem_size_bytes{job="jenkins-vm",mountpoint="/"}) * 100)',
-            start, end, step="60s"
+            VM_DISK_USED_PCT_QUERY, start, end, step=DEFAULT_HISTORY_STEP
         )
 
         return {
@@ -90,37 +80,21 @@ def get_cluster_metrics():
     """CPU and RAM aggregated across all AKS nodes and pods."""
     try:
         # ── Scalar gauges ────────────────────────────────────────────────────
-        node_cpu = query(
-            'sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))'
-            ' / scalar(sum(machine_cpu_cores)) * 100'
-        )
-        node_ram = query(
-            '(1 - sum(node_memory_MemAvailable_bytes)'
-            ' / sum(node_memory_MemTotal_bytes)) * 100'
-        )
-        pod_cpu = query(
-            'sum(rate(container_cpu_usage_seconds_total'
-            '{namespace!="",container!="POD",container!=""}[5m]))'
-            ' / scalar(sum(machine_cpu_cores)) * 100'
-        )
-        pod_ram_used = query(
-            'sum(container_memory_working_set_bytes'
-            '{namespace!="",container!="POD",container!=""})'
-        )
-        pod_ram_limit = query(
-            'sum(kube_pod_container_resource_limits'
-            '{resource="memory", unit="byte"})'
-        )
-        pod_count = query('count(kube_pod_info{namespace!="kube-system"})')
-        node_count = query('count(kube_node_info)')
+        node_cpu = query(CLUSTER_NODE_CPU_PCT_QUERY)
+        node_ram = query(CLUSTER_NODE_RAM_PCT_QUERY)
+        pod_cpu = query(CLUSTER_POD_CPU_PCT_QUERY)
+        pod_ram_used = query(CLUSTER_POD_RAM_USED_BYTES_QUERY)
+        pod_ram_limit = query(CLUSTER_POD_RAM_LIMIT_BYTES_QUERY)
+        pod_count = query(CLUSTER_POD_COUNT_QUERY)
+        node_count = query(CLUSTER_NODE_COUNT_QUERY)
 
-        start, end = _now_range(30)
+        start, end = now_range_iso(30)
 
         # ── Helper ───────────────────────────────────────────────────────────
         def _first_series(label, queries):
             for i, (q, lbl) in enumerate(queries):
                 try:
-                    data = query_range_series(q, start, end, step="60s", label=lbl)
+                    data = query_range_series(q, start, end, step=DEFAULT_HISTORY_STEP, label=lbl)
                     if data:
                         logger.info(
                             "_first_series[%s] matched query #%d → %d series | %.120s",
@@ -141,122 +115,16 @@ def get_cluster_metrics():
 
         # ── Node-level history ───────────────────────────────────────────────
         node_cpu_history = query_range(
-            'sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))'
-            ' / scalar(sum(machine_cpu_cores)) * 100',
-            start, end, step="60s"
+            CLUSTER_NODE_CPU_PCT_QUERY, start, end, step=DEFAULT_HISTORY_STEP
         )
         node_ram_history = query_range(
-            '(1 - sum(node_memory_MemAvailable_bytes)'
-            ' / sum(node_memory_MemTotal_bytes)) * 100',
-            start, end, step="60s"
+            CLUSTER_NODE_RAM_PCT_QUERY, start, end, step=DEFAULT_HISTORY_STEP
         )
 
-        # ── Namespace CPU ────────────────────────────────────────────────────
-        ns_cpu_queries = [
-            # Primary — confirmed working: namespace label exists, scalar denominator
-            (
-                'sum by (namespace) (rate(container_cpu_usage_seconds_total'
-                '{namespace!="",container!="POD",container!=""}[5m]))'
-                ' / scalar(sum(machine_cpu_cores)) * 100',
-                "namespace",
-            ),
-            # Fallback — kube_node_status_capacity as denominator
-            (
-                'sum by (namespace) (rate(container_cpu_usage_seconds_total'
-                '{namespace!="",container!="POD",container!=""}[5m]))'
-                ' / scalar(sum(kube_node_status_capacity_cpu_cores)) * 100',
-                "namespace",
-            ),
-            # Fallback — recording rule irate (kube-prometheus-stack)
-            (
-                'sum by (namespace) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate)'
-                ' / scalar(sum(machine_cpu_cores)) * 100',
-                "namespace",
-            ),
-            # Fallback — recording rule rate (kube-prometheus-stack)
-            (
-                'sum by (namespace) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate)'
-                ' / scalar(sum(machine_cpu_cores)) * 100',
-                "namespace",
-            ),
-            # Fallback — no denominator, raw percentage of 1 core
-            (
-                'sum by (namespace) (rate(container_cpu_usage_seconds_total'
-                '{namespace!="",container!="POD",container!=""}[5m])) * 100',
-                "namespace",
-            ),
-        ]
-
-        # ── Namespace RAM ────────────────────────────────────────────────────
-        ns_ram_queries = [
-            (
-                'sum by (namespace) (container_memory_working_set_bytes'
-                '{namespace!="",container!="POD",container!=""}) / 1e9',
-                "namespace",
-            ),
-            (
-                'sum by (kubernetes_namespace) (container_memory_working_set_bytes'
-                '{kubernetes_namespace!="",container!="POD",container!=""}) / 1e9',
-                "kubernetes_namespace",
-            ),
-            (
-                'sum by (namespace) (container_memory_working_set_bytes'
-                '{container!="POD",container!=""}'
-                ' * on(pod) group_left(namespace) kube_pod_info) / 1e9',
-                "namespace",
-            ),
-        ]
-
-        # ── Namespace Network ────────────────────────────────────────────────
-        ns_net_queries = [
-            (
-                'sum by (namespace) (rate(container_network_receive_bytes_total'
-                '{namespace!="",pod!="",interface!~"lo"}[5m])'
-                ' + rate(container_network_transmit_bytes_total'
-                '{namespace!="",pod!="",interface!~"lo"}[5m])) / 1024 / 1024',
-                "namespace",
-            ),
-            (
-                'sum by (kubernetes_namespace) (rate(container_network_receive_bytes_total'
-                '{kubernetes_namespace!="",pod!="",interface!~"lo"}[5m])'
-                ' + rate(container_network_transmit_bytes_total'
-                '{kubernetes_namespace!="",pod!="",interface!~"lo"}[5m])) / 1024 / 1024',
-                "kubernetes_namespace",
-            ),
-            (
-                'sum by (namespace) ((rate(container_network_receive_bytes_total'
-                '{pod!=""}[5m]) + rate(container_network_transmit_bytes_total'
-                '{pod!=""}[5m])) * on(pod) group_left(namespace) kube_pod_info) / 1024 / 1024',
-                "namespace",
-            ),
-        ]
-
-        # ── Namespace Disk ───────────────────────────────────────────────────
-        ns_disk_queries = [
-            (
-                'sum by (namespace) (container_fs_usage_bytes'
-                '{namespace!="",container!="POD",container!=""}) / 1e9',
-                "namespace",
-            ),
-            (
-                'sum by (namespace) (node_namespace_pod_container:container_fs_usage_bytes) / 1e9',
-                "namespace",
-            ),
-            (
-                'sum by (kubernetes_namespace) (container_fs_usage_bytes'
-                '{kubernetes_namespace!="",container!="POD",container!=""}) / 1e9',
-                "kubernetes_namespace",
-            ),
-            (
-                'sum by (namespace) (kubelet_volume_stats_used_bytes{namespace!=""}) / 1e9',
-                "namespace",
-            ),
-        ]
-
-        ns_cpu_history  = _first_series("cpu",  ns_cpu_queries)
-        ns_ram_history  = _first_series("ram",  ns_ram_queries)
-        ns_net_history  = _first_series("net",  ns_net_queries)
-        ns_disk_history = _first_series("disk", ns_disk_queries)
+        ns_cpu_history = _first_series("cpu", NAMESPACE_CPU_HISTORY_QUERIES)
+        ns_ram_history = _first_series("ram", NAMESPACE_RAM_HISTORY_QUERIES)
+        ns_net_history = _first_series("net", NAMESPACE_NET_HISTORY_QUERIES)
+        ns_disk_history = _first_series("disk", NAMESPACE_DISK_HISTORY_QUERIES)
 
         return {
             "connected": True,
