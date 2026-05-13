@@ -14,6 +14,8 @@ let _durationSourceBuilds = [];
 let _groupedDurationChart = null;
 let _coverageGrouping = 'week';
 let _coverageSourcePoints = [];
+let _testsDurationGrouping = 'week';
+let _testsDurationSourcePoints = [];
 
 // Legacy build-history helpers are intentionally kept in this file for
 // possible rollback, even though the current page no longer renders the
@@ -618,6 +620,102 @@ function setCoverageGrouping(grouping) {
   renderCoverageTrend(_coverageSourcePoints);
 }
 
+function buildTestsDurationGroups(points, grouping) {
+  const grouped = new Map();
+  const validPoints = (points || []).filter(point =>
+    typeof point.total_duration_ms === 'number' &&
+    point.total_duration_ms > 0 &&
+    point.timestamp
+  );
+
+  validPoints.forEach(point => {
+    const pointDate = new Date(point.timestamp);
+    const start = grouping === 'month'
+      ? new Date(pointDate.getFullYear(), pointDate.getMonth(), 1)
+      : startOfWeek(pointDate);
+    start.setHours(0, 0, 0, 0);
+
+    const key = buildGroupKey(start);
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        startMs: start.getTime(),
+        sampleCount: 0,
+        totalDurationMs: 0,
+      });
+    }
+
+    const group = grouped.get(key);
+    group.sampleCount += 1;
+    group.totalDurationMs += point.total_duration_ms;
+  });
+
+  const groups = Array.from(grouped.values())
+    .sort((a, b) => a.startMs - b.startMs)
+    .map(group => {
+      const start = new Date(group.startMs);
+      const end = grouping === 'month'
+        ? new Date(start.getFullYear(), start.getMonth() + 1, 0)
+        : endOfWeek(start);
+
+      return {
+        ...group,
+        avgDurationMs: Math.round(group.totalDurationMs / group.sampleCount),
+        label: grouping === 'month' ? formatMonthLabel(start) : formatShortDate(start),
+        detailLabel: grouping === 'month'
+          ? formatMonthLabel(start)
+          : `${formatShortDate(start)} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`,
+      };
+    });
+
+  const overallAvgMs = validPoints.length
+    ? Math.round(validPoints.reduce((sum, point) => sum + point.total_duration_ms, 0) / validPoints.length)
+    : 0;
+
+  return {
+    groups,
+    sampleCount: validPoints.length,
+    overallAvgMs,
+  };
+}
+
+function clearTestsDurationTrendChart(message = 'No tests duration data available') {
+  const canvas = document.getElementById('testsDurationTrendChart');
+  const badge = document.getElementById('testsDurationAvgBadge');
+  const summary = document.getElementById('testsDurationSummary');
+  if (!canvas) return;
+
+  if (window._testsDurationTrendChart) {
+    window._testsDurationTrendChart.destroy();
+    window._testsDurationTrendChart = null;
+  }
+
+  canvas.style.display = 'none';
+  const container = canvas.parentElement;
+  if (!container.querySelector('.chart-empty')) {
+    const empty = document.createElement('div');
+    empty.className = 'chart-empty';
+    empty.textContent = message;
+    container.appendChild(empty);
+  }
+
+  if (summary) summary.innerHTML = '';
+  if (badge) badge.textContent = 'Avg —';
+}
+
+function updateTestsDurationGroupingButtons() {
+  document.querySelectorAll('.pipeline-tests-duration-btn').forEach(button => {
+    button.classList.toggle('active', button.dataset.testsGroup === _testsDurationGrouping);
+  });
+}
+
+function setTestsDurationGrouping(grouping) {
+  if (grouping !== 'week' && grouping !== 'month') return;
+  _testsDurationGrouping = grouping;
+  updateTestsDurationGroupingButtons();
+  renderTestsDurationTrend(_testsDurationSourcePoints);
+}
+
 function renderCharts(branchData) {
   const summary = branchData.summary || {};
   const stages = branchData.stages || {};
@@ -658,6 +756,14 @@ function renderCharts(branchData) {
 
   if (Array.isArray(trends.junit)) {
     renderJUnitTrend(trends.junit);
+  }
+
+  if (Array.isArray(trends.tests_duration)) {
+    renderTestsDurationTrend(trends.tests_duration);
+    renderTestsDuration24hChart(trends.tests_duration);
+  } else {
+    clearTestsDurationTrendChart();
+    clearTestsDuration24hChart();
   }
 }
 
@@ -981,6 +1087,265 @@ function renderJUnitTrend(junitTrend) {
   });
 }
 
+function renderTestsDurationTrend(testsDurationTrend) {
+  const canvas = document.getElementById('testsDurationTrendChart');
+  if (!canvas) return;
+  const container = canvas.parentElement;
+  const subtitle = document.getElementById('testsDurationSub');
+  const badge = document.getElementById('testsDurationAvgBadge');
+  const summary = document.getElementById('testsDurationSummary');
+  const periodLabel = _testsDurationGrouping === 'month' ? 'month' : 'week';
+  const periodLabelPlural = _testsDurationGrouping === 'month' ? 'months' : 'weeks';
+
+  _testsDurationSourcePoints = Array.isArray(testsDurationTrend) ? testsDurationTrend : [];
+  const { groups, sampleCount, overallAvgMs } = buildTestsDurationGroups(
+    _testsDurationSourcePoints,
+    _testsDurationGrouping
+  );
+
+  if (subtitle) {
+    subtitle.textContent = `Average tests duration grouped by ${periodLabel}`;
+  }
+
+  if (!groups.length) {
+    clearTestsDurationTrendChart(`No tests duration data available for ${periodLabel} grouping`);
+    return;
+  }
+
+  canvas.style.display = 'block';
+  const existingEmpty = container.querySelector('.chart-empty');
+  if (existingEmpty) existingEmpty.remove();
+
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#9c9a92' : '#73726c';
+  const lineColor = '#3ab8f8';
+  const fillColor = 'rgba(58,184,248,0.18)';
+
+  if (window._testsDurationTrendChart) {
+    window._testsDurationTrendChart.destroy();
+    window._testsDurationTrendChart = null;
+  }
+
+  if (summary) {
+    summary.innerHTML =
+      `<span class="pipeline-duration-pill"><strong>${groups.length}</strong> ${periodLabelPlural}</span>` +
+      `<span class="pipeline-duration-pill"><strong>${sampleCount}</strong> builds with test stages</span>` +
+      `<span class="pipeline-duration-pill"><strong>${formatPeriodDuration(groups[groups.length - 1].avgDurationMs)}</strong> latest ${periodLabel} avg</span>`;
+  }
+  if (badge) {
+    badge.textContent = overallAvgMs > 0 ? `Avg ${formatPeriodDuration(overallAvgMs)}` : 'Avg —';
+  }
+
+  window._testsDurationTrendChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: groups.map(group => group.label),
+      datasets: [{
+        data: groups.map(group => group.avgDurationMs),
+        borderColor: lineColor,
+        backgroundColor: fillColor,
+        fill: true,
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 4,
+        pointBackgroundColor: lineColor,
+        pointBorderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title(items) {
+              const group = groups[items[0].dataIndex];
+              return group.detailLabel;
+            },
+            label: ctx => ` Avg tests duration: ${formatPeriodDuration(ctx.raw)}`,
+            afterLabel(ctx) {
+              const group = groups[ctx.dataIndex];
+              return ` Builds: ${group.sampleCount}`;
+            }
+          },
+          backgroundColor: isDark ? '#2c2c2a' : '#fff',
+          titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
+          bodyColor: textColor,
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+          borderWidth: 0.5,
+          padding: 10,
+          cornerRadius: 8
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: gridColor, drawTicks: false },
+          border: { display: false },
+          ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 8 }
+        },
+        y: {
+          min: 0,
+          grid: { color: gridColor, drawTicks: false },
+          border: { display: false },
+          ticks: {
+            color: textColor,
+            font: { size: 10 },
+            callback: value => formatPeriodDuration(Number(value)),
+            maxTicksLimit: 6,
+          }
+        }
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' }
+    }
+  });
+}
+
+function clearTestsDuration24hChart(message = 'No tests duration data available in the last 24 hours') {
+  const canvas = document.getElementById('testsDuration24hChart');
+  const badge = document.getElementById('testsDuration24hBadge');
+  const summary = document.getElementById('testsDuration24hSummary');
+  if (!canvas) return;
+
+  if (window._testsDuration24hChart) {
+    window._testsDuration24hChart.destroy();
+    window._testsDuration24hChart = null;
+  }
+
+  canvas.style.display = 'none';
+  const container = canvas.parentElement;
+  if (!container.querySelector('.chart-empty')) {
+    const empty = document.createElement('div');
+    empty.className = 'chart-empty';
+    empty.textContent = message;
+    container.appendChild(empty);
+  }
+
+  if (summary) summary.innerHTML = '';
+  if (badge) badge.textContent = '24h Avg —';
+}
+
+function renderTestsDuration24hChart(testsDurationTrend) {
+  const canvas = document.getElementById('testsDuration24hChart');
+  if (!canvas) return;
+  const container = canvas.parentElement;
+  const badge = document.getElementById('testsDuration24hBadge');
+  const summary = document.getElementById('testsDuration24hSummary');
+
+  const cutoffMs = Date.now() - (24 * 60 * 60 * 1000);
+  const points = (Array.isArray(testsDurationTrend) ? testsDurationTrend : [])
+    .filter(point =>
+      typeof point.total_duration_ms === 'number' &&
+      point.total_duration_ms > 0 &&
+      (point.timestamp || 0) >= cutoffMs
+    )
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+  if (!points.length) {
+    clearTestsDuration24hChart();
+    return;
+  }
+
+  canvas.style.display = 'block';
+  const existingEmpty = container.querySelector('.chart-empty');
+  if (existingEmpty) existingEmpty.remove();
+
+  const avgDurationMs = Math.round(
+    points.reduce((sum, point) => sum + point.total_duration_ms, 0) / points.length
+  );
+  const latestPoint = points[points.length - 1];
+  const maxDurationMs = Math.max(...points.map(point => point.total_duration_ms));
+
+  if (summary) {
+    summary.innerHTML =
+      `<span class="pipeline-duration-pill"><strong>${points.length}</strong> builds in 24h</span>` +
+      `<span class="pipeline-duration-pill"><strong>${formatPeriodDuration(latestPoint.total_duration_ms)}</strong> latest build</span>` +
+      `<span class="pipeline-duration-pill"><strong>${formatPeriodDuration(maxDurationMs)}</strong> peak duration</span>`;
+  }
+  if (badge) {
+    badge.textContent = `24h Avg ${formatPeriodDuration(avgDurationMs)}`;
+  }
+
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#9c9a92' : '#73726c';
+
+  if (window._testsDuration24hChart) {
+    window._testsDuration24hChart.destroy();
+    window._testsDuration24hChart = null;
+  }
+
+  window._testsDuration24hChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: points.map(point => `#${point.number}`),
+      datasets: [{
+        label: 'Tests duration',
+        data: points.map(point => point.total_duration_ms),
+        backgroundColor: 'rgba(58,184,248,0.72)',
+        borderColor: '#3ab8f8',
+        borderWidth: 1,
+        borderRadius: 6,
+        borderSkipped: false,
+        hoverBackgroundColor: 'rgba(58,184,248,0.88)',
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title(items) {
+              const point = points[items[0].dataIndex];
+              return `Build #${point.number}`;
+            },
+            label(ctx) {
+              return ` Total tests duration: ${formatPeriodDuration(ctx.raw)}`;
+            },
+            afterLabel(ctx) {
+              const point = points[ctx.dataIndex];
+              return [
+                ` Unit tests: ${formatPeriodDuration(point.unit_tests_ms || 0)}`,
+                ` Pylint: ${formatPeriodDuration(point.pylint_ms || 0)}`,
+                ` SonarCloud: ${formatPeriodDuration(point.sonarcloud_ms || 0)}`,
+              ];
+            }
+          },
+          backgroundColor: isDark ? '#2c2c2a' : '#fff',
+          titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
+          bodyColor: textColor,
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+          borderWidth: 0.5,
+          padding: 10,
+          cornerRadius: 8
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 8 }
+        },
+        y: {
+          min: 0,
+          grid: { color: gridColor, drawTicks: false },
+          border: { display: false },
+          ticks: {
+            color: textColor,
+            font: { size: 10 },
+            callback: value => formatPeriodDuration(Number(value)),
+            maxTicksLimit: 6,
+          }
+        }
+      },
+      animation: { duration: 600, easing: 'easeOutQuart' }
+    }
+  });
+}
+
 async function pollRunningStages() {
   try {
     const data = await (await fetch('/api/running_stages')).json();
@@ -1024,6 +1389,8 @@ async function loadPipelineKPIs() {
     if (!data.connected || !builds.length) {
       if (typeof clearStatRow === 'function') clearStatRow();
       clearGroupedDurationChart('No build data available');
+      clearTestsDurationTrendChart('No build data available');
+      clearTestsDuration24hChart('No build data available');
       /*
       Legacy empty state:
       document.getElementById('buildTimeline').innerHTML =
@@ -1118,6 +1485,11 @@ document.addEventListener('DOMContentLoaded', () => {
     button.addEventListener('click', () => setCoverageGrouping(button.dataset.coverageGroup));
   });
   updateCoverageGroupingButtons();
+
+  document.querySelectorAll('.pipeline-tests-duration-btn').forEach(button => {
+    button.addEventListener('click', () => setTestsDurationGrouping(button.dataset.testsGroup));
+  });
+  updateTestsDurationGroupingButtons();
 
   _slowHandle = setInterval(() => {
     if (!_pollHandle) loadPipelineKPIs();

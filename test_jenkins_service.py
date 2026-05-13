@@ -2,7 +2,10 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from services.jenkins_service import _pipeline_head_has_changed, _snapshot_is_stale
-from services.pipeline_storage_service import _build_branch_summary
+from services.pipeline_storage_service import (
+    _build_branch_summary,
+    build_tests_duration_points,
+)
 
 
 def test_snapshot_is_stale_without_timestamp():
@@ -82,3 +85,143 @@ def test_build_branch_summary_uses_stored_build_rows_for_counts():
 
     assert summary['total_builds'] == 40
     assert summary['successful'] == 40
+
+
+def test_build_tests_duration_points_sum_unit_tests_pylint_and_sonarcloud():
+    builds = [
+        SimpleNamespace(
+            build_number=51,
+            result='SUCCESS',
+            timestamp_ms=1_700_000_000_000,
+            stages=[
+                SimpleNamespace(stage_name='Unit Tests', duration_ms=60_000),
+                SimpleNamespace(stage_name='pylint', duration_ms=15_000),
+                SimpleNamespace(stage_name='SonarCloud Scan', duration_ms=45_000),
+                SimpleNamespace(stage_name='Build Docker Image', duration_ms=30_000),
+            ],
+        )
+    ]
+
+    points = build_tests_duration_points(builds, branch_name='main', finished_only=True)
+
+    assert points == [
+        {
+            'branch': 'main',
+            'number': 51,
+            'timestamp': 1_700_000_000_000,
+            'result': 'SUCCESS',
+            'total_duration_ms': 120_000,
+            'unit_tests_ms': 60_000,
+            'pylint_ms': 15_000,
+            'sonarcloud_ms': 45_000,
+            'matched_stage_count': 3,
+        }
+    ]
+
+
+def test_build_tests_duration_points_return_empty_total_when_no_target_stages_exist():
+    builds = [
+        SimpleNamespace(
+            build_number=52,
+            result='SUCCESS',
+            timestamp_ms=1_700_000_100_000,
+            stages=[
+                SimpleNamespace(stage_name='Checkout', duration_ms=5_000),
+                SimpleNamespace(stage_name='Build Image', duration_ms=35_000),
+            ],
+        )
+    ]
+
+    points = build_tests_duration_points(builds, branch_name='main', include_empty=True)
+
+    assert points == [
+        {
+            'branch': 'main',
+            'number': 52,
+            'timestamp': 1_700_000_100_000,
+            'result': 'SUCCESS',
+            'total_duration_ms': None,
+            'unit_tests_ms': 0,
+            'pylint_ms': 0,
+            'sonarcloud_ms': 0,
+            'matched_stage_count': 0,
+        }
+    ]
+
+
+def test_build_tests_duration_points_skip_running_empty_and_non_unit_test_stages():
+    builds = [
+        SimpleNamespace(
+            build_number=61,
+            result='SUCCESS',
+            timestamp_ms=1_700_000_200_000,
+            stages=[
+                SimpleNamespace(stage_name='pytest', duration_ms=20_000),
+                SimpleNamespace(stage_name='pylint quality', duration_ms=10_000),
+            ],
+        ),
+        SimpleNamespace(
+            build_number=62,
+            result=None,
+            timestamp_ms=1_700_000_300_000,
+            stages=[
+                SimpleNamespace(stage_name='Unit Tests', duration_ms=25_000),
+            ],
+        ),
+        SimpleNamespace(
+            build_number=63,
+            result='SUCCESS',
+            timestamp_ms=1_700_000_400_000,
+            stages=[
+                SimpleNamespace(stage_name='Integration Tests', duration_ms=40_000),
+                SimpleNamespace(stage_name='Deploy', duration_ms=40_000),
+            ],
+        ),
+    ]
+
+    points = build_tests_duration_points(builds, branch_name='main', finished_only=True)
+
+    assert points == [
+        {
+            'branch': 'main',
+            'number': 61,
+            'timestamp': 1_700_000_200_000,
+            'result': 'SUCCESS',
+            'total_duration_ms': 30_000,
+            'unit_tests_ms': 20_000,
+            'pylint_ms': 10_000,
+            'sonarcloud_ms': 0,
+            'matched_stage_count': 2,
+        }
+    ]
+
+
+def test_build_tests_duration_points_support_dict_builds_from_live_jenkins_path():
+    builds = [
+        {
+            'number': 71,
+            'result': 'SUCCESS',
+            'timestamp': 1_700_000_500_000,
+            'stages': [
+                {'name': 'Tests', 'duration_ms': 12_000},
+                {'name': 'Pylint Analysis', 'duration_ms': 8_000},
+                {'name': 'Sonar Quality Gate', 'duration_ms': 5_000},
+            ],
+        }
+    ]
+
+    points = build_tests_duration_points(builds, branch_name='main', finished_only=True)
+
+    assert points == [
+        {
+            'branch': 'main',
+            'number': 71,
+            'timestamp': 1_700_000_500_000,
+            'result': 'SUCCESS',
+            'total_duration_ms': 25_000,
+            'unit_tests_ms': 12_000,
+            'pylint_ms': 8_000,
+            'sonarcloud_ms': 5_000,
+            'matched_stage_count': 3,
+        }
+    ]

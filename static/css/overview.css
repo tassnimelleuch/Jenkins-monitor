@@ -237,6 +237,41 @@
   animation-delay:.48s;
   margin-top:14px;
 }
+.overview-tests-duration-card{
+  margin-top:14px;
+  animation-delay:.53s;
+}
+.overview-tests-duration-card .cbadge{
+  background:var(--bg3);
+  border:1px solid var(--border);
+  color:var(--text2);
+}
+.overview-tests-duration-summary{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+.overview-tests-duration-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:10px;
+  background:var(--bg3);
+  border:1px solid var(--border);
+  color:var(--text2);
+  font-size:11px;
+  font-weight:600;
+}
+.overview-tests-duration-pill strong{
+  color:var(--text);
+  font-weight:700;
+}
+.overview-tests-duration-area{
+  height:190px;
+}
 .overview-timeline-hdr{
   display:flex;
   align-items:center;

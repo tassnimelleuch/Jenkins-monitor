@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+import re
+from collections.abc import Mapping
 
 from flask import current_app
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,8 +16,17 @@ from pipeline_storage_models import (
     PipelineStageDuration,
 )
 
-PIPELINE_SNAPSHOT_CACHE_VERSION = 'v1'
+PIPELINE_SNAPSHOT_CACHE_VERSION = 'v3'
 PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS = 86400
+_TESTS_DURATION_STAGE_NAME_NORMALIZER = re.compile(r'[^a-z0-9]+')
+_NON_UNIT_TEST_STAGE_MARKERS = (
+    'integration',
+    'e2e',
+    'smoke',
+    'acceptance',
+    'performance',
+    'load',
+)
 
 
 def _utcnow():
@@ -32,6 +43,105 @@ def _datetime_to_millis(value):
     if not value:
         return 0
     return int(value.timestamp() * 1000)
+
+
+def _normalize_tests_duration_stage_name(stage_name):
+    return _TESTS_DURATION_STAGE_NAME_NORMALIZER.sub(
+        ' ',
+        (stage_name or '').strip().lower(),
+    ).strip()
+
+
+def _classify_tests_duration_stage(stage_name):
+    normalized = _normalize_tests_duration_stage_name(stage_name)
+    if not normalized:
+        return None
+
+    if 'pylint' in normalized:
+        return 'pylint'
+
+    if 'sonar' in normalized:
+        return 'sonarcloud'
+
+    if 'pytest' in normalized:
+        return 'unit_tests'
+
+    if 'unit' in normalized and 'test' in normalized:
+        return 'unit_tests'
+
+    if 'test' in normalized and not any(marker in normalized for marker in _NON_UNIT_TEST_STAGE_MARKERS):
+        return 'unit_tests'
+
+    return None
+
+
+def _extract_stage_name(stage):
+    if isinstance(stage, Mapping):
+        return (stage.get('stage_name') or stage.get('name') or '').strip()
+    return (getattr(stage, 'stage_name', None) or getattr(stage, 'name', None) or '').strip()
+
+
+def _extract_stage_duration_ms(stage):
+    if isinstance(stage, Mapping):
+        return int(stage.get('duration_ms') or 0)
+    return int(getattr(stage, 'duration_ms', 0) or 0)
+
+
+def build_tests_duration_points(builds, branch_name=None, finished_only=False, include_empty=False):
+    points = []
+
+    for build in builds or []:
+        if isinstance(build, Mapping):
+            result = build.get('result')
+            stages = build.get('stages') or []
+            build_number = build.get('build_number')
+            if build_number is None:
+                build_number = build.get('number')
+            timestamp = build.get('timestamp_ms')
+            if timestamp is None:
+                timestamp = build.get('timestamp', 0)
+        else:
+            result = getattr(build, 'result', None)
+            stages = getattr(build, 'stages', []) or []
+            build_number = getattr(build, 'build_number', None)
+            if build_number is None:
+                build_number = getattr(build, 'number', None)
+            timestamp = getattr(build, 'timestamp_ms', None)
+            if timestamp is None:
+                timestamp = getattr(build, 'timestamp', 0)
+
+        if finished_only and result is None:
+            continue
+
+        totals = {
+            'unit_tests_ms': 0,
+            'pylint_ms': 0,
+            'sonarcloud_ms': 0,
+        }
+        matched_stage_count = 0
+        for stage in stages:
+            bucket = _classify_tests_duration_stage(_extract_stage_name(stage))
+            if bucket is None:
+                continue
+
+            matched_stage_count += 1
+            totals[f'{bucket}_ms'] += _extract_stage_duration_ms(stage)
+
+        total_duration_ms = sum(totals.values()) if matched_stage_count else None
+        if not include_empty and total_duration_ms is None:
+            continue
+
+        points.append({
+            'branch': branch_name,
+            'number': build_number,
+            'timestamp': timestamp or 0,
+            'result': result,
+            'total_duration_ms': total_duration_ms,
+            'matched_stage_count': matched_stage_count,
+            **totals,
+        })
+
+    return points
 
 
 def _normalize_job_path(job_path):
@@ -235,6 +345,11 @@ def _branch_payload_from_row(branch_row, selected_branch):
                 }
                 for row in trend_rows
             ],
+            'tests_duration': build_tests_duration_points(
+                build_rows,
+                branch_name=branch_row.name,
+                finished_only=False,
+            ),
         },
         'stages': {
             'failure_rate': {
@@ -348,6 +463,7 @@ def get_overview_kpis_from_stored_pipeline(stored):
         'health_score': summary.get('health_score'),
         'build_trend': build_trend,
         'avg_duration_ms': summary.get('avg_duration_ms'),
+        'tests_duration': (branch_data.get('trends') or {}).get('tests_duration') or [],
     }
 
 

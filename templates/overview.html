@@ -112,6 +112,22 @@
         <div class="overview-tl-empty">No builds in the last 24 hours.</div>
     </div>
 </div>
+
+<div class="chart-card overview-tests-duration-card">
+    <div class="chart-hdr">
+        <div>
+            <div class="chart-title">Tests Duration - Last 24h</div>
+            <div class="chart-sub">Unit tests + pylint + SonarCloud duration per build</div>
+        </div>
+        <div class="cbadge" id="testsDuration24hBadge">24h Avg —</div>
+    </div>
+
+    <div class="overview-tests-duration-summary" id="testsDuration24hSummary"></div>
+
+    <div class="chart-area overview-tests-duration-area">
+        <canvas id="testsDuration24hChart"></canvas>
+    </div>
+</div>
 {% endif %}
 
 {% endblock %}
@@ -126,5 +142,6 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="{{ url_for('static', filename='js/overview.js') }}"></script>
 {% endblock %}

@@ -304,6 +304,23 @@ body[data-page="pipeline-kpis"] .kpi-row {
   color:var(--text);
   transform:translateY(-1px);
 }
+.pipeline-tests-duration-btn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  color:var(--text2);
+  font-size:11px;
+  font-weight:700;
+  font-family:'Plus Jakarta Sans',sans-serif;
+  padding:7px 12px;
+  border-radius:8px;
+  cursor:pointer;
+  transition:background .15s,color .15s,transform .15s;
+}
+.pipeline-tests-duration-btn:hover{
+  color:var(--text);
+  transform:translateY(-1px);
+}
 .pipeline-duration-btn.active{
   background:linear-gradient(135deg,var(--accent),rgba(58,184,248,.92));
   color:#fff;
@@ -311,6 +328,11 @@ body[data-page="pipeline-kpis"] .kpi-row {
 }
 .pipeline-coverage-btn.active{
   background:linear-gradient(135deg,var(--green),rgba(58,184,248,.92));
+  color:#fff;
+  box-shadow:0 6px 18px rgba(58,184,248,.18);
+}
+.pipeline-tests-duration-btn.active{
+  background:linear-gradient(135deg,var(--blue),rgba(124,111,255,.92));
   color:#fff;
   box-shadow:0 6px 18px rgba(58,184,248,.18);
 }
@@ -354,7 +376,9 @@ body[data-page="pipeline-kpis"] .kpi-row {
   height:190px;
 }
 .pipeline-coverage-card .cbadge,
-.pipeline-junit-card .cbadge{
+.pipeline-junit-card .cbadge,
+.pipeline-tests-duration-card .cbadge,
+.pipeline-tests-24h-card .cbadge{
   background:var(--bg3);
   border:1px solid var(--border);
   color:var(--text2);

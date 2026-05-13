@@ -15,6 +15,8 @@ from collectors.jenkins_collector import (
 from flask import current_app
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import (
+    build_tests_duration_points,
+    get_overview_kpis_from_stored_pipeline,
     get_stored_pipeline_kpis,
     get_stored_overview_kpis,
     sync_pipeline_durations,
@@ -246,6 +248,7 @@ def _selected_branch_payload(
     failure_rate_by_stage,
     coverage_trend,
     junit_trend,
+    tests_duration_trend,
     avg_test_coverage,
     deployment_frequency,
 ):
@@ -286,6 +289,7 @@ def _selected_branch_payload(
             ],
             'coverage': coverage_trend,
             'junit': junit_trend,
+            'tests_duration': tests_duration_trend,
         },
         'stages': {
             'failure_rate': failure_rate_by_stage,
@@ -410,6 +414,11 @@ def _collect_pipeline_kpis_from_jenkins():
         })
 
     finished = [b for b in builds_data if b['result'] is not None]
+    tests_duration_trend = build_tests_duration_points(
+        builds_data,
+        branch_name=selected_branch,
+        finished_only=False,
+    )
 
     durations = [b['duration'] for b in finished if b['duration'] > 0]
     avg_duration = round(sum(durations) / len(durations)) if durations else 0
@@ -522,6 +531,7 @@ def _collect_pipeline_kpis_from_jenkins():
         failure_rate_by_stage=failure_rate_by_stage,
         coverage_trend=coverage_trend,
         junit_trend=junit_trend,
+        tests_duration_trend=tests_duration_trend,
         avg_test_coverage=avg_test_coverage,
         deployment_frequency=deployment_frequency,
     )
@@ -596,6 +606,9 @@ def get_kpis():
         stored_overview = get_stored_overview_kpis()
         if stored_overview:
             return stored_overview
+        overview = get_overview_kpis_from_stored_pipeline(stored_pipeline)
+        if overview:
+            return overview
 
     live = refresh_pipeline_storage_from_jenkins()
     if live.get('connected'):
@@ -603,6 +616,9 @@ def get_kpis():
         stored_overview = get_stored_overview_kpis()
         if stored_overview:
             return stored_overview
+        overview = get_overview_kpis_from_stored_pipeline(live)
+        if overview:
+            return overview
 
     return _collect_overview_kpis_from_jenkins()
 
