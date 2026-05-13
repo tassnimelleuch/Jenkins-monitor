@@ -842,7 +842,7 @@ function renderStageFailureChart(failureRateByStage) {
   const container = document.getElementById('stageFailureChart');
   if (!container) return;
 
-  const entries = Object.entries(failureRateByStage).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const entries = Object.entries(failureRateByStage).sort((a, b) => b[1] - a[1]).slice(0, 3);
   const renderSignature = buildPipelineRenderSignature('stage-failure', {
     items: entries.map(([stage, rate]) => ({ stage, rate })),
     fields: ['stage', 'rate'],

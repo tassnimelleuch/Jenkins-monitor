@@ -453,24 +453,66 @@ def get_coverage_percent(build_number):
     return None
 
 
-def get_test_report(build_number):
-    data = _get_json(f'{_get_base()}/{build_number}/artifact/coverage.xml')
-    if not data:
-        _, junit_path = _get_artifact_paths()
-        xml_text = _get_text(f'{_get_base()}/{build_number}/artifact/{junit_path}')
-        return _extract_junit_from_xml(xml_text) if xml_text else None
-    total = data.get('totalCount')
-    failed = data.get('failCount', 0)
-    skipped = data.get('skipCount', 0)
-    if total is None:
+def _extract_test_report_summary(data):
+    if not isinstance(data, dict):
         return None
-    passed = max(total - failed - skipped, 0)
-    return {
-        'total': total,
-        'passed': passed,
-        'failed': failed,
-        'skipped': skipped,
-    }
+
+    def search(node):
+        if isinstance(node, dict):
+            total = node.get('totalCount')
+            failed = node.get('failCount')
+            skipped = node.get('skipCount')
+            passed = node.get('passCount')
+
+            if total is not None and (failed is not None or skipped is not None or passed is not None):
+                try:
+                    total = int(total)
+                    failed = int(failed or 0)
+                    skipped = int(skipped or 0)
+                    if passed is None:
+                        passed = max(total - failed - skipped, 0)
+                    else:
+                        passed = int(passed)
+                except (TypeError, ValueError):
+                    return None
+
+                return {
+                    'total': total,
+                    'passed': passed,
+                    'failed': failed,
+                    'skipped': skipped,
+                }
+
+            for value in node.values():
+                result = search(value)
+                if result is not None:
+                    return result
+            return None
+
+        if isinstance(node, list):
+            for item in node:
+                result = search(item)
+                if result is not None:
+                    return result
+        return None
+
+    return search(data)
+
+
+def get_test_report(build_number):
+    endpoints = (
+        'testReport/api/json',
+        'junit/api/json',
+    )
+    for ep in endpoints:
+        data = _get_json(f'{_get_base()}/{build_number}/{ep}')
+        report = _extract_test_report_summary(data)
+        if report is not None:
+            return report
+
+    _, junit_path = _get_artifact_paths()
+    xml_text = _get_text(f'{_get_base()}/{build_number}/artifact/{junit_path}')
+    return _extract_junit_from_xml(xml_text) if xml_text else None
 
 
 def _extract_coverage_percent_from_xml(xml_text):

@@ -68,6 +68,7 @@ class Config:
 
     DOCKERHUB_API_URL = os.getenv("DOCKERHUB_API_URL", "https://hub.docker.com/v2")
     DOCKERHUB_IMAGE = os.getenv("DOCKERHUB_IMAGE")
+    DOCKERHUB_USERNAME = os.getenv("DOCKERHUB_USERNAME")
     DOCKERHUB_TAG = os.getenv("DOCKERHUB_TAG")
     DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN")
     DOCKERHUB_BUILD_TAG_SUFFIX = os.getenv("DOCKERHUB_BUILD_TAG_SUFFIX", "build-{build_number}")

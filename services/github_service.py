@@ -10,6 +10,7 @@ from collectors.github_collector import (
     get_latest_commit_for_branch,
     get_pull_requests,
     get_repo,
+    enrich_commits_with_files,
 )
 from collectors.jenkins_collector import (
     get_last_failed_build,
@@ -198,13 +199,17 @@ def _calculate_code_churn(commits_raw, grouping='month', max_periods=6):
     return periods
 
 
-def _calculate_file_changes(commits_raw, since_date=None):
+def _calculate_file_changes(commits_raw, since_date=None, since_datetime=None):
     if not commits_raw:
         return []
 
     file_changes = {}
     for commit in commits_raw:
         commit_dt = _parse_commit_datetime(commit)
+        
+        # Filter based on datetime first (for 24-hour precision), then date
+        if since_datetime and commit_dt and commit_dt < since_datetime:
+            continue
         if since_date and commit_dt and commit_dt.date() < since_date:
             continue
 
@@ -283,6 +288,44 @@ def _build_file_change_groups(commits_raw, code_churn_by_period):
                 else 'No recent file activity'
             ),
         }
+    return datasets
+
+
+def _build_file_change_groups_with_24h(commits_raw, code_churn_by_period):
+    """Build file change groups for week, month, and 24 hours."""
+    datasets = {}
+    
+    # Process week and month as before
+    for grouping, periods in code_churn_by_period.items():
+        if periods:
+            since_date = date.fromisoformat(periods[0]['start_date'])
+            period_count = len(periods)
+        else:
+            since_date = None
+            period_count = 0
+
+        items = _calculate_file_changes(commits_raw, since_date=since_date)
+        label_unit = 'weeks' if grouping == 'week' else 'months'
+        datasets[grouping] = {
+            'items': items,
+            'period_count': period_count,
+            'scope_label': (
+                f'Top 10 files touched across the last {period_count} {label_unit}'
+                if period_count
+                else 'No recent file activity'
+            ),
+        }
+    
+    # Add 24-hour data
+    now = datetime.now(timezone.utc)
+    since_24h = now - timedelta(hours=24)
+    items_24h = _calculate_file_changes(commits_raw, since_datetime=since_24h)
+    datasets['24h'] = {
+        'items': items_24h,
+        'period_count': 1,
+        'scope_label': 'Top 10 files touched in the last 24 hours',
+    }
+    
     return datasets
 
 
@@ -367,7 +410,7 @@ def get_github_summary():
         'branches': lambda: _run_in_app_context(app, lambda: get_branches(owner, repo, per_page=100)),
         'main_commits': lambda: _run_in_app_context(
             app,
-            lambda: get_commits_for_branch(owner, repo, MAIN_PIPELINE_BRANCH, per_page=20, page_limit=1),
+            lambda: get_commits_for_branch(owner, repo, MAIN_PIPELINE_BRANCH, per_page=50, page_limit=2),
         ),
         'failed_build': lambda: _run_in_app_context(
             app,
@@ -392,6 +435,13 @@ def get_github_summary():
         for commit in (results.get('main_commits') or [])
         if isinstance(commit, dict)
     ])
+    
+    # Enrich commits with file change details for accurate analytics
+    main_branch_commits_raw = _run_in_app_context(
+        app,
+        lambda: enrich_commits_with_files(owner, repo, main_branch_commits_raw, max_commits=20)
+    )
+    
     main_branch_commits = [_commit_item(c) for c in main_branch_commits_raw]
     main_branch_commits_by_sha = {
         item.get('sha'): item
@@ -479,9 +529,17 @@ def get_github_summary():
                         failing_commit['fix_commit'] = potential_fix
 
     code_churn_by_period = {'week': [], 'month': []}
-    file_changes_by_period = {'week': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'}, 'month': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'}}
+    file_changes_by_period = {'week': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'}, 'month': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'}, '24h': {'items': [], 'period_count': 1, 'scope_label': 'Top 10 files touched in the last 24 hours'}}
     code_churn_list = []
     file_changes = []
+
+    # Calculate code churn and file changes for week and month periods
+    if main_branch_commits_raw:
+        code_churn_by_period['week'] = _calculate_code_churn(main_branch_commits_raw, grouping='week', max_periods=4)
+        code_churn_by_period['month'] = _calculate_code_churn(main_branch_commits_raw, grouping='month', max_periods=6)
+        
+        # Build file change groups including 24-hour data
+        file_changes_by_period = _build_file_change_groups_with_24h(main_branch_commits_raw, code_churn_by_period)
 
     # Process pull requests
     prs_open = []
@@ -525,9 +583,9 @@ def get_github_summary():
             'branches': len(branches_raw or []),
             'branch_heads': len(commits),
         },
-        'analytics_mode': 'branch_heads',
-        'analytics_message': 'Analytics are limited to the latest commit on each branch to reduce GitHub API requests.',
-        'commit_scope_label': 'Latest commit on each branch',
+        'analytics_mode': 'full_history',
+        'analytics_message': 'Analytics based on recent commit history.',
+        'commit_scope_label': 'Recent commits from main branch',
         'commits': commits,
         'failing_commit': failing_commit,
         'code_churn': code_churn_list,

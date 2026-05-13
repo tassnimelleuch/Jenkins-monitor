@@ -39,20 +39,17 @@ def debug_metrics():
 
     start, end = _now_range(30)
 
-    # What labels do your container metrics actually have?
     raw_labels = query(
         'count by (namespace, container, pod) '
         '(container_cpu_usage_seconds_total{container!="POD",container!=""})'
     )
 
-    # Try the simplest possible series query
     simple_ns = query_range_series(
         'sum by (namespace) (rate(container_cpu_usage_seconds_total'
         '{container!="POD",container!=""}[5m]))',
         start, end, step="120s", label="namespace"
     )
 
-    # Check what kube_pod_info looks like
     pod_info_sample = query(
         'count by (namespace) (kube_pod_info)'
     )

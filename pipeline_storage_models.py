@@ -82,6 +82,7 @@ class PipelineBranch(db.Model):
         back_populates='branch',
         cascade='all, delete-orphan',
         lazy=True,
+        order_by=lambda: PipelineBranchBuild.build_number.desc(),
     )
 
 

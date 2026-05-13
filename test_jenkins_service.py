@@ -1,8 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from services.jenkins_service import _pipeline_head_has_changed, _snapshot_is_stale
+from collectors.jenkins_collector import _extract_test_report_summary
+from services.jenkins_service import (
+    _pipeline_head_has_changed,
+    _snapshot_is_stale,
+    _stored_payload_requires_refresh,
+)
 from services.pipeline_storage_service import (
+    _apply_optional_build_quality_fields,
     _build_branch_summary,
     build_tests_duration_points,
 )
@@ -60,6 +66,114 @@ def test_pipeline_head_has_not_changed_when_build_refs_match():
     }
 
     assert not _pipeline_head_has_changed(stored_payload, live_head)
+
+
+def test_stored_payload_requires_refresh_when_same_head_build_is_missing_test_artifacts():
+    stored_payload = {
+        'pipeline': {'selected_branch': 'main'},
+        'branches': {
+            'main': {
+                'last_build': {'number': 48, 'result': 'SUCCESS', 'timestamp': 1000},
+                'last_completed_build': {'number': 48, 'result': 'SUCCESS', 'timestamp': 1000},
+                'builds': [
+                    {
+                        'number': 48,
+                        'result': 'SUCCESS',
+                        'stages': [
+                            {'name': 'pytest', 'duration_ms': 20_000},
+                            {'name': 'pylint', 'duration_ms': 10_000},
+                        ],
+                    }
+                ],
+                'trends': {
+                    'coverage': [{'number': 48, 'coverage': None, 'timestamp': 1000}],
+                    'junit': [{'number': 48, 'total': None, 'passed': None, 'failed': None, 'skipped': None}],
+                },
+            }
+        },
+    }
+    live_head = {
+        'last_build': {'number': 48, 'result': 'SUCCESS', 'timestamp': 1000},
+        'last_completed_build': {'number': 48, 'result': 'SUCCESS', 'timestamp': 1000},
+    }
+
+    assert _stored_payload_requires_refresh(stored_payload, live_head)
+
+
+def test_stored_payload_does_not_require_refresh_when_same_head_build_has_test_artifacts():
+    stored_payload = {
+        'pipeline': {'selected_branch': 'main'},
+        'branches': {
+            'main': {
+                'last_build': {'number': 48, 'result': 'SUCCESS', 'timestamp': 1000},
+                'last_completed_build': {'number': 48, 'result': 'SUCCESS', 'timestamp': 1000},
+                'builds': [
+                    {
+                        'number': 48,
+                        'result': 'SUCCESS',
+                        'stages': [
+                            {'name': 'pytest', 'duration_ms': 20_000},
+                            {'name': 'pylint', 'duration_ms': 10_000},
+                        ],
+                    }
+                ],
+                'trends': {
+                    'coverage': [{'number': 48, 'coverage': 88.4, 'timestamp': 1000}],
+                    'junit': [{'number': 48, 'total': 120, 'passed': 118, 'failed': 1, 'skipped': 1}],
+                },
+            }
+        },
+    }
+    live_head = {
+        'last_build': {'number': 48, 'result': 'SUCCESS', 'timestamp': 1000},
+        'last_completed_build': {'number': 48, 'result': 'SUCCESS', 'timestamp': 1000},
+    }
+
+    assert not _stored_payload_requires_refresh(stored_payload, live_head)
+
+
+def test_stored_payload_requires_refresh_when_old_build_is_missing_test_artifacts():
+    stored_payload = {
+        'pipeline': {'selected_branch': 'main'},
+        'branches': {
+            'main': {
+                'last_build': {'number': 50, 'result': 'SUCCESS', 'timestamp': 2000},
+                'last_completed_build': {'number': 50, 'result': 'SUCCESS', 'timestamp': 2000},
+                'builds': [
+                    {
+                        'number': 50,
+                        'result': 'SUCCESS',
+                        'coverage_percent': 91.0,
+                        'junit_total': 140,
+                        'junit_passed': 139,
+                        'junit_failed': 1,
+                        'junit_skipped': 0,
+                        'stages': [{'name': 'pytest', 'duration_ms': 20_000}],
+                    },
+                    {
+                        'number': 43,
+                        'result': 'SUCCESS',
+                        'coverage_percent': None,
+                        'junit_total': None,
+                        'junit_passed': None,
+                        'junit_failed': None,
+                        'junit_skipped': None,
+                        'stages': [{'name': 'pytest', 'duration_ms': 19_000}],
+                    },
+                ],
+                'trends': {
+                    'coverage': [{'number': 50, 'coverage': 91.0, 'timestamp': 2000}],
+                    'junit': [{'number': 50, 'total': 140, 'passed': 139, 'failed': 1, 'skipped': 0}],
+                },
+            }
+        },
+    }
+    live_head = {
+        'last_build': {'number': 50, 'result': 'SUCCESS', 'timestamp': 2000},
+        'last_completed_build': {'number': 50, 'result': 'SUCCESS', 'timestamp': 2000},
+    }
+
+    assert _stored_payload_requires_refresh(stored_payload, live_head)
 
 
 def test_build_branch_summary_uses_stored_build_rows_for_counts():
@@ -225,3 +339,77 @@ def test_build_tests_duration_points_support_dict_builds_from_live_jenkins_path(
             'matched_stage_count': 3,
         }
     ]
+
+
+def test_apply_optional_build_quality_fields_preserves_existing_history_when_payload_is_missing():
+    row = SimpleNamespace(
+        coverage_percent=87.5,
+        junit_total=120,
+        junit_passed=118,
+        junit_failed=1,
+        junit_skipped=1,
+    )
+    payload = {
+        'coverage_percent': None,
+        'has_coverage_percent': False,
+        'junit_total': None,
+        'junit_passed': None,
+        'junit_failed': None,
+        'junit_skipped': None,
+        'has_junit_report': False,
+    }
+
+    _apply_optional_build_quality_fields(row, payload)
+
+    assert row.coverage_percent == 87.5
+    assert row.junit_total == 120
+    assert row.junit_passed == 118
+    assert row.junit_failed == 1
+    assert row.junit_skipped == 1
+
+
+def test_apply_optional_build_quality_fields_overwrites_existing_history_when_payload_has_data():
+    row = SimpleNamespace(
+        coverage_percent=87.5,
+        junit_total=120,
+        junit_passed=118,
+        junit_failed=1,
+        junit_skipped=1,
+    )
+    payload = {
+        'coverage_percent': 91.3,
+        'has_coverage_percent': True,
+        'junit_total': 140,
+        'junit_passed': 139,
+        'junit_failed': 1,
+        'junit_skipped': 0,
+        'has_junit_report': True,
+    }
+
+    _apply_optional_build_quality_fields(row, payload)
+
+    assert row.coverage_percent == 91.3
+    assert row.junit_total == 140
+    assert row.junit_passed == 139
+    assert row.junit_failed == 1
+    assert row.junit_skipped == 0
+
+
+def test_extract_test_report_summary_reads_nested_jenkins_api_payload():
+    data = {
+        '_class': 'hudson.tasks.junit.TestResultAction',
+        'childReport': {
+            'result': {
+                'totalCount': 18,
+                'failCount': 2,
+                'skipCount': 1,
+            }
+        },
+    }
+
+    assert _extract_test_report_summary(data) == {
+        'total': 18,
+        'passed': 15,
+        'failed': 2,
+        'skipped': 1,
+    }

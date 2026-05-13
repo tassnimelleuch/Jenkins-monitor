@@ -5,6 +5,7 @@ from flask import current_app
 
 
 logger = logging.getLogger(__name__)
+_DOCKERHUB_JWT_CACHE = {}
 
 
 def _get_base_url():
@@ -16,7 +17,7 @@ def _get_headers():
         'Accept': 'application/json',
         'User-Agent': 'Jenkins-Monitor',
     }
-    token = current_app.config.get('DOCKERHUB_TOKEN')
+    token = _get_bearer_token()
     if token:
         headers['Authorization'] = f'Bearer {token}'
     return headers
@@ -29,6 +30,18 @@ def _get_image_name():
     return image_name or None
 
 
+def _normalize_branch_name(branch_name):
+    branch = (branch_name or '').strip().strip('/')
+    return branch or None
+
+
+def _safe_branch_name(branch_name):
+    branch = _normalize_branch_name(branch_name)
+    if not branch:
+        return None
+    return branch.replace('/', '-').lower()
+
+
 def _split_image_name(image_name=None):
     name = image_name or _get_image_name()
     if not name or '/' not in name:
@@ -37,14 +50,83 @@ def _split_image_name(image_name=None):
     return namespace, repository
 
 
+def _get_auth_identifier():
+    username = (current_app.config.get('DOCKERHUB_USERNAME') or '').strip()
+    if username:
+        return username
+    namespace, _ = _split_image_name()
+    return namespace
+
+
+def _looks_like_jwt(token):
+    return bool(token) and token.count('.') == 2
+
+
+def _get_bearer_token():
+    raw_token = (current_app.config.get('DOCKERHUB_TOKEN') or '').strip()
+    if not raw_token:
+        return None
+    if _looks_like_jwt(raw_token):
+        return raw_token
+
+    identifier = _get_auth_identifier()
+    if not identifier:
+        return None
+
+    cache_key = (identifier, raw_token)
+    cached = _DOCKERHUB_JWT_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        resp = requests.post(
+            f'{_get_base_url()}/auth/token',
+            json={
+                'identifier': identifier,
+                'secret': raw_token,
+            },
+            headers={
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'User-Agent': 'Jenkins-Monitor',
+            },
+            timeout=8,
+        )
+        if resp.status_code != 200:
+            logger.warning('[Docker Hub] Token exchange failed: %s', resp.status_code)
+            return None
+        data = resp.json()
+        access_token = (data or {}).get('access_token')
+        if not access_token:
+            logger.warning('[Docker Hub] Token exchange returned no access_token.')
+            return None
+        _DOCKERHUB_JWT_CACHE[cache_key] = access_token
+        return access_token
+    except Exception as e:
+        logger.warning(f'[Docker Hub] Token exchange error: {e}')
+        return None
+
+
 def _get_json(url, params=None, timeout=8):
+    headers = _get_headers()
     try:
         resp = requests.get(
             url,
             params=params,
-            headers=_get_headers(),
+            headers=headers,
             timeout=timeout
         )
+        if resp.status_code in (401, 403) and 'Authorization' in headers:
+            # Public repositories can still be queried anonymously if auth fails.
+            resp = requests.get(
+                url,
+                params=params,
+                headers={
+                    'Accept': 'application/json',
+                    'User-Agent': 'Jenkins-Monitor',
+                },
+                timeout=timeout
+            )
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -71,6 +153,19 @@ def _get_build_tag_suffix(build_number):
         return template.format(build_number=build_number)
     except Exception:
         return f'build-{build_number}'
+
+
+def _tag_matches_build(tag_name, build_number):
+    suffix = _get_build_tag_suffix(build_number)
+    return bool(tag_name) and tag_name.endswith(suffix)
+
+
+def _tag_matches_branch_prefix(tag_name, branch_name):
+    safe_branch = _safe_branch_name(branch_name)
+    if not safe_branch or not tag_name:
+        return False
+    normalized_tag = tag_name.strip().lower()
+    return normalized_tag == safe_branch or normalized_tag.startswith(f'{safe_branch}-')
 
 
 def list_repository_tags(image_name=None, page=1, page_size=100):
@@ -116,22 +211,35 @@ def get_repository_tag(tag=None, image_name=None):
     return results[0] if results else None
 
 
-def find_repository_tag_for_build(build_number, image_name=None, max_pages=5, page_size=100, tag_results=None):
-    suffix = _get_build_tag_suffix(build_number)
-    if tag_results is not None:
-        for tag_data in tag_results:
+def find_repository_tag_for_build(
+    build_number,
+    image_name=None,
+    branch_name=None,
+    max_pages=5,
+    page_size=100,
+    tag_results=None,
+):
+    def _find_matching_tag(results):
+        fallback_match = None
+        for tag_data in results:
             tag_name = (tag_data.get('name') or '').strip()
-            if tag_name.endswith(suffix):
+            if not _tag_matches_build(tag_name, build_number):
+                continue
+            if branch_name and _tag_matches_branch_prefix(tag_name, branch_name):
                 return tag_data
-        return None
+            if fallback_match is None:
+                fallback_match = tag_data
+        return fallback_match
+
+    if tag_results is not None:
+        return _find_matching_tag(tag_results)
 
     for page in range(1, max_pages + 1):
         data = list_repository_tags(image_name=image_name, page=page, page_size=page_size)
         results = (data or {}).get('results') or []
-        for tag_data in results:
-            tag_name = (tag_data.get('name') or '').strip()
-            if tag_name.endswith(suffix):
-                return tag_data
+        match = _find_matching_tag(results)
+        if match:
+            return match
         if not results or not (data or {}).get('next'):
             break
     return None

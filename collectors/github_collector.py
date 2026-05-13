@@ -139,6 +139,69 @@ def get_commit(owner, repo, sha):
     return _get_json(url)
 
 
+def enrich_commits_with_files(owner, repo, commits, max_commits=20):
+    """Enrich commits with file change details by fetching individual commits.
+    
+    Args:
+        owner: GitHub repository owner
+        repo: GitHub repository name
+        commits: List of commits to enrich (usually from _get_commits)
+        max_commits: Maximum number of commits to enrich (API rate limiting)
+    
+    Returns:
+        List of commits enriched with file details from their individual API calls
+    """
+    if not commits or not isinstance(commits, list):
+        return commits
+    
+    # Limit commits to enrich (to avoid too many API calls)
+    commits_to_enrich = commits[:max_commits]
+    
+    try:
+        from services.parallel_executor import parallel_execute
+        
+        # Create tasks to fetch full commit details
+        tasks = {
+            f"commit_{i}_{c.get('sha', '')[:7]}": (
+                lambda sha=c.get('sha'): get_commit(owner, repo, sha)
+            )
+            for i, c in enumerate(commits_to_enrich)
+            if c.get('sha')
+        }
+        
+        if not tasks:
+            return commits
+        
+        logger.info(f"[GitHub] Enriching {len(tasks)} commits with file details")
+        enriched_data = parallel_execute(tasks, max_workers=4, timeout=10)
+        
+        # Merge enriched data back into commits
+        enriched_commits = []
+        for commit in commits:
+            sha = commit.get('sha')
+            # Find the enriched data for this commit
+            enriched = None
+            for key, value in enriched_data.items():
+                if sha and isinstance(value, dict) and value.get('sha') == sha:
+                    enriched = value
+                    break
+            
+            if enriched:
+                # Merge file and stats data from enriched commit
+                merged_commit = dict(commit)
+                merged_commit['files'] = enriched.get('files', [])
+                merged_commit['stats'] = enriched.get('stats', {})
+                enriched_commits.append(merged_commit)
+            else:
+                enriched_commits.append(commit)
+        
+        return enriched_commits
+    
+    except Exception as e:
+        logger.warning(f"[GitHub] Failed to enrich commits with files: {e}")
+        return commits
+
+
 def get_branches(owner, repo, per_page=100):
     url = f"{_get_base_url()}/repos/{owner}/{repo}/branches"
     logger.info('[GitHub] Fetching branches')

@@ -16,7 +16,7 @@ function setText(id, value) {
 }
 
 let _ghAnalyticsPayload = null;
-let _ghAnalyticsGrouping = 'month';
+let _ghAnalyticsGrouping = '24h';
 
 function analyticsLimitedMessage(data) {
   if (data?.analytics_mode !== 'branch_heads') return null;
@@ -35,11 +35,13 @@ function formatMonthKey(key, format = 'short') {
 }
 
 function analyticsUnitLabel() {
+  if (_ghAnalyticsGrouping === '24h') return 'day';
   return _ghAnalyticsGrouping === 'week' ? 'week' : 'month';
 }
 
 function analyticsWindowCount(data) {
   const windowData = data?.analytics_window || {};
+  if (_ghAnalyticsGrouping === '24h') return 1;
   return _ghAnalyticsGrouping === 'week' ? (windowData.weeks || 0) : (windowData.months || 0);
 }
 
@@ -87,7 +89,7 @@ function getFileChangeDataset(data) {
 }
 
 function setGitHubAnalyticsGrouping(grouping) {
-  if (grouping !== 'week' && grouping !== 'month') return;
+  if (grouping !== 'week' && grouping !== 'month' && grouping !== '24h') return;
   _ghAnalyticsGrouping = grouping;
   updateGitHubAnalyticsButtons();
   if (_ghAnalyticsPayload) {

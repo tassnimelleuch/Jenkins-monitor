@@ -15,6 +15,7 @@ from collectors.jenkins_collector import (
 from flask import current_app
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import (
+    backfill_branch_test_results,
     build_tests_duration_points,
     get_overview_kpis_from_stored_pipeline,
     get_stored_pipeline_kpis,
@@ -27,6 +28,8 @@ from services.pipeline_storage_service import (
 DEPLOY_STAGE = 'Deploy to AKS'
 ROLLOUT_STAGE = 'Wait for AKS Rollout'
 PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS = 2
+PIPELINE_COVERAGE_TREND_HISTORY_LIMIT = 120
+PIPELINE_JUNIT_TREND_HISTORY_LIMIT = 20
 
 _pipeline_head_cache = {
     'checked_at': None,
@@ -118,6 +121,87 @@ def _pipeline_head_has_changed(stored_payload, live_head):
     )
 
 
+def _find_branch_build(branch_payload, build_number):
+    if build_number is None:
+        return None
+
+    return next(
+        (
+            build
+            for build in (branch_payload.get('builds') or [])
+            if build.get('number') == build_number
+        ),
+        None,
+    )
+
+
+def _find_branch_trend_item(branch_payload, trend_name, build_number):
+    if build_number is None:
+        return None
+
+    trends = branch_payload.get('trends') or {}
+    return next(
+        (
+            item
+            for item in (trends.get(trend_name) or [])
+            if item.get('number') == build_number
+        ),
+        None,
+    )
+
+
+def _build_expects_test_artifacts(build_payload):
+    for stage in build_payload.get('stages') or []:
+        stage_name = (stage.get('name') or '').strip().lower()
+        if any(marker in stage_name for marker in ('pytest', 'test', 'pylint', 'sonar')):
+            return True
+    return False
+
+
+def _build_requires_artifact_refresh(branch_payload, build_number):
+    build_payload = _find_branch_build(branch_payload, build_number)
+    if not build_payload:
+        return False
+
+    if build_payload.get('result') is None:
+        return not bool(build_payload.get('stages'))
+
+    if not _build_expects_test_artifacts(build_payload):
+        return False
+
+    has_coverage = build_payload.get('coverage_percent') is not None
+    has_junit = any(
+        build_payload.get(key) is not None
+        for key in ('junit_total', 'junit_passed', 'junit_failed', 'junit_skipped')
+    )
+
+    coverage_item = _find_branch_trend_item(branch_payload, 'coverage', build_number) or {}
+    junit_item = _find_branch_trend_item(branch_payload, 'junit', build_number) or {}
+
+    has_coverage = has_coverage or coverage_item.get('coverage') is not None
+    has_junit = has_junit or any(
+        junit_item.get(key) is not None
+        for key in ('total', 'passed', 'failed', 'skipped')
+    )
+
+    return not has_coverage or not has_junit
+
+
+def _stored_payload_requires_refresh(stored_payload, live_head):
+    if not stored_payload or not live_head:
+        return True
+
+    _, branch_payload = _selected_branch_data(stored_payload)
+    if not branch_payload:
+        return True
+
+    return any(
+        _build_requires_artifact_refresh(branch_payload, build.get('number'))
+        for build in (branch_payload.get('builds') or [])
+        if build.get('number') is not None
+    )
+
+
 def _get_cached_pipeline_head(force=False):
     now = datetime.now(timezone.utc)
     with _pipeline_head_cache_lock:
@@ -162,7 +246,10 @@ def _run_async_pipeline_refresh(app, stored_payload=None):
         with app.app_context():
             if stored_payload is not None:
                 live_head = _get_cached_pipeline_head()
-                if not _pipeline_head_has_changed(stored_payload, live_head):
+                if (
+                    not _pipeline_head_has_changed(stored_payload, live_head)
+                    and not _stored_payload_requires_refresh(stored_payload, live_head)
+                ):
                     return
 
             refresh_pipeline_storage_from_jenkins()
@@ -195,6 +282,10 @@ def _start_async_pipeline_refresh(stored_payload=None):
 def _schedule_pipeline_refresh_if_due(stored_payload):
     with _pipeline_head_cache_lock:
         checked_at = _pipeline_head_cache.get('checked_at')
+        cached_head = _pipeline_head_cache.get('head')
+
+    if _stored_payload_requires_refresh(stored_payload, cached_head):
+        return _start_async_pipeline_refresh(stored_payload=stored_payload)
 
     if not _snapshot_is_stale(checked_at, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS):
         return False
@@ -437,21 +528,21 @@ def _collect_pipeline_kpis_from_jenkins():
         failures = stage_failures.get(stage_name, 0)
         failure_rate_by_stage[stage_name] = round((failures / count * 100), 1) if count > 0 else 0
 
-    finished_recent = finished[:20]
-    trend_builds = list(reversed(finished_recent))
+    coverage_builds = list(reversed(finished[:PIPELINE_COVERAGE_TREND_HISTORY_LIMIT]))
+    junit_builds = list(reversed(finished[:PIPELINE_JUNIT_TREND_HISTORY_LIMIT]))
 
     coverage_tasks = {
         b.get('number'): (
             lambda n=b.get('number'): _run_in_app_context(app, lambda: get_coverage_percent(n))
         )
-        for b in trend_builds
+        for b in coverage_builds
         if b.get('number')
     }
     test_report_tasks = {
         b.get('number'): (
             lambda n=b.get('number'): _run_in_app_context(app, lambda: get_test_report(n))
         )
-        for b in trend_builds
+        for b in junit_builds
         if b.get('number')
     }
 
@@ -469,7 +560,7 @@ def _collect_pipeline_kpis_from_jenkins():
     coverage_trend = []
     junit_trend = []
     coverage_vals = []
-    for b in trend_builds:
+    for b in coverage_builds:
         num = b.get('number')
         coverage = coverage_by_build.get(num) if num else None
         if coverage is not None:
@@ -481,6 +572,8 @@ def _collect_pipeline_kpis_from_jenkins():
             'timestamp': b.get('timestamp', 0),
         })
 
+    for b in junit_builds:
+        num = b.get('number')
         report = test_reports_by_build.get(num) if num else None
         if report:
             junit_trend.append({
@@ -590,12 +683,20 @@ def refresh_pipeline_storage_from_jenkins():
         return payload
 
     sync_pipeline_snapshot(payload)
-    warm_pipeline_snapshot_cache()
-    _cache_pipeline_head_from_payload(payload)
-
     selected_branch = (payload.get('pipeline') or {}).get('selected_branch')
     selected_payload = ((payload.get('branches') or {}).get(selected_branch) or {})
+    app = current_app._get_current_object()
+
+    backfill_branch_test_results(
+        selected_branch,
+        selected_payload.get('builds') or [],
+        coverage_fetcher=lambda n: _run_in_app_context(app, lambda: get_coverage_percent(n)),
+        test_report_fetcher=lambda n: _run_in_app_context(app, lambda: get_test_report(n)),
+    )
+
     sync_pipeline_durations(selected_payload.get('builds') or [])
+    warm_pipeline_snapshot_cache()
+    _cache_pipeline_head_from_payload(payload)
     return payload
 
 

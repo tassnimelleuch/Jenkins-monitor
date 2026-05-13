@@ -15,9 +15,13 @@ from pipeline_storage_models import (
     PipelineDefinition,
     PipelineStageDuration,
 )
+from services.parallel_executor import parallel_execute
 
 PIPELINE_SNAPSHOT_CACHE_VERSION = 'v3'
 PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS = 86400
+PIPELINE_COVERAGE_TREND_HISTORY_LIMIT = 120
+PIPELINE_JUNIT_TREND_HISTORY_LIMIT = 20
+PIPELINE_TEST_HISTORY_BACKFILL_BATCH_SIZE = 40
 _TESTS_DURATION_STAGE_NAME_NORMALIZER = re.compile(r'[^a-z0-9]+')
 _NON_UNIT_TEST_STAGE_MARKERS = (
     'integration',
@@ -144,6 +148,42 @@ def build_tests_duration_points(builds, branch_name=None, finished_only=False, i
     return points
 
 
+def _chunked(items, size):
+    for index in range(0, len(items), size):
+        yield items[index:index + size]
+
+
+def _build_number_from_payload(build):
+    if isinstance(build, Mapping):
+        build_number = build.get('build_number')
+        if build_number is None:
+            build_number = build.get('number')
+        return build_number
+
+    build_number = getattr(build, 'build_number', None)
+    if build_number is None:
+        build_number = getattr(build, 'number', None)
+    return build_number
+
+
+def _build_result_from_payload(build):
+    if isinstance(build, Mapping):
+        return build.get('result')
+    return getattr(build, 'result', None)
+
+
+def _build_runs_test_related_stages(build):
+    if isinstance(build, Mapping):
+        stages = build.get('stages') or []
+    else:
+        stages = getattr(build, 'stages', []) or []
+
+    return any(
+        _classify_tests_duration_stage(_extract_stage_name(stage)) is not None
+        for stage in stages
+    )
+
+
 def _normalize_job_path(job_path):
     raw_job = (job_path or '').strip().strip('/')
     if not raw_job:
@@ -218,6 +258,13 @@ def _serialize_detailed_build(build, branch_name):
     if payload is None:
         return None
 
+    payload.update({
+        'coverage_percent': build.coverage_percent,
+        'junit_total': build.junit_total,
+        'junit_passed': build.junit_passed,
+        'junit_failed': build.junit_failed,
+        'junit_skipped': build.junit_skipped,
+    })
     payload['stages'] = [
         {
             'name': stage.stage_name,
@@ -291,8 +338,9 @@ def _branch_payload_from_row(branch_row, selected_branch):
         next((row for row in build_rows if row.result is not None), None),
     )
 
-    finished_recent = [row for row in build_rows if row.result is not None][:20]
-    trend_rows = list(reversed(finished_recent))
+    finished_rows = [row for row in build_rows if row.result is not None]
+    coverage_rows = list(reversed(finished_rows[:PIPELINE_COVERAGE_TREND_HISTORY_LIMIT]))
+    junit_rows = list(reversed(finished_rows[:PIPELINE_JUNIT_TREND_HISTORY_LIMIT]))
 
     return {
         'name': branch_row.name,
@@ -323,7 +371,7 @@ def _branch_payload_from_row(branch_row, selected_branch):
                     'duration_seconds': row.duration_seconds or 0,
                     'duration_ms': row.duration_ms or 0,
                 }
-                for row in trend_rows
+                for row in junit_rows
             ],
             'coverage': [
                 {
@@ -332,7 +380,7 @@ def _branch_payload_from_row(branch_row, selected_branch):
                     'coverage': row.coverage_percent,
                     'timestamp': row.timestamp_ms or 0,
                 }
-                for row in trend_rows
+                for row in coverage_rows
             ],
             'junit': [
                 {
@@ -343,7 +391,7 @@ def _branch_payload_from_row(branch_row, selected_branch):
                     'failed': row.junit_failed,
                     'skipped': row.junit_skipped,
                 }
-                for row in trend_rows
+                for row in junit_rows
             ],
             'tests_duration': build_tests_duration_points(
                 build_rows,
@@ -538,10 +586,12 @@ def _prepare_branch_build_payloads(branch_payload):
                 'is_last_completed_build': False,
                 'stages': None,
                 'coverage_percent': None,
+                'has_coverage_percent': False,
                 'junit_total': None,
                 'junit_passed': None,
                 'junit_failed': None,
                 'junit_skipped': None,
+                'has_junit_report': False,
             }
             prepared[number] = payload
         return payload
@@ -558,6 +608,18 @@ def _prepare_branch_build_payloads(branch_payload):
             'duration_ms': build.get('duration_ms', 0) or 0,
             'stages': build.get('stages') or [],
         })
+        if build.get('coverage_percent') is not None:
+            payload['coverage_percent'] = build.get('coverage_percent')
+            payload['has_coverage_percent'] = True
+        if any(
+            build.get(key) is not None
+            for key in ('junit_total', 'junit_passed', 'junit_failed', 'junit_skipped')
+        ):
+            payload['junit_total'] = build.get('junit_total')
+            payload['junit_passed'] = build.get('junit_passed')
+            payload['junit_failed'] = build.get('junit_failed')
+            payload['junit_skipped'] = build.get('junit_skipped')
+            payload['has_junit_report'] = True
 
     for summary_key, flag_key in (
         ('last_build', 'is_last_build'),
@@ -581,6 +643,7 @@ def _prepare_branch_build_payloads(branch_payload):
         if payload is None:
             continue
         payload['coverage_percent'] = item.get('coverage')
+        payload['has_coverage_percent'] = item.get('coverage') is not None
 
     for number, item in junit_map.items():
         payload = ensure_payload(number)
@@ -590,8 +653,23 @@ def _prepare_branch_build_payloads(branch_payload):
         payload['junit_passed'] = item.get('passed')
         payload['junit_failed'] = item.get('failed')
         payload['junit_skipped'] = item.get('skipped')
+        payload['has_junit_report'] = any(
+            item.get(key) is not None
+            for key in ('total', 'passed', 'failed', 'skipped')
+        )
 
     return prepared
+
+
+def _apply_optional_build_quality_fields(row, payload):
+    if payload.get('has_coverage_percent'):
+        row.coverage_percent = payload.get('coverage_percent')
+
+    if payload.get('has_junit_report'):
+        row.junit_total = payload.get('junit_total')
+        row.junit_passed = payload.get('junit_passed')
+        row.junit_failed = payload.get('junit_failed')
+        row.junit_skipped = payload.get('junit_skipped')
 
 
 def _sync_branch_stage_kpis(branch_row, branch_payload):
@@ -695,11 +773,7 @@ def _sync_branch_builds(branch_row, branch_payload):
         row.started_at = _millis_to_datetime(payload.get('timestamp_ms'))
         row.duration_seconds = int(payload.get('duration_seconds') or 0)
         row.duration_ms = int(payload.get('duration_ms') or (row.duration_seconds * 1000))
-        row.coverage_percent = payload.get('coverage_percent')
-        row.junit_total = payload.get('junit_total')
-        row.junit_passed = payload.get('junit_passed')
-        row.junit_failed = payload.get('junit_failed')
-        row.junit_skipped = payload.get('junit_skipped')
+        _apply_optional_build_quality_fields(row, payload)
 
         db.session.flush()
         if payload.get('stages') is not None:
@@ -798,6 +872,169 @@ def sync_pipeline_snapshot(payload):
             'Failed to sync structured pipeline snapshot to the database.'
         )
         return False
+
+
+def _load_branch_build_rows(branch_id, build_numbers):
+    if not build_numbers:
+        return {}
+
+    rows = PipelineBranchBuild.query.filter(
+        PipelineBranchBuild.branch_id == branch_id,
+        PipelineBranchBuild.build_number.in_(build_numbers),
+    ).all()
+    return {row.build_number: row for row in rows}
+
+
+def _build_needs_quality_backfill(build, row):
+    if row is None:
+        return False
+
+    if _build_result_from_payload(build) is None:
+        return False
+
+    if not _build_runs_test_related_stages(build):
+        return False
+
+    has_coverage = row.coverage_percent is not None
+    has_junit = all(
+        value is not None
+        for value in (
+            row.junit_total,
+            row.junit_passed,
+            row.junit_failed,
+            row.junit_skipped,
+        )
+    )
+    return not has_coverage or not has_junit
+
+
+def _run_backfill_tasks(build_numbers, fetcher, max_workers=6, timeout=120):
+    if not build_numbers:
+        return {}
+
+    results = {}
+    for chunk in _chunked(build_numbers, PIPELINE_TEST_HISTORY_BACKFILL_BATCH_SIZE):
+        tasks = {
+            number: (lambda n=number: fetcher(n))
+            for number in chunk
+        }
+        try:
+            results.update(
+                parallel_execute(
+                    tasks,
+                    max_workers=max_workers,
+                    timeout=timeout,
+                )
+            )
+        except Exception:
+            current_app.logger.exception(
+                'Failed to backfill Jenkins test history for build batch %s.',
+                chunk,
+            )
+    return results
+
+
+def backfill_branch_test_results(
+    branch_name,
+    builds,
+    coverage_fetcher,
+    test_report_fetcher,
+):
+    pipeline = _load_pipeline_definition()
+    if pipeline is None:
+        return {
+            'candidate_builds': 0,
+            'coverage_updates': 0,
+            'junit_updates': 0,
+        }
+
+    branch_row = PipelineBranch.query.filter_by(
+        pipeline_id=pipeline.id,
+        name=branch_name,
+    ).one_or_none()
+    if branch_row is None:
+        return {
+            'candidate_builds': 0,
+            'coverage_updates': 0,
+            'junit_updates': 0,
+        }
+
+    candidate_numbers = []
+    for build in builds or []:
+        build_number = _build_number_from_payload(build)
+        if build_number is None:
+            continue
+        candidate_numbers.append(build_number)
+
+    existing_rows = _load_branch_build_rows(branch_row.id, candidate_numbers)
+    coverage_numbers = []
+    junit_numbers = []
+
+    for build in builds or []:
+        build_number = _build_number_from_payload(build)
+        if build_number is None:
+            continue
+
+        row = existing_rows.get(build_number)
+        if not _build_needs_quality_backfill(build, row):
+            continue
+
+        if row.coverage_percent is None:
+            coverage_numbers.append(build_number)
+        if any(
+            value is None
+            for value in (
+                row.junit_total,
+                row.junit_passed,
+                row.junit_failed,
+                row.junit_skipped,
+            )
+        ):
+            junit_numbers.append(build_number)
+
+    coverage_results = _run_backfill_tasks(coverage_numbers, coverage_fetcher)
+    junit_results = _run_backfill_tasks(junit_numbers, test_report_fetcher)
+
+    coverage_updates = 0
+    junit_updates = 0
+
+    try:
+        for build_number, coverage in coverage_results.items():
+            if coverage is None:
+                continue
+            row = existing_rows.get(build_number)
+            if row is None:
+                continue
+            row.coverage_percent = coverage
+            coverage_updates += 1
+
+        for build_number, report in junit_results.items():
+            if not report:
+                continue
+            row = existing_rows.get(build_number)
+            if row is None:
+                continue
+            row.junit_total = report.get('total')
+            row.junit_passed = report.get('passed')
+            row.junit_failed = report.get('failed')
+            row.junit_skipped = report.get('skipped')
+            junit_updates += 1
+
+        if coverage_updates or junit_updates:
+            db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception(
+            'Failed to backfill historical test results from Jenkins.'
+        )
+        coverage_updates = 0
+        junit_updates = 0
+
+    return {
+        'candidate_builds': len(set(coverage_numbers) | set(junit_numbers)),
+        'coverage_updates': coverage_updates,
+        'junit_updates': junit_updates,
+    }
 
 
 def _load_existing_builds(build_numbers):
