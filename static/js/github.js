@@ -97,12 +97,13 @@ function setGitHubAnalyticsGrouping(grouping) {
 }
 
 // Tag modal functions
-function openTagModal(sha, shortSha) {
+function openTagModal(sha, shortSha, branchName) {
   const modal = document.getElementById('ghTagModal');
   if (!modal) {
     console.error('Tag modal not found');
     return;
   }
+  modal.dataset.branchName = branchName || '';
   document.getElementById('tagCommitSha').value = sha;
   document.getElementById('tagCommitDisplay').textContent = shortSha;
   document.getElementById('tagNameInput').value = '';
@@ -115,18 +116,27 @@ function openTagModal(sha, shortSha) {
 function closeTagModal() {
   const modal = document.getElementById('ghTagModal');
   if (modal) {
+    modal.dataset.branchName = '';
     modal.style.display = 'none';
   }
 }
 
 async function submitTag() {
+  const modal = document.getElementById('ghTagModal');
   const sha = document.getElementById('tagCommitSha').value;
+  const branchName = modal?.dataset.branchName || '';
   const tagName = document.getElementById('tagNameInput').value.trim();
   const message = document.getElementById('tagMessageInput').value.trim();
   const statusEl = document.getElementById('tagStatus');
   
   if (!tagName) {
     statusEl.textContent = 'Please enter a tag name';
+    statusEl.className = 'gh-tag-status gh-tag-error';
+    return;
+  }
+
+  if (!branchName) {
+    statusEl.textContent = 'Unable to determine which branch this commit belongs to.';
     statusEl.className = 'gh-tag-status gh-tag-error';
     return;
   }
@@ -149,6 +159,7 @@ async function submitTag() {
       },
       body: JSON.stringify({
         sha: sha,
+        branch_name: branchName,
         tag_name: tagName,
         message: message
       })
@@ -209,7 +220,7 @@ function renderCommits(container, commits) {
         <div class="gh-commit-meta">${c.author_name || 'Unknown'} · ${fmtDate(c.date)} ${branchPill}</div>
         <div class="gh-commit-actions">
           ${c.html_url ? `<a class="gh-commit-link" href="${c.html_url}" target="_blank" rel="noopener">View commit</a>` : ''}
-          <button class="gh-tag-btn" onclick="openTagModal('${c.sha}', '${c.short_sha}')">Tag</button>
+          ${c.tagging_allowed ? `<button class="gh-tag-btn" onclick="openTagModal('${c.sha}', '${c.short_sha}', decodeURIComponent('${encodeURIComponent(c.branch_name || '')}'))">Tag</button>` : ''}
         </div>
       </div>
     `;

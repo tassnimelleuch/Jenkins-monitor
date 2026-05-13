@@ -8,6 +8,11 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 
+def _normalize_branch_name(branch_name):
+    normalized = (branch_name or '').strip().strip('/')
+    return normalized or None
+
+
 def _get_auth():
     return (
         current_app.config['JENKINS_USERNAME'],
@@ -15,9 +20,9 @@ def _get_auth():
     )
 
 
-def _get_base():
-    segments = _get_pipeline_segments()
-    branch = _get_branch_name()
+def _get_base(branch_name=None):
+    segments = _get_pipeline_segments(branch_name=branch_name)
+    branch = _resolve_branch_name(branch_name)
     if branch:
         segments.append(branch)
     return _build_job_url(*segments)
@@ -39,17 +44,24 @@ def _get_job_segments():
     return [segment for segment in normalized.split('/') if segment]
 
 
-def _get_pipeline_segments():
+def _get_pipeline_segments(branch_name=None):
     segments = _get_job_segments()
-    branch = _get_branch_name()
-    if branch and len(segments) > 1 and segments[-1] == branch:
+    configured_branch = _get_branch_name()
+    target_branch = _resolve_branch_name(branch_name)
+    strip_branch = configured_branch or target_branch
+    if strip_branch and len(segments) > 1 and segments[-1] == strip_branch:
         return segments[:-1]
     return segments
 
 
 def _get_branch_name():
-    branch = (current_app.config.get('JENKINS_BRANCH') or '').strip().strip('/')
-    return branch or None
+    return _normalize_branch_name(current_app.config.get('JENKINS_BRANCH'))
+
+
+def _resolve_branch_name(branch_name=None):
+    if branch_name is not None:
+        return _normalize_branch_name(branch_name)
+    return _get_branch_name()
 
 
 def _build_job_url(*segments):
@@ -135,10 +147,10 @@ def check_connection():
     except requests.exceptions.ConnectionError:
         return False
 
-def get_all_builds():
+def get_all_builds(branch_name=None):
     try:
         resp = requests.get(
-            f'{_get_base()}/api/json?tree=builds[number,status,timestamp,duration,result]',
+            f'{_get_base(branch_name=branch_name)}/api/json?tree=builds[number,status,timestamp,duration,result]',
             auth=_get_auth(),
             timeout=10
         )
@@ -530,9 +542,9 @@ def _extract_junit_from_xml(xml_text):
     }
 
 
-def get_build_info(build_number):
+def get_build_info(build_number, branch_name=None):
     return _get_json(
-        f'{_get_base()}/{build_number}/api/json?tree='
+        f'{_get_base(branch_name=branch_name)}/{build_number}/api/json?tree='
         'number,result,timestamp,duration,url,'
         'actions[lastBuiltRevision[SHA1,branch[name]],parameters[name,value]],'
         'changeSets[items[commitId,msg,author[fullName]]],'
@@ -611,9 +623,9 @@ def extract_build_culprits(build_info, limit=3):
     return culprits
 
 
-def get_last_failed_build(builds=None):
+def get_last_failed_build(builds=None, branch_name=None):
     if builds is None:
-        builds = get_all_builds()
+        builds = get_all_builds(branch_name=branch_name)
     if not builds:
         return None
 

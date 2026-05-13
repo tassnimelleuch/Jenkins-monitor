@@ -5,6 +5,8 @@ from flask import current_app
 from services.parallel_executor import parallel_execute
 from collectors.github_collector import (
     get_branches,
+    get_commit,
+    get_commits_for_branch,
     get_latest_commit_for_branch,
     get_pull_requests,
     get_repo,
@@ -18,6 +20,30 @@ from collectors.jenkins_collector import (
 )
 
 logger = logging.getLogger(__name__)
+MAIN_PIPELINE_BRANCH = 'main'
+
+
+def is_tag_branch_allowed(branch_name):
+    normalized_branch_name = (branch_name or '').strip()
+    return normalized_branch_name == 'main' or normalized_branch_name.startswith('release/')
+
+
+def _normalize_person_name(name):
+    return ' '.join(str(name or '').split()).casefold()
+
+
+def _select_failed_pipeline_commit_sha(build_info, build_commits, culprits):
+    culprit_names = [
+        _normalize_person_name((culprit or {}).get('full_name'))
+        for culprit in (culprits or [])
+        if _normalize_person_name((culprit or {}).get('full_name'))
+    ]
+    for culprit_name in culprit_names:
+        for commit in build_commits or []:
+            if _normalize_person_name((commit or {}).get('author_name')) == culprit_name and commit.get('sha'):
+                return commit.get('sha')
+    return extract_build_commit_sha(build_info)
+
 
 def _derive_repo_from_project_key(project_key):
     if not project_key or '_' not in project_key:
@@ -63,6 +89,7 @@ def _commit_item(c):
         'committer_avatar': committer_user.get('avatar_url'),
         'committer_profile_url': committer_user.get('html_url'),
         'branch_name': branch_name,
+        'tagging_allowed': is_tag_branch_allowed(branch_name),
         'date': author.get('date') or committer.get('date'),
         'html_url': c.get('html_url'),
     }
@@ -338,10 +365,17 @@ def get_github_summary():
     tasks = {
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
         'branches': lambda: _run_in_app_context(app, lambda: get_branches(owner, repo, per_page=100)),
-        'failed_build': lambda: _run_in_app_context(app, get_last_failed_build),
+        'main_commits': lambda: _run_in_app_context(
+            app,
+            lambda: get_commits_for_branch(owner, repo, MAIN_PIPELINE_BRANCH, per_page=20, page_limit=1),
+        ),
+        'failed_build': lambda: _run_in_app_context(
+            app,
+            lambda: get_last_failed_build(branch_name=MAIN_PIPELINE_BRANCH),
+        ),
         'pull_requests': lambda: _run_in_app_context(app, lambda: get_pull_requests(owner, repo, state='all', per_page=50)),
     }
-    results = parallel_execute(tasks, max_workers=4, timeout=20)
+    results = parallel_execute(tasks, max_workers=5, timeout=20)
     repo_raw = results.get('repo')
     branches_raw = results.get('branches')
 
@@ -353,17 +387,27 @@ def get_github_summary():
 
     branch_head_commits_raw = _fetch_branch_head_commits(app, owner, repo, branches_raw or [])
     commits = [_commit_item(c) for c in branch_head_commits_raw]
-    commits_by_sha = {item.get('sha'): item for item in commits if item.get('sha')}
+    main_branch_commits_raw = _sort_commits_raw([
+        {**commit, 'branch_name': MAIN_PIPELINE_BRANCH}
+        for commit in (results.get('main_commits') or [])
+        if isinstance(commit, dict)
+    ])
+    main_branch_commits = [_commit_item(c) for c in main_branch_commits_raw]
+    main_branch_commits_by_sha = {
+        item.get('sha'): item
+        for item in main_branch_commits
+        if item.get('sha')
+    }
 
     failing_commit = None
 
     failed_build = results.get('failed_build')
     if failed_build:
         build_number = failed_build.get('number')
-        build_info = get_build_info(build_number) if build_number else None
-        failed_sha = extract_build_commit_sha(build_info)
+        build_info = get_build_info(build_number, branch_name=MAIN_PIPELINE_BRANCH) if build_number else None
         build_commits = extract_build_commits(build_info)
         culprits = extract_build_culprits(build_info)
+        failed_sha = _select_failed_pipeline_commit_sha(build_info, build_commits, culprits)
 
         commit_items = []
         for item in build_commits:
@@ -374,20 +418,38 @@ def get_github_summary():
                 sha,
                 message=item.get('message'),
                 author_name=item.get('author_name'),
+                branch_name=MAIN_PIPELINE_BRANCH,
             )
-            branch_commit = commits_by_sha.get(sha) if sha else None
+            branch_commit = main_branch_commits_by_sha.get(sha) if sha else None
             commit_items.append(_merge_commit_items(branch_commit, fallback) if branch_commit else fallback)
 
         if failed_sha:
-            failed_commit_item = commits_by_sha.get(failed_sha)
+            failed_commit_item = main_branch_commits_by_sha.get(failed_sha)
             if not failed_commit_item:
                 failed_commit_item = next(
                     (item for item in commit_items if item.get('sha') == failed_sha),
                     None,
                 )
+                failed_commit_raw = get_commit(owner, repo, failed_sha)
+                if isinstance(failed_commit_raw, dict):
+                    direct_failed_commit_item = _commit_item({
+                        **failed_commit_raw,
+                        'branch_name': MAIN_PIPELINE_BRANCH,
+                    })
+                    failed_commit_item = (
+                        _merge_commit_items(direct_failed_commit_item, failed_commit_item)
+                        if failed_commit_item
+                        else direct_failed_commit_item
+                    )
             if not failed_commit_item:
-                failed_commit_item = _fallback_commit_item(owner, repo, failed_sha)
+                failed_commit_item = _fallback_commit_item(
+                    owner,
+                    repo,
+                    failed_sha,
+                    branch_name=MAIN_PIPELINE_BRANCH,
+                )
             failing_commit = {
+                'pipeline_branch': MAIN_PIPELINE_BRANCH,
                 'build_number': build_number,
                 'build_result': failed_build.get('result'),
                 'build_timestamp': failed_build.get('timestamp'),
@@ -397,22 +459,22 @@ def get_github_summary():
                 'commit': failed_commit_item,
             }
             
-            if commits:
+            if main_branch_commits:
                 failed_commit_index = None
-                for idx, commit in enumerate(commits):
+                for idx, commit in enumerate(main_branch_commits):
                     if commit.get('sha') == failed_sha:
                         failed_commit_index = idx
                         break
                 
                 # The fixing commit is the first one after the failing commit
                 if failed_commit_index is not None and failed_commit_index > 0:
-                    fix_commit = commits[failed_commit_index - 1]  # More recent commits come first
+                    fix_commit = main_branch_commits[failed_commit_index - 1]  # More recent commits come first
                     failing_commit['fix_commit'] = fix_commit
-                elif not failed_commit_index and commits:
+                elif failed_commit_index is None and main_branch_commits:
                     # If the failing commit is not in the list but we have recent commits,
                     # try to assume the most recent commit might have fixed it
                     # (This handles cases where the failing commit is very old)
-                    potential_fix = commits[0]
+                    potential_fix = main_branch_commits[0]
                     if potential_fix and potential_fix.get('sha') != failed_sha:
                         failing_commit['fix_commit'] = potential_fix
 

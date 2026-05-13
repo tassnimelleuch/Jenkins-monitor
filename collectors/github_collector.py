@@ -124,6 +124,21 @@ def get_latest_commit_for_branch(owner, repo, branch_name):
     return commits[0] if commits else None
 
 
+def get_commits_for_branch(owner, repo, branch_name, per_page=20, page_limit=1):
+    return _get_commits(
+        owner,
+        repo,
+        per_page=per_page,
+        sha=branch_name,
+        page_limit=page_limit,
+    )
+
+
+def get_commit(owner, repo, sha):
+    url = f"{_get_base_url()}/repos/{owner}/{repo}/commits/{sha}"
+    return _get_json(url)
+
+
 def get_branches(owner, repo, per_page=100):
     url = f"{_get_base_url()}/repos/{owner}/{repo}/branches"
     logger.info('[GitHub] Fetching branches')
