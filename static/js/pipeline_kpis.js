@@ -16,6 +16,13 @@ let _coverageGrouping = 'week';
 let _coverageSourcePoints = [];
 let _testsDurationGrouping = 'week';
 let _testsDurationSourcePoints = [];
+let _pipelineKpisLoadInFlight = false;
+let _pipelineGroupedDurationRenderSignature = null;
+let _pipelineStageFailureRenderSignature = null;
+let _pipelineCoverageRenderSignature = null;
+let _pipelineJunitRenderSignature = null;
+let _pipelineTestsDurationTrendRenderSignature = null;
+let _pipelineTestsDuration24hRenderSignature = null;
 
 // Legacy build-history helpers are intentionally kept in this file for
 // possible rollback, even though the current page no longer renders the
@@ -60,6 +67,38 @@ function fmtDate(ts) {
 
 function currentUserCanManageBuilds() {
   return document.body.dataset.canManageBuilds === 'true';
+}
+
+function pipelineSignaturePart(value) {
+  return value ?? '';
+}
+
+function getPipelineThemeSignature() {
+  return document.documentElement.getAttribute('data-theme') || 'dark';
+}
+
+function buildPipelinePointsSignature(items, fields) {
+  return (Array.isArray(items) ? items : [])
+    .map(item => fields.map(field => pipelineSignaturePart(item?.[field])).join('|'))
+    .join('||');
+}
+
+function buildPipelineRenderSignature(prefix, { grouping = '', items = [], fields = [] } = {}) {
+  return [
+    prefix,
+    getPipelineThemeSignature(),
+    grouping,
+    buildPipelinePointsSignature(items, fields),
+  ].join('::');
+}
+
+function resetPipelineChartRenderCache() {
+  _pipelineGroupedDurationRenderSignature = null;
+  _pipelineStageFailureRenderSignature = null;
+  _pipelineCoverageRenderSignature = null;
+  _pipelineJunitRenderSignature = null;
+  _pipelineTestsDurationTrendRenderSignature = null;
+  _pipelineTestsDuration24hRenderSignature = null;
 }
 
 function segCls(status) {
@@ -376,6 +415,8 @@ function clearGroupedDurationChart(message = 'No finished build data available')
   const avgBadge = document.getElementById('latestBuildsAvg');
   if (!canvas) return;
 
+  _pipelineGroupedDurationRenderSignature = null;
+
   if (_groupedDurationChart) {
     _groupedDurationChart.destroy();
     _groupedDurationChart = null;
@@ -394,6 +435,20 @@ function clearGroupedDurationChart(message = 'No finished build data available')
   if (avgBadge) avgBadge.textContent = 'Avg —';
 }
 
+function clearStageFailureChart(message = 'No stage data available') {
+  const container = document.getElementById('stageFailureChart');
+  if (!container) return;
+
+  _pipelineStageFailureRenderSignature = null;
+
+  if (window._stageChart) {
+    window._stageChart.destroy();
+    window._stageChart = null;
+  }
+
+  container.innerHTML = `<div style="text-align:center;color:var(--text2);padding:20px;font-size:12px;">${message}</div>`;
+}
+
 function renderGroupedDurationChart(builds) {
   const canvas = document.getElementById('pipelineGroupedDurationChart');
   if (!canvas) return;
@@ -402,21 +457,36 @@ function renderGroupedDurationChart(builds) {
   const subtitle = document.getElementById('pipelineDurationSub');
   const avgBadge = document.getElementById('latestBuildsAvg');
 
-  const existingEmpty = container.querySelector('.chart-empty');
-  if (existingEmpty) existingEmpty.remove();
+  const finishedBuilds = (Array.isArray(builds) ? builds : []).filter(build => build.result !== null);
+  const renderSignature = buildPipelineRenderSignature('grouped-duration', {
+    grouping: _durationGrouping,
+    items: finishedBuilds,
+    fields: ['number', 'result', 'timestamp', 'duration', 'duration_ms', 'duration_seconds'],
+  });
 
   const { groups, finishedBuildCount, overallAvgMs } = buildDurationGroups(builds, _durationGrouping);
   const periodLabel = _durationGrouping === 'month' ? 'month' : 'week';
   const periodLabelPlural = _durationGrouping === 'month' ? 'months' : 'weeks';
 
+  if (!groups.length) {
+    const emptySignature = `empty::${renderSignature}`;
+    if (_pipelineGroupedDurationRenderSignature === emptySignature) return;
+    if (subtitle) {
+      subtitle.textContent = `Average duration grouped by ${periodLabel}`;
+    }
+    clearGroupedDurationChart(`No finished builds available for ${periodLabel} grouping`);
+    _pipelineGroupedDurationRenderSignature = emptySignature;
+    return;
+  }
+
+  if (_pipelineGroupedDurationRenderSignature === renderSignature) return;
+
   if (subtitle) {
     subtitle.textContent = `Average duration grouped by ${periodLabel}`;
   }
 
-  if (!groups.length) {
-    clearGroupedDurationChart(`No finished builds available for ${periodLabel} grouping`);
-    return;
-  }
+  const existingEmpty = container.querySelector('.chart-empty');
+  if (existingEmpty) existingEmpty.remove();
 
   if (summary) {
     summary.innerHTML =
@@ -510,6 +580,8 @@ function renderGroupedDurationChart(builds) {
       animation: { duration: 600, easing: 'easeOutQuart' }
     }
   });
+
+  _pipelineGroupedDurationRenderSignature = renderSignature;
 }
 
 function updateDurationGroupingButtons() {
@@ -588,6 +660,8 @@ function clearCoverageTrendChart(message = 'No coverage data available') {
   const badge = document.getElementById('coverageAvgBadge');
   const summary = document.getElementById('coverageTrendSummary');
   if (!canvas) return;
+
+  _pipelineCoverageRenderSignature = null;
 
   if (window._coverageChart) {
     window._coverageChart.destroy();
@@ -685,6 +759,8 @@ function clearTestsDurationTrendChart(message = 'No tests duration data availabl
   const summary = document.getElementById('testsDurationSummary');
   if (!canvas) return;
 
+  _pipelineTestsDurationTrendRenderSignature = null;
+
   if (window._testsDurationTrendChart) {
     window._testsDurationTrendChart.destroy();
     window._testsDurationTrendChart = null;
@@ -733,22 +809,17 @@ function renderCharts(branchData) {
     if (avgEl) avgEl.textContent = avgDur > 0 ? `Avg: ${displayText}` : 'Avg —';
   }
 
-    if (quality.avg_test_coverage !== undefined) {
+  if (quality.avg_test_coverage !== undefined) {
     const coverage = quality.avg_test_coverage;
     const el = document.getElementById('coverageValue');
-    const badge = document.getElementById('coverageAvgBadge');
     if (coverage === null || coverage === undefined) {
       if (el) el.textContent = '—';
-      if (badge) badge.textContent = 'Avg —%';
     } else {
       if (el) el.textContent = coverage.toFixed(1);
-      if (badge) badge.textContent = `Avg ${coverage.toFixed(1)}%`;
     }
   }
 
-  if (stages.failure_rate && Object.keys(stages.failure_rate).length > 0) {
-    renderStageFailureChart(stages.failure_rate);
-  }
+  renderStageFailureChart(stages.failure_rate || {});
 
   if (Array.isArray(trends.coverage)) {
     renderCoverageTrend(trends.coverage);
@@ -772,11 +843,20 @@ function renderStageFailureChart(failureRateByStage) {
   if (!container) return;
 
   const entries = Object.entries(failureRateByStage).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const renderSignature = buildPipelineRenderSignature('stage-failure', {
+    items: entries.map(([stage, rate]) => ({ stage, rate })),
+    fields: ['stage', 'rate'],
+  });
 
   if (!entries.length) {
-    container.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px;font-size:12px;">No stage data available</div>';
+    const emptySignature = `empty::${renderSignature}`;
+    if (_pipelineStageFailureRenderSignature === emptySignature) return;
+    clearStageFailureChart();
+    _pipelineStageFailureRenderSignature = emptySignature;
     return;
   }
+
+  if (_pipelineStageFailureRenderSignature === renderSignature) return;
 
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -786,12 +866,11 @@ function renderStageFailureChart(failureRateByStage) {
   const labels = entries.map(e => e[0]);
   const values = entries.map(e => e[1]);
 
-  const bgColors = values.map(v => (v > 50 ? '#ff4560' : v > 25 ? '#ff9f43' : '#00dba0'));
-  const borderColors = values.map(v => (v > 50 ? '#ff4560' : v > 25 ? '#ff9f43' : '#00dba0'));
+  const bgColors = values.map(() => '#c62828');
+  const borderColors = values.map(() => '#c62828');
 
   container.innerHTML = `
-
-    <div style="position:relative;width:100%;height:${Math.max(180, entries.length * 40 + 40)}px;">
+    <div style="position:relative;width:100%;height:${Math.max(220, entries.length * 52 + 36)}px;">
       <canvas id="stageChartCanvas"></canvas>
     </div>`;
 
@@ -833,7 +912,7 @@ function renderStageFailureChart(failureRateByStage) {
       scales: {
         x: {
           min: 0,
-          max: 50,
+          max: 100,
           grid: { color: gridColor, drawTicks: false },
           border: { display: false },
           ticks: {
@@ -856,6 +935,8 @@ function renderStageFailureChart(failureRateByStage) {
       animation: { duration: 600, easing: 'easeOutQuart' }
     }
   });
+
+  _pipelineStageFailureRenderSignature = renderSignature;
 }
 
 function renderCoverageTrend(coverageTrend) {
@@ -870,14 +951,27 @@ function renderCoverageTrend(coverageTrend) {
 
   _coverageSourcePoints = Array.isArray(coverageTrend) ? coverageTrend : [];
   const { groups, sampleCount, overallAvg } = buildCoverageGroups(_coverageSourcePoints, _coverageGrouping);
+  const renderSignature = buildPipelineRenderSignature('coverage', {
+    grouping: _coverageGrouping,
+    items: _coverageSourcePoints,
+    fields: ['number', 'timestamp', 'coverage'],
+  });
+
+  if (!groups.length) {
+    const emptySignature = `empty::${renderSignature}`;
+    if (_pipelineCoverageRenderSignature === emptySignature) return;
+    if (subtitle) {
+      subtitle.textContent = `Average coverage grouped by ${periodLabel}`;
+    }
+    clearCoverageTrendChart(`No coverage data available for ${periodLabel} grouping`);
+    _pipelineCoverageRenderSignature = emptySignature;
+    return;
+  }
+
+  if (_pipelineCoverageRenderSignature === renderSignature) return;
 
   if (subtitle) {
     subtitle.textContent = `Average coverage grouped by ${periodLabel}`;
-  }
-
-  if (!groups.length) {
-    clearCoverageTrendChart(`No coverage data available for ${periodLabel} grouping`);
-    return;
   }
 
   canvas.style.display = 'block';
@@ -969,6 +1063,8 @@ function renderCoverageTrend(coverageTrend) {
       animation: { duration: 600, easing: 'easeOutQuart' }
     }
   });
+
+  _pipelineCoverageRenderSignature = renderSignature;
 }
 
 function renderJUnitTrend(junitTrend) {
@@ -984,8 +1080,14 @@ function renderJUnitTrend(junitTrend) {
       failed: p.failed || 0,
       skipped: p.skipped || 0
     }));
+  const renderSignature = buildPipelineRenderSignature('junit', {
+    items: points,
+    fields: ['label', 'passed', 'failed', 'skipped'],
+  });
 
   if (!points.length) {
+    const emptySignature = `empty::${renderSignature}`;
+    if (_pipelineJunitRenderSignature === emptySignature) return;
     if (window._junitChart) {
       window._junitChart.destroy();
       window._junitChart = null;
@@ -999,8 +1101,11 @@ function renderJUnitTrend(junitTrend) {
     }
     const totalBadge = document.getElementById('junitTotalBadge');
     if (totalBadge) totalBadge.textContent = 'Total —';
+    _pipelineJunitRenderSignature = emptySignature;
     return;
   }
+
+  if (_pipelineJunitRenderSignature === renderSignature) return;
 
   canvas.style.display = 'block';
   const existingEmpty = container.querySelector('.chart-empty');
@@ -1085,6 +1190,8 @@ function renderJUnitTrend(junitTrend) {
       animation: { duration: 600, easing: 'easeOutQuart' }
     }
   });
+
+  _pipelineJunitRenderSignature = renderSignature;
 }
 
 function renderTestsDurationTrend(testsDurationTrend) {
@@ -1102,14 +1209,34 @@ function renderTestsDurationTrend(testsDurationTrend) {
     _testsDurationSourcePoints,
     _testsDurationGrouping
   );
+  const renderSignature = buildPipelineRenderSignature('tests-duration-trend', {
+    grouping: _testsDurationGrouping,
+    items: _testsDurationSourcePoints,
+    fields: [
+      'number',
+      'timestamp',
+      'total_duration_ms',
+      'unit_tests_ms',
+      'pylint_ms',
+      'sonarcloud_ms',
+    ],
+  });
+
+  if (!groups.length) {
+    const emptySignature = `empty::${renderSignature}`;
+    if (_pipelineTestsDurationTrendRenderSignature === emptySignature) return;
+    if (subtitle) {
+      subtitle.textContent = `Average tests duration grouped by ${periodLabel}`;
+    }
+    clearTestsDurationTrendChart(`No tests duration data available for ${periodLabel} grouping`);
+    _pipelineTestsDurationTrendRenderSignature = emptySignature;
+    return;
+  }
+
+  if (_pipelineTestsDurationTrendRenderSignature === renderSignature) return;
 
   if (subtitle) {
     subtitle.textContent = `Average tests duration grouped by ${periodLabel}`;
-  }
-
-  if (!groups.length) {
-    clearTestsDurationTrendChart(`No tests duration data available for ${periodLabel} grouping`);
-    return;
   }
 
   canvas.style.display = 'block';
@@ -1200,6 +1327,8 @@ function renderTestsDurationTrend(testsDurationTrend) {
       animation: { duration: 600, easing: 'easeOutQuart' }
     }
   });
+
+  _pipelineTestsDurationTrendRenderSignature = renderSignature;
 }
 
 function clearTestsDuration24hChart(message = 'No tests duration data available in the last 24 hours') {
@@ -1207,6 +1336,8 @@ function clearTestsDuration24hChart(message = 'No tests duration data available 
   const badge = document.getElementById('testsDuration24hBadge');
   const summary = document.getElementById('testsDuration24hSummary');
   if (!canvas) return;
+
+  _pipelineTestsDuration24hRenderSignature = null;
 
   if (window._testsDuration24hChart) {
     window._testsDuration24hChart.destroy();
@@ -1241,11 +1372,27 @@ function renderTestsDuration24hChart(testsDurationTrend) {
       (point.timestamp || 0) >= cutoffMs
     )
     .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  const renderSignature = buildPipelineRenderSignature('tests-duration-24h', {
+    items: points,
+    fields: [
+      'number',
+      'timestamp',
+      'total_duration_ms',
+      'unit_tests_ms',
+      'pylint_ms',
+      'sonarcloud_ms',
+    ],
+  });
 
   if (!points.length) {
+    const emptySignature = `empty::${renderSignature}`;
+    if (_pipelineTestsDuration24hRenderSignature === emptySignature) return;
     clearTestsDuration24hChart();
+    _pipelineTestsDuration24hRenderSignature = emptySignature;
     return;
   }
+
+  if (_pipelineTestsDuration24hRenderSignature === renderSignature) return;
 
   canvas.style.display = 'block';
   const existingEmpty = container.querySelector('.chart-empty');
@@ -1344,6 +1491,8 @@ function renderTestsDuration24hChart(testsDurationTrend) {
       animation: { duration: 600, easing: 'easeOutQuart' }
     }
   });
+
+  _pipelineTestsDuration24hRenderSignature = renderSignature;
 }
 
 async function pollRunningStages() {
@@ -1375,27 +1524,28 @@ async function pollRunningStages() {
 }
 
 async function loadPipelineKPIs() {
+  if (_pipelineKpisLoadInFlight) return;
+  _pipelineKpisLoadInFlight = true;
+
   try {
     const url = document.body.dataset.pipelineKpisUrl;
     const data = await (await fetch(url)).json();
     const branchData = getSelectedBranchPayload(data);
     const summary = branchData.summary || {};
     const builds = branchData.builds || [];
-    /*
-    Legacy timeline/latest-builds path kept for later rollback:
-    const trendBuilds = (branchData.trends || {}).builds || [];
-    */
 
-    if (!data.connected || !builds.length) {
+    if (!data.connected) {
+      resetPipelineChartRenderCache();
       if (typeof clearStatRow === 'function') clearStatRow();
       clearGroupedDurationChart('No build data available');
+      clearStageFailureChart('No stage data available');
       clearTestsDurationTrendChart('No build data available');
       clearTestsDuration24hChart('No build data available');
-      /*
-      Legacy empty state:
-      document.getElementById('buildTimeline').innerHTML =
-        '<div class="tl-empty">No build data — check Jenkins connection.</div>';
-      */
+
+      return;
+    }
+
+    if (!builds.length) {
       return;
     }
 
@@ -1466,6 +1616,8 @@ async function loadPipelineKPIs() {
     */
   } catch (e) {
     console.error('Pipeline KPI error:', e);
+  } finally {
+    _pipelineKpisLoadInFlight = false;
   }
 }
 

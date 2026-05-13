@@ -246,6 +246,24 @@ body[data-page="pipeline-kpis"] .kpi-row {
   max-width: none;
   justify-self: stretch;
 }
+.pipeline-stage-row{
+  margin-top:10px;
+  animation:fadeUp .5s ease both;
+  animation-delay:.34s;
+}
+.pipeline-stage-card-full{
+  width:100%;
+  max-width:none;
+}
+.pipeline-stage-card-full .pipeline-stage-chart{
+  width:100%;
+  min-height:240px;
+}
+.pipeline-stage-badge{
+  background:#c62828;
+  border:1px solid #c62828;
+  color:#fff;
+}
 .pipeline-duration-card{
   grid-column:auto;
   max-width:none;
@@ -368,6 +386,7 @@ body[data-page="pipeline-kpis"] .kpi-row {
   display:flex;
   flex-direction:column;
   gap:10px;
+  width:100%;
 }
 .pipeline-charts-grid > * {
   min-width: 0;

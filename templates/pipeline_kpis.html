@@ -105,10 +105,36 @@
   {% endif %}
 
   {% if show_pipeline_management %}
-  <div class="chart-card pipeline-stage-card">
-    <div class="pipeline-section-title">Failure Rate by Stage</div>
-    <div id="stageFailureChart" class="pipeline-stage-chart">
-      <div style="height:8px;background:var(--bg3);border-radius:4px;flex:1;"></div>
+  <div class="chart-card pipeline-tests-duration-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Tests Duration</div>
+        <div class="chart-sub" id="testsDurationSub">Average tests duration grouped by week</div>
+      </div>
+      <div class="pipeline-duration-toolbar">
+        <div class="pipeline-duration-toggle" role="tablist" aria-label="Choose tests duration grouping">
+          <button type="button" class="pipeline-tests-duration-btn active" data-tests-group="week">Week</button>
+          <button type="button" class="pipeline-tests-duration-btn" data-tests-group="month">Month</button>
+        </div>
+        <div class="cbadge" id="testsDurationAvgBadge">Avg —</div>
+      </div>
+    </div>
+    <div class="pipeline-duration-summary" id="testsDurationSummary"></div>
+    <div class="chart-area pipeline-chart-area">
+      <canvas id="testsDurationTrendChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card pipeline-junit-card">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">JUnit Results</div>
+        <div class="chart-sub">Passed vs failed per build</div>
+      </div>
+      <div class="cbadge" id="junitTotalBadge">Total —</div>
+    </div>
+    <div class="chart-area pipeline-chart-area">
+      <canvas id="junitTrendChart"></canvas>
     </div>
   </div>
   {% endif %}
@@ -133,46 +159,27 @@
       <canvas id="coverageTrendChart"></canvas>
     </div>
   </div>
-  {% endif %}
-
-  {% if show_pipeline_management %}
-  <div class="chart-card pipeline-junit-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">JUnit Results</div>
-        <div class="chart-sub">Passed vs failed per build</div>
-      </div>
-      <div class="cbadge" id="junitTotalBadge">Total —</div>
-    </div>
-    <div class="chart-area pipeline-chart-area">
-      <canvas id="junitTrendChart"></canvas>
-    </div>
-  </div>
-
-  <div class="chart-card pipeline-tests-duration-card">
-    <div class="chart-hdr">
-      <div>
-        <div class="chart-title">Tests Duration</div>
-        <div class="chart-sub" id="testsDurationSub">Average tests duration grouped by week</div>
-      </div>
-      <div class="pipeline-duration-toolbar">
-        <div class="pipeline-duration-toggle" role="tablist" aria-label="Choose tests duration grouping">
-          <button type="button" class="pipeline-tests-duration-btn active" data-tests-group="week">Week</button>
-          <button type="button" class="pipeline-tests-duration-btn" data-tests-group="month">Month</button>
-        </div>
-        <div class="cbadge" id="testsDurationAvgBadge">Avg —</div>
-      </div>
-    </div>
-    <div class="pipeline-duration-summary" id="testsDurationSummary"></div>
-    <div class="chart-area pipeline-chart-area">
-      <canvas id="testsDurationTrendChart"></canvas>
-    </div>
-  </div>
 
   {% endif %}
 
   
 </div>
+
+{% if show_pipeline_management %}
+<div class="pipeline-stage-row">
+  <div class="chart-card pipeline-stage-card pipeline-stage-card-full">
+    <div class="chart-hdr">
+      <div>
+        <div class="chart-title">Failure Rate by Stage</div>
+        <div class="chart-sub">Top 3 stages that have the highest failure rates</div>
+      </div>
+    </div>
+    <div id="stageFailureChart" class="pipeline-stage-chart">
+      <div style="height:12px;background:var(--bg3);border-radius:10px;flex:1;"></div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% if show_vm_metrics %}
 {% set vm_metrics_cards = [
