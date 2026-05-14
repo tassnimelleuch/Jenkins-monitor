@@ -199,7 +199,33 @@ def _calculate_code_churn(commits_raw, grouping='month', max_periods=6):
     return periods
 
 
+def _extract_commit_churn_totals(commit_raw):
+    stats = (commit_raw or {}).get('stats', {}) or {}
+    additions = int(stats.get('additions', 0) or 0)
+    deletions = int(stats.get('deletions', 0) or 0)
+
+    if additions or deletions:
+        return additions, deletions
+
+    additions = 0
+    deletions = 0
+    for file_obj in (commit_raw or {}).get('files', []) or []:
+        additions += int(file_obj.get('additions', 0) or 0)
+        deletions += int(file_obj.get('deletions', 0) or 0)
+
+    return additions, deletions
+
+
 def _calculate_file_changes(commits_raw, since_date=None, since_datetime=None):
+    return _calculate_file_changes_with_limit(
+        commits_raw,
+        since_date=since_date,
+        since_datetime=since_datetime,
+        limit=10,
+    )
+
+
+def _calculate_file_changes_with_limit(commits_raw, since_date=None, since_datetime=None, limit=10):
     if not commits_raw:
         return []
 
@@ -222,6 +248,8 @@ def _calculate_file_changes(commits_raw, since_date=None, since_datetime=None):
                 file_changes[filename] = {
                     'filename': filename,
                     'changes': 0,
+                    'touches': 0,
+                    'line_changes': 0,
                     'additions': 0,
                     'deletions': 0,
                     'added': 0,
@@ -231,15 +259,22 @@ def _calculate_file_changes(commits_raw, since_date=None, since_datetime=None):
                 }
 
             entry = file_changes[filename]
-            entry['changes'] += 1
+            entry['touches'] += 1
             entry['additions'] += int(file_obj.get('additions', 0) or 0)
             entry['deletions'] += int(file_obj.get('deletions', 0) or 0)
             entry[_normalize_file_status(file_obj)] += 1
 
-    return sorted(
+    for entry in file_changes.values():
+        entry['line_changes'] = entry['additions'] + entry['deletions']
+        entry['changes'] = entry['touches']
+
+    sorted_items = sorted(
         file_changes.values(),
-        key=lambda item: (-item['changes'], -(item['additions'] + item['deletions']), item['filename'])
-    )[:10]
+        key=lambda item: (-item['line_changes'], -item['touches'], item['filename'])
+    )
+    if limit is None:
+        return sorted_items
+    return sorted_items[:limit]
 
 
 def _pr_item(pr):
@@ -291,42 +326,68 @@ def _build_file_change_groups(commits_raw, code_churn_by_period):
     return datasets
 
 
-def _build_file_change_groups_with_24h(commits_raw, code_churn_by_period):
-    """Build file change groups for week, month, and 24 hours."""
-    datasets = {}
-    
-    # Process week and month as before
-    for grouping, periods in code_churn_by_period.items():
-        if periods:
-            since_date = date.fromisoformat(periods[0]['start_date'])
-            period_count = len(periods)
-        else:
-            since_date = None
-            period_count = 0
-
-        items = _calculate_file_changes(commits_raw, since_date=since_date)
-        label_unit = 'weeks' if grouping == 'week' else 'months'
-        datasets[grouping] = {
-            'items': items,
-            'period_count': period_count,
-            'scope_label': (
-                f'Top 10 files touched across the last {period_count} {label_unit}'
-                if period_count
-                else 'No recent file activity'
-            ),
-        }
-    
-    # Add 24-hour data
-    now = datetime.now(timezone.utc)
-    since_24h = now - timedelta(hours=24)
-    items_24h = _calculate_file_changes(commits_raw, since_datetime=since_24h)
-    datasets['24h'] = {
-        'items': items_24h,
+def _empty_last_24h_file_change_dataset():
+    return {
+        'items': [],
         'period_count': 1,
-        'scope_label': 'Top 10 files touched in the last 24 hours',
+        'scope_label': 'Top 5 most changed files in the last 24 hours',
+        'ranking_label': 'Ranked by total lines changed',
+        'commit_count': 0,
+        'total_files': 0,
+        'total_line_changes': 0,
+        'total_additions': 0,
+        'total_deletions': 0,
+        'total_touches': 0,
     }
-    
-    return datasets
+
+
+def _empty_last_24h_code_churn_dataset():
+    return {
+        'scope_label': 'Code churn in the last 24 hours',
+        'commit_count': 0,
+        'changed_files': 0,
+        'additions': 0,
+        'deletions': 0,
+        'total_lines_changed': 0,
+        'net_change': 0,
+    }
+
+
+def _build_last_24h_file_change_dataset(commits_raw):
+    dataset = _empty_last_24h_file_change_dataset()
+    if not commits_raw:
+        return dataset
+
+    dataset['commit_count'] = len(commits_raw)
+    all_items = _calculate_file_changes_with_limit(commits_raw, limit=None)
+    dataset['total_files'] = len(all_items)
+    dataset['total_line_changes'] = sum(item['line_changes'] for item in all_items)
+    dataset['total_additions'] = sum(item['additions'] for item in all_items)
+    dataset['total_deletions'] = sum(item['deletions'] for item in all_items)
+    dataset['total_touches'] = sum(item['touches'] for item in all_items)
+    dataset['items'] = all_items[:5]
+    return dataset
+
+
+def _build_last_24h_code_churn_dataset(commits_raw, file_change_dataset=None):
+    dataset = _empty_last_24h_code_churn_dataset()
+    if not commits_raw:
+        return dataset
+
+    additions = 0
+    deletions = 0
+    for commit in commits_raw:
+        commit_additions, commit_deletions = _extract_commit_churn_totals(commit)
+        additions += commit_additions
+        deletions += commit_deletions
+
+    dataset['commit_count'] = len(commits_raw)
+    dataset['changed_files'] = int((file_change_dataset or {}).get('total_files', 0) or 0)
+    dataset['additions'] = additions
+    dataset['deletions'] = deletions
+    dataset['total_lines_changed'] = additions + deletions
+    dataset['net_change'] = additions - deletions
+    return dataset
 
 
 def _sort_commits_raw(commits_raw):
@@ -405,12 +466,26 @@ def get_github_summary():
         }
 
     app = current_app._get_current_object()
+    now_utc = datetime.now(timezone.utc)
+    since_24h = now_utc - timedelta(hours=24)
+    since_24h_iso = since_24h.isoformat().replace('+00:00', 'Z')
     tasks = {
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
         'branches': lambda: _run_in_app_context(app, lambda: get_branches(owner, repo, per_page=100)),
         'main_commits': lambda: _run_in_app_context(
             app,
             lambda: get_commits_for_branch(owner, repo, MAIN_PIPELINE_BRANCH, per_page=50, page_limit=2),
+        ),
+        'main_commits_24h': lambda: _run_in_app_context(
+            app,
+            lambda: get_commits_for_branch(
+                owner,
+                repo,
+                MAIN_PIPELINE_BRANCH,
+                per_page=100,
+                page_limit=3,
+                since=since_24h_iso,
+            ),
         ),
         'failed_build': lambda: _run_in_app_context(
             app,
@@ -435,11 +510,25 @@ def get_github_summary():
         for commit in (results.get('main_commits') or [])
         if isinstance(commit, dict)
     ])
+    main_branch_commits_24h_raw = _sort_commits_raw([
+        commit
+        for commit in (results.get('main_commits_24h') or [])
+        if isinstance(commit, dict)
+    ])
     
     # Enrich commits with file change details for accurate analytics
     main_branch_commits_raw = _run_in_app_context(
         app,
         lambda: enrich_commits_with_files(owner, repo, main_branch_commits_raw, max_commits=20)
+    )
+    main_branch_commits_24h_raw = _run_in_app_context(
+        app,
+        lambda: enrich_commits_with_files(
+            owner,
+            repo,
+            main_branch_commits_24h_raw,
+            max_commits=min(len(main_branch_commits_24h_raw or []), 60),
+        ),
     )
     
     main_branch_commits = [_commit_item(c) for c in main_branch_commits_raw]
@@ -529,7 +618,12 @@ def get_github_summary():
                         failing_commit['fix_commit'] = potential_fix
 
     code_churn_by_period = {'week': [], 'month': []}
-    file_changes_by_period = {'week': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'}, 'month': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'}, '24h': {'items': [], 'period_count': 1, 'scope_label': 'Top 10 files touched in the last 24 hours'}}
+    code_churn_24h = _empty_last_24h_code_churn_dataset()
+    file_changes_by_period = {
+        'week': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'},
+        'month': {'items': [], 'period_count': 0, 'scope_label': 'No recent file activity'},
+        '24h': _empty_last_24h_file_change_dataset(),
+    }
     code_churn_list = []
     file_changes = []
 
@@ -537,9 +631,14 @@ def get_github_summary():
     if main_branch_commits_raw:
         code_churn_by_period['week'] = _calculate_code_churn(main_branch_commits_raw, grouping='week', max_periods=4)
         code_churn_by_period['month'] = _calculate_code_churn(main_branch_commits_raw, grouping='month', max_periods=6)
-        
-        # Build file change groups including 24-hour data
-        file_changes_by_period = _build_file_change_groups_with_24h(main_branch_commits_raw, code_churn_by_period)
+        file_changes_by_period.update(_build_file_change_groups(main_branch_commits_raw, code_churn_by_period))
+
+    file_changes_by_period['24h'] = _build_last_24h_file_change_dataset(main_branch_commits_24h_raw)
+    code_churn_24h = _build_last_24h_code_churn_dataset(
+        main_branch_commits_24h_raw,
+        file_changes_by_period['24h'],
+    )
+    file_changes = file_changes_by_period['24h']['items']
 
     # Process pull requests
     prs_open = []
@@ -588,6 +687,7 @@ def get_github_summary():
         'commit_scope_label': 'Recent commits from main branch',
         'commits': commits,
         'failing_commit': failing_commit,
+        'code_churn_24h': code_churn_24h,
         'code_churn': code_churn_list,
         'code_churn_by_period': code_churn_by_period,
         'file_changes': file_changes,

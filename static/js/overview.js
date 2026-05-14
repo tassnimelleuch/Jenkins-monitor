@@ -784,11 +784,38 @@ function toggleBuild() {
 // SVG TREND CHART
 function renderTrendChart(builds) {
     if (!hasOverviewTrendChart()) return;
+    const svg = document.getElementById('trendChartSvg');
+    const chartArea = svg?.closest('.chart-area');
     const sorted = [...builds].reverse();
     const n      = sorted.length;
     if (n === 0) return;
-    const X_MIN = 36, X_MAX = 412, Y_TOP = 18, Y_BOT = 138;
+    const width  = Math.max(
+        Math.round(chartArea?.clientWidth || svg?.clientWidth || 430),
+        430,
+    );
+    const height = Math.max(
+        Math.round(chartArea?.clientHeight || svg?.clientHeight || 170),
+        170,
+    );
+    const X_MIN = 36;
+    const X_MAX = Math.max(X_MIN + 120, width - 36);
+    const Y_TOP = 18;
+    const Y_BOT = Math.max(Y_TOP + 48, height - 32);
+    const X_LABEL_Y = Math.min(height - 10, Y_BOT + 20);
     const xStep = n > 1 ? (X_MAX - X_MIN) / (n - 1) : 0;
+
+    if (svg) {
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        const gridLines = svg.querySelectorAll('.grid-line');
+        const gridYs = [Y_BOT, Y_TOP + ((Y_BOT - Y_TOP) / 2), Y_TOP];
+        gridLines.forEach((line, index) => {
+            const y = gridYs[index] ?? Y_BOT;
+            line.setAttribute('x1', X_MIN);
+            line.setAttribute('x2', X_MAX);
+            line.setAttribute('y1', y);
+            line.setAttribute('y2', y);
+        });
+    }
 
     const points = sorted.map((b, i) => {
         const val = b.result === 'SUCCESS' ? 1 : 0;
@@ -836,7 +863,7 @@ function renderTrendChart(builds) {
     }).join('');
 
     document.getElementById('trendXLabels').innerHTML = points.map(p =>
-        `<text x="${p.x}" y="158" class="axis-label" text-anchor="middle"
+        `<text x="${p.x}" y="${X_LABEL_Y}" class="axis-label" text-anchor="middle"
               style="cursor:pointer;"
               onclick="window.open('/console/${p.build.number}','_blank')">#${p.build.number}</text>`
     ).join('');

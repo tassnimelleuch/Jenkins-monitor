@@ -21,20 +21,7 @@
   <div class="gh-card">
     <div class="gh-card-title">Repository</div>
     <div class="gh-meta" id="ghRepoDesc">—</div>
-    <div class="gh-stats">
-      <div class="gh-stat">
-        <div class="gh-stat-label">Stars</div>
-        <div class="gh-stat-val" id="ghStars">--</div>
-      </div>
-      <div class="gh-stat">
-        <div class="gh-stat-label">Forks</div>
-        <div class="gh-stat-val" id="ghForks">--</div>
-      </div>
-      <div class="gh-stat">
-        <div class="gh-stat-label">Open Issues</div>
-        <div class="gh-stat-val" id="ghIssues">--</div>
-      </div>
-    </div>
+ 
     <div class="gh-row">
       <span>Default Branch</span>
       <span id="ghBranch">—</span>
@@ -66,46 +53,49 @@
     <div id="ghMergedPRs">
       <div class="gh-empty">Loading merged pull requests...</div>
     </div>
+
+    <div class="gh-divider"></div>
+    <div class="gh-card-title">Last Failed Main Pipeline Commit</div>
+    <div id="ghFailingCommit">
+      <div class="gh-empty">Loading failed commit...</div>
+    </div>
+
+    <div class="gh-divider"></div>
+    <div class="gh-card-title">Fix for Latest Main Failure</div>
+    <div id="ghFixCommit">
+      <div class="gh-empty">No fix commit found yet.</div>
+    </div>
+
+    <div class="gh-divider"></div>
+    <div class="gh-card-title">Time to Fix</div>
+    <div id="ghTimeToFix">
+      <div class="gh-empty">Calculating time to fix...</div>
+    </div>
+
+    <div class="gh-divider"></div>
+    <div class="gh-analytics-head">
+      <div>
+        <div class="gh-card-title">Most Changed Files</div>
+        <div class="gh-sub" id="ghMostChangedSub">Top 5 most changed files</div>
+      </div>
+    </div>
+    <div class="gh-analytics-summary" id="ghMostChangedSummary"></div>
+    <div id="ghMostChanged" class="gh-most-changed-container">
+      <div class="gh-empty">Loading file changes data...</div>
+    </div>
+
+    <div class="gh-divider"></div>
+    <div class="gh-analytics-head">
+      <div>
+        <div class="gh-card-title">Code Churn</div>
+        <div class="gh-sub" id="ghCodeChurnSub">Lines added and deleted </div>
+      </div>
+    </div>
+    <div class="gh-analytics-summary" id="ghCodeChurnSummary"></div>
+    <div id="ghCodeChurn" class="gh-churn-container">
+      <div class="gh-empty">Loading code churn data...</div>
+    </div>
   </div>
-  <div class="gh-divider"></div>
-  <div class="gh-card-title">Last Failed Main Pipeline Commit</div>
-<div id="ghFailingCommit">
-  <div class="gh-empty">Loading failed commit...</div>
-</div><div class="gh-divider"></div>
-<div class="gh-card-title">Fix for Latest Main Failure</div>
-<div id="ghFixCommit">
-  <div class="gh-empty">No fix commit found yet.</div>
-</div>
-
-<div class="gh-divider"></div>
-<div class="gh-card-title">Time to Fix</div>
-<div id="ghTimeToFix">
-  <div class="gh-empty">Calculating time to fix...</div>
-</div>
-
-<div class="gh-divider"></div>
-<div class="gh-analytics-head">
-  <div>
-    <div class="gh-card-title">Most Changed Files</div>
-    <div class="gh-sub" id="ghMostChangedSub">Top changed files in the last 24 hours</div>
-  </div>
-  <div class="gh-analytics-toggle" role="tablist" aria-label="GitHub analytics grouping">
-    <button type="button" class="gh-analytics-btn active" data-gh-group="24h">24 Hours</button>
-
-  </div>
-</div>
-<div class="gh-analytics-summary" id="ghMostChangedSummary"></div>
-<div id="ghMostChanged" class="gh-most-changed-container">
-  <div class="gh-empty">Loading file changes data...</div>
-</div>
-
-<div class="gh-divider"></div>
-<div class="gh-card-title">Code Churn</div>
-<div class="gh-sub" id="ghCodeChurnSub">Real code churn grouped by month</div>
-<div class="gh-analytics-summary" id="ghCodeChurnSummary"></div>
-<div id="ghCodeChurn" class="gh-churn-container">
-  <div class="gh-empty">Loading code churn data...</div>
-</div>
 </div>
 
 <!-- Tag Modal -->

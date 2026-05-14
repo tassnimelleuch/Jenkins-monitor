@@ -96,7 +96,6 @@
       </div>
     </div>
 
-    <div class="pipeline-duration-summary" id="pipelineDurationSummary"></div>
 
     <div class="chart-area pipeline-chart-area">
       <canvas id="pipelineGroupedDurationChart"></canvas>
@@ -119,7 +118,6 @@
         <div class="cbadge" id="testsDurationAvgBadge">Avg —</div>
       </div>
     </div>
-    <div class="pipeline-duration-summary" id="testsDurationSummary"></div>
     <div class="chart-area pipeline-chart-area">
       <canvas id="testsDurationTrendChart"></canvas>
     </div>
@@ -128,10 +126,9 @@
   <div class="chart-card pipeline-junit-card">
     <div class="chart-hdr">
       <div>
-        <div class="chart-title">JUnit Results</div>
+        <div class="chart-title">Unit Test Results</div>
         <div class="chart-sub">Passed vs failed per build</div>
       </div>
-      <div class="cbadge" id="junitTotalBadge">Total —</div>
     </div>
     <div class="chart-area pipeline-chart-area">
       <canvas id="junitTrendChart"></canvas>
@@ -143,8 +140,7 @@
   <div class="chart-card pipeline-coverage-card{% if coverage_only_view %} pipeline-coverage-card-full{% endif %}">
     <div class="chart-hdr">
       <div>
-        <div class="chart-title">Coverage Trend</div>
-        <div class="chart-sub" id="coverageTrendSub">Average coverage grouped by week</div>
+        <div class="chart-title">Tests Coverage Trend</div>
       </div>
       <div class="pipeline-duration-toolbar">
         <div class="pipeline-duration-toggle" role="tablist" aria-label="Choose coverage grouping">
@@ -154,7 +150,6 @@
         <div class="cbadge cbadge-g" id="coverageAvgBadge">Avg —%</div>
       </div>
     </div>
-    <div class="pipeline-duration-summary" id="coverageTrendSummary"></div>
     <div class="chart-area pipeline-chart-area">
       <canvas id="coverageTrendChart"></canvas>
     </div>

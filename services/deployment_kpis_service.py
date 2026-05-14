@@ -1,13 +1,13 @@
 import re
 
-from flask import current_app , request
+from flask import current_app
 import requests
 
 from collectors.jenkins_collector import get_all_builds, get_console_log
 from collectors.kubernetes_collector import get_cluster_snapshot
 from services.docker_image_service import get_latest_image_artifact
-from services.jenkins_service import get_pipeline_kpis
 from services.parallel_executor import parallel_execute
+from services.pipeline_storage_service import get_stored_branch_stage_success_frequency
 
 
 
@@ -104,25 +104,21 @@ def get_deployment_kpis():
         app = current_app._get_current_object()
         tasks = {
             'cluster': lambda: get_cluster_snapshot(),
-            'pipeline': lambda: _run_in_app_context(app, get_pipeline_kpis),
+            'deployment_frequency': lambda: _run_in_app_context(
+                app,
+                lambda: get_stored_branch_stage_success_frequency(
+                    branch_name='main',
+                    stage_name_contains='deploy to aks',
+                ),
+            ),
             'latest_image': lambda: _run_in_app_context(app, get_latest_image_artifact),
         }
 
         results = parallel_execute(tasks, max_workers=3, timeout=30)
         data = results.get('cluster') or {}
-        pipeline = results.get('pipeline') or {}
-
         data['deployment_frequency'] = (
-            (
-                (
-                    (
-                        pipeline.get('branches', {}) or {}
-                    ).get((pipeline.get('pipeline') or {}).get('selected_branch'), {})
-                    or {}
-                ).get('deployment', {}) or {}
-            ).get('frequency', {})
-            if pipeline and pipeline.get('connected')
-            else {'successful': 0, 'total': 0, 'rate': 0}
+            results.get('deployment_frequency')
+            or {'successful': 0, 'total': 0, 'rate': 0}
         )
         data['latest_image'] = results.get('latest_image') or {}
         return {

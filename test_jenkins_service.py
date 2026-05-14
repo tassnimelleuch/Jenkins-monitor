@@ -10,6 +10,7 @@ from services.jenkins_service import (
 from services.pipeline_storage_service import (
     _apply_optional_build_quality_fields,
     _build_branch_summary,
+    build_stage_success_frequency,
     build_tests_duration_points,
 )
 
@@ -339,6 +340,75 @@ def test_build_tests_duration_points_support_dict_builds_from_live_jenkins_path(
             'matched_stage_count': 3,
         }
     ]
+
+
+def test_build_stage_success_frequency_counts_finished_builds_with_matching_success_stage():
+    builds = [
+        SimpleNamespace(
+            result='SUCCESS',
+            stages=[
+                SimpleNamespace(stage_name='Prepare and Deploy to AKS', status='SUCCESS'),
+                SimpleNamespace(stage_name='Wait for AKS Rollout and Verify', status='SUCCESS'),
+            ],
+        ),
+        SimpleNamespace(
+            result='FAILURE',
+            stages=[
+                SimpleNamespace(stage_name='Prepare and Deploy to AKS', status='FAILED'),
+            ],
+        ),
+        SimpleNamespace(
+            result='ABORTED',
+            stages=[
+                SimpleNamespace(stage_name='Rollback on Failure', status='SUCCESS'),
+            ],
+        ),
+        SimpleNamespace(
+            result=None,
+            stages=[
+                SimpleNamespace(stage_name='Prepare and Deploy to AKS', status='SUCCESS'),
+            ],
+        ),
+        {
+            'result': 'SUCCESS',
+            'stages': [
+                {'name': 'Deploy to AKS', 'status': 'SUCCESS'},
+            ],
+        },
+    ]
+
+    frequency = build_stage_success_frequency(builds, 'deploy to aks')
+
+    assert frequency == {
+        'successful': 2,
+        'total': 4,
+        'rate': 50.0,
+    }
+
+
+def test_build_stage_success_frequency_returns_zero_when_stage_marker_is_missing():
+    builds = [
+        SimpleNamespace(
+            result='SUCCESS',
+            stages=[
+                SimpleNamespace(stage_name='Docker Image Build', status='SUCCESS'),
+            ],
+        ),
+        SimpleNamespace(
+            result='FAILURE',
+            stages=[
+                SimpleNamespace(stage_name='Rollback on Failure', status='SUCCESS'),
+            ],
+        ),
+    ]
+
+    frequency = build_stage_success_frequency(builds, 'deploy to aks')
+
+    assert frequency == {
+        'successful': 0,
+        'total': 2,
+        'rate': 0.0,
+    }
 
 
 def test_apply_optional_build_quality_fields_preserves_existing_history_when_payload_is_missing():

@@ -69,22 +69,69 @@ function normalizeLegacyMonthChurn(data) {
   }));
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function fileLineChanges(file) {
+  if (!file) return 0;
+  if (Number.isFinite(Number(file.line_changes))) return Number(file.line_changes);
+  return Number(file.additions || 0) + Number(file.deletions || 0);
+}
+
+function fileTouches(file) {
+  if (!file) return 0;
+  return Number(file.touches ?? file.changes ?? 0);
+}
+
+function splitFilePath(filename) {
+  const parts = String(filename || '').split('/');
+  const name = parts.pop() || filename || '--';
+  return {
+    name,
+    directory: parts.join('/') || 'repo root'
+  };
+}
+
+function fileStatusSummary(file) {
+  const statuses = [];
+  if (file?.modified) statuses.push(`${fmtNum(file.modified)} modified`);
+  if (file?.added) statuses.push(`${fmtNum(file.added)} added`);
+  if (file?.removed) statuses.push(`${fmtNum(file.removed)} removed`);
+  if (file?.renamed) statuses.push(`${fmtNum(file.renamed)} renamed`);
+  return statuses.join(' | ') || 'Recent activity';
+}
+
 function getCodeChurnDataset(data) {
-  const grouped = data?.code_churn_by_period || {};
-  const periods = grouped[_ghAnalyticsGrouping];
-  if (Array.isArray(periods) && periods.length) return periods;
-  if (_ghAnalyticsGrouping === 'month') return normalizeLegacyMonthChurn(data);
-  return [];
+  const dataset = data?.code_churn_24h;
+  if (dataset && typeof dataset === 'object') return dataset;
+  return {
+    scope_label: 'Lines added and deleted in the last 24 hours',
+    commit_count: 0,
+    changed_files: 0,
+    additions: 0,
+    deletions: 0,
+    total_lines_changed: 0,
+    net_change: 0
+  };
 }
 
 function getFileChangeDataset(data) {
   const grouped = data?.file_changes_by_period || {};
-  const dataset = grouped[_ghAnalyticsGrouping];
+  const dataset = grouped['24h'];
   if (dataset && Array.isArray(dataset.items)) return dataset;
   return {
     items: Array.isArray(data?.file_changes) ? data.file_changes : [],
-    period_count: analyticsWindowCount(data),
-    scope_label: `Top 10 files touched across recent ${analyticsUnitLabel()}s`
+    period_count: 1,
+    scope_label: 'Top 5 most changed files in the last 24 hours',
+    ranking_label: 'Ranked by total lines changed',
+    commit_count: 0,
+    total_files: Array.isArray(data?.file_changes) ? data.file_changes.length : 0
   };
 }
 
@@ -425,7 +472,6 @@ function renderFixCommit(data) {
         <div class="gh-commit-title-row">
           <div>
             <a href="${c.html_url}" target="_blank" rel="noopener" class="gh-commit-sha-badge gh-commit-sha-badge-success">${c.short_sha || '--'}</a>
-            <span class="gh-build-badge gh-build-badge-success">Fixed</span>
           </div>
         </div>
         <div class="gh-commit-msg gh-commit-msg-success">${displayMsg}</div>
@@ -529,47 +575,56 @@ function renderMostChanged(data) {
   }
 
   const dataset = getFileChangeDataset(data);
-  const files = dataset.items || [];
-  if (subtitle) subtitle.textContent = dataset.scope_label || `Top 10 files touched across recent ${analyticsUnitLabel()}s`;
+  const files = (dataset.items || []).slice(0, 5);
+  if (subtitle) subtitle.textContent = dataset.scope_label || 'Top 5 most changed files in the last 24 hours';
 
   if (!files || files.length === 0) {
     if (summary) summary.innerHTML = '';
-    container.innerHTML = '<div class="gh-empty">No file changes data available.</div>';
+    const emptyMessage = Number(dataset.commit_count || 0) === 0
+      ? 'No files were changed on main in the last 24 hours.'
+      : 'The last 24 hours returned commits, but no per-file details were available.';
+    container.innerHTML = `<div class="gh-empty">${emptyMessage}</div>`;
     return;
   }
 
-  const totalTouches = files.reduce((sum, file) => sum + (file.changes || 0), 0);
-  const totalLinesAdded = files.reduce((sum, file) => sum + (file.additions || 0), 0);
-  const totalLinesDeleted = files.reduce((sum, file) => sum + (file.deletions || 0), 0);
+  const totalChangedFiles = Number(dataset.total_files || files.length);
+  const totalTouches = Number(dataset.total_touches ?? files.reduce((sum, file) => sum + fileTouches(file), 0));
+  const totalLineChanges = Number(dataset.total_line_changes ?? files.reduce((sum, file) => sum + fileLineChanges(file), 0));
+  const totalLinesAdded = Number(dataset.total_additions ?? files.reduce((sum, file) => sum + (file.additions || 0), 0));
+  const totalLinesDeleted = Number(dataset.total_deletions ?? files.reduce((sum, file) => sum + (file.deletions || 0), 0));
   if (summary) {
     summary.innerHTML = `
-      <span class="gh-summary-pill"><strong>${files.length}</strong> files</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalChangedFiles)}</strong> changed files</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(dataset.commit_count || 0)}</strong> commits</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalLineChanges)}</strong> lines changed</span>
       <span class="gh-summary-pill"><strong>${fmtNum(totalTouches)}</strong> touches</span>
-      <span class="gh-summary-pill"><strong>+${fmtNum(totalLinesAdded)}</strong> lines</span>
-      <span class="gh-summary-pill"><strong>-${fmtNum(totalLinesDeleted)}</strong> lines</span>
+      <span class="gh-summary-pill"><strong>+${fmtNum(totalLinesAdded)}</strong> / <strong>-${fmtNum(totalLinesDeleted)}</strong></span>
+      ${dataset.ranking_label ? `<span class="gh-summary-pill"><strong>${escapeHtml(dataset.ranking_label)}</strong></span>` : ''}
     `;
   }
 
-  // Find max changes for scaling
-  const maxChanges = Math.max(...files.map(f => f.changes));
-
-  // Create bar chart HTML
-  let html = '<div class="file-bars">';
+  let html = '<div class="gh-file-strip">';
   files.forEach((file, idx) => {
-    const pct = Math.round((file.changes / maxChanges) * 100);
-    const bgColor = idx % 2 === 0 ? '#3a7be8' : '#ff8c42';
-    const filename = file.filename.length > 45 ? file.filename.substring(0, 42) + '...' : file.filename;
-    const tooltip = `${file.filename}\n${fmtNum(file.changes)} touches\n+${fmtNum(file.additions || 0)} / -${fmtNum(file.deletions || 0)}`;
-    
+    const path = splitFilePath(file.filename);
+    const lineChanges = fileLineChanges(file);
+    const touches = fileTouches(file);
+    const tooltip = `${file.filename}\n${fmtNum(lineChanges)} lines changed\n${fmtNum(touches)} touches\n+${fmtNum(file.additions || 0)} / -${fmtNum(file.deletions || 0)}`;
     html += `
-      <div class="file-bar-row" title="${tooltip}">
-        <div class="file-bar-name">${filename}</div>
-        <div class="file-bar-container">
-          <div class="file-bar" style="width: ${pct}%; background-color: ${bgColor};">
-            <span class="file-bar-value">${file.changes}x</span>
-          </div>
+      <article class="gh-file-card" title="${escapeHtml(tooltip)}">
+        <div class="gh-file-card-rank">#${idx + 1}</div>
+        <div class="gh-file-card-value">${fmtNum(lineChanges)}</div>
+        <div class="gh-file-card-label">lines changed</div>
+        <div class="gh-file-card-name">${escapeHtml(path.name)}</div>
+        <div class="gh-file-card-dir">${escapeHtml(path.directory)}</div>
+        <div class="gh-file-card-metrics">
+          <span>+${fmtNum(file.additions || 0)}</span>
+          <span>-${fmtNum(file.deletions || 0)}</span>
         </div>
-      </div>
+        <div class="gh-file-card-footer">
+          <span>${fmtNum(touches)} ${touches === 1 ? 'touch' : 'touches'}</span>
+          <span>${escapeHtml(fileStatusSummary(file))}</span>
+        </div>
+      </article>
     `;
   });
   html += '</div>';
@@ -577,7 +632,7 @@ function renderMostChanged(data) {
   container.innerHTML = html;
 }
 
-// CODE CHURN CHART (Lines added/deleted per week or month)
+// CODE CHURN CHART (Lines added/deleted in the last 24 hours)
 function renderCodeChurn(data) {
   const container = document.getElementById('ghCodeChurn');
   const subtitle = document.getElementById('ghCodeChurnSub');
@@ -594,136 +649,59 @@ function renderCodeChurn(data) {
 
   const churnData = getCodeChurnDataset(data);
   if (subtitle) {
-    subtitle.textContent = `Real code churn grouped by ${analyticsUnitLabel()}`;
+    subtitle.textContent = churnData.scope_label || 'Lines added and deleted in the last 24 hours';
   }
-  if (!churnData || churnData.length === 0) {
+  if (!churnData || (Number(churnData.additions || 0) === 0 && Number(churnData.deletions || 0) === 0 && Number(churnData.commit_count || 0) === 0)) {
     if (summary) summary.innerHTML = '';
-    container.innerHTML = '<div class="gh-empty">No code churn data available.</div>';
+    container.innerHTML = '<div class="gh-empty">No code churn recorded on main in the last 24 hours.</div>';
     return;
   }
 
-  const periods = churnData;
-  const totalAdded = periods.reduce((sum, d) => sum + (d.additions || 0), 0);
-  const totalDeleted = periods.reduce((sum, d) => sum + (d.deletions || 0), 0);
-  const totalCommits = periods.reduce((sum, d) => sum + (d.commits || 0), 0);
-  const totalFilesAdded = periods.reduce((sum, d) => sum + (d.files_added || 0), 0);
-  const totalFilesDeleted = periods.reduce((sum, d) => sum + (d.files_removed || 0), 0);
-  const totalFilesModified = periods.reduce((sum, d) => sum + (d.files_modified || 0), 0);
-  const totalFilesRenamed = periods.reduce((sum, d) => sum + (d.files_renamed || 0), 0);
+  const additions = Number(churnData.additions || 0);
+  const deletions = Number(churnData.deletions || 0);
+  const commitCount = Number(churnData.commit_count || 0);
+  const changedFiles = Number(churnData.changed_files || 0);
+  const totalLinesChanged = Number(churnData.total_lines_changed ?? (additions + deletions));
+  const netChange = Number(churnData.net_change ?? (additions - deletions));
 
   if (summary) {
     summary.innerHTML = `
-      <span class="gh-summary-pill"><strong>${periods.length}</strong> ${analyticsUnitLabel()}s</span>
-      <span class="gh-summary-pill"><strong>${fmtNum(totalCommits)}</strong> commits</span>
-      <span class="gh-summary-pill"><strong>${fmtNum(totalFilesAdded)}</strong> files added</span>
-      <span class="gh-summary-pill"><strong>${fmtNum(totalFilesDeleted)}</strong> files deleted</span>
-      <span class="gh-summary-pill"><strong>${fmtNum(totalFilesModified)}</strong> files modified</span>
-      ${totalFilesRenamed ? `<span class="gh-summary-pill"><strong>${fmtNum(totalFilesRenamed)}</strong> files renamed</span>` : ''}
+      <span class="gh-summary-pill"><strong>${fmtNum(commitCount)}</strong> commits</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(changedFiles)}</strong> changed files</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalLinesChanged)}</strong> lines changed</span>
+      <span class="gh-summary-pill"><strong>${netChange >= 0 ? '+' : ''}${fmtNum(netChange)}</strong> net</span>
     `;
   }
 
-  // Chart dimensions
-  const width = 520;
-  const height = 190;
-  const padding = 28;
-  const chartWidth = width - 2 * padding;
-  const chartHeight = height - 2 * padding - 12;
+  const maxLines = Math.max(additions, deletions, 1);
+  const additionPct = Math.max(8, Math.round((additions / maxLines) * 100));
+  const deletionPct = Math.max(8, Math.round((deletions / maxLines) * 100));
 
-  // Find max value for scaling
-  let maxValue = 0;
-  periods.forEach(d => {
-    maxValue = Math.max(maxValue, d.additions + d.deletions);
-  });
-  maxValue = Math.ceil(maxValue / 100) * 100; // Round up to nearest 100
-  if (maxValue === 0) maxValue = 100;
-
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', width);
-  svg.setAttribute('height', height);
-  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  svg.classList.add('churn-svg');
-
-  // Draw bars
-  const barWidth = (chartWidth / periods.length) * 0.32;
-  const spaceBetweenBars = (chartWidth / periods.length) * 0.12;
-
-  periods.forEach((d, idx) => {
-    const x = padding + (idx * (chartWidth / periods.length)) + spaceBetweenBars;
-    const addHeight = (d.additions / maxValue) * chartHeight;
-    const delHeight = (d.deletions / maxValue) * chartHeight;
-
-    // Additions bar (green) - on the left
-    if (d.additions > 0) {
-      const addBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      addBar.setAttribute('x', x - barWidth / 2 - 3);
-      addBar.setAttribute('y', padding + chartHeight - addHeight);
-      addBar.setAttribute('width', barWidth);
-      addBar.setAttribute('height', addHeight);
-      addBar.setAttribute('fill', '#22c55e');
-      addBar.setAttribute('opacity', '0.85');
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      title.textContent = `${d.detail_label || d.period_key} - Added: ${fmtNum(d.additions)}`;
-      addBar.appendChild(title);
-      svg.appendChild(addBar);
-    }
-
-    // Deletions bar (red) - on the right
-    if (d.deletions > 0) {
-      const delBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      delBar.setAttribute('x', x + barWidth / 2 + 3);
-      delBar.setAttribute('y', padding + chartHeight - delHeight);
-      delBar.setAttribute('width', barWidth);
-      delBar.setAttribute('height', delHeight);
-      delBar.setAttribute('fill', '#ef4444');
-      delBar.setAttribute('opacity', '0.85');
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      title.textContent = `${d.detail_label || d.period_key} - Deleted: ${fmtNum(d.deletions)}`;
-      delBar.appendChild(title);
-      svg.appendChild(delBar);
-    }
-
-    // X-axis label (period)
-    const periodLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    periodLabel.setAttribute('x', x + spaceBetweenBars / 2);
-    periodLabel.setAttribute('y', padding + chartHeight + 16);
-    periodLabel.setAttribute('font-size', '10.5');
-    periodLabel.setAttribute('fill', 'var(--text2)');
-    periodLabel.setAttribute('text-anchor', 'middle');
-    periodLabel.textContent = d.label || d.period_key || '--';
-    svg.appendChild(periodLabel);
-  });
-
-  // Axes
-  const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  xAxis.setAttribute('x1', padding);
-  xAxis.setAttribute('y1', padding + chartHeight);
-  xAxis.setAttribute('x2', width - padding);
-  xAxis.setAttribute('y2', padding + chartHeight);
-  xAxis.setAttribute('stroke', 'var(--border)');
-  xAxis.setAttribute('stroke-width', '1');
-  svg.appendChild(xAxis);
-
-  // Legend
-  const legendGroup = document.createElement('div');
-  legendGroup.className = 'churn-legend';
-  legendGroup.innerHTML = `
-    <div class="churn-legend-item">
-      <div class="churn-legend-dot" style="background: #22c55e;"></div>
-      <span>Added ${fmtNum(totalAdded)}</span>
-    </div>
-    <div class="churn-legend-item">
-      <div class="churn-legend-dot" style="background: #ef4444;"></div>
-      <span>Deleted ${fmtNum(totalDeleted)}</span>
-    </div>
-    <div class="churn-legend-item">
-      <div class="churn-legend-dot" style="background: #3a7be8;"></div>
-      <span>Files +${fmtNum(totalFilesAdded)} / -${fmtNum(totalFilesDeleted)} / ~${fmtNum(totalFilesModified)}</span>
+  container.innerHTML = `
+    <div class="gh-churn-bars">
+      <div class="gh-churn-row">
+        <div class="gh-churn-row-head">
+          <div class="gh-churn-label">Lines Added</div>
+          <div class="gh-churn-value gh-churn-value-added">+${fmtNum(additions)}</div>
+        </div>
+        <div class="gh-churn-track">
+          <div class="gh-churn-fill gh-churn-fill-added" style="width:${additionPct}%"></div>
+        </div>
+      </div>
+      <div class="gh-churn-row">
+        <div class="gh-churn-row-head">
+          <div class="gh-churn-label">Lines Deleted</div>
+          <div class="gh-churn-value gh-churn-value-deleted">-${fmtNum(deletions)}</div>
+        </div>
+        <div class="gh-churn-track">
+          <div class="gh-churn-fill gh-churn-fill-deleted" style="width:${deletionPct}%"></div>
+        </div>
+      </div>
+      <div class="gh-churn-foot">
+        <span>Total 24h churn: ${fmtNum(totalLinesChanged)} lines</span>
+      </div>
     </div>
   `;
-
-  container.innerHTML = '';
-  container.appendChild(svg);
-  container.appendChild(legendGroup);
 }
 
 // RENDER PULL REQUESTS

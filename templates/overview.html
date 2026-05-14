@@ -64,7 +64,7 @@
         </div>
 
         <div class="chart-area">
-            <svg class="chart-svg" viewBox="0 0 430 170">
+            <svg id="trendChartSvg" class="chart-svg" viewBox="0 0 430 170">
                 <line x1="36" y1="138" x2="412" y2="138" class="grid-line"></line>
                 <line x1="36" y1="78"  x2="412" y2="78"  class="grid-line"></line>
                 <line x1="36" y1="18"  x2="412" y2="18"  class="grid-line"></line>
@@ -115,10 +115,9 @@
 <div class="chart-card overview-tests-duration-card">
     <div class="chart-hdr">
         <div>
-            <div class="chart-title">Tests Duration - Last 24h</div>
+            <div class="chart-title">Test Stages Duration </div>
             <div class="chart-sub">Unit tests + pylint + SonarCloud duration per build</div>
         </div>
-        <div class="cbadge" id="testsDuration24hBadge">24h Avg —</div>
     </div>
 
     <div class="overview-tests-duration-summary" id="testsDuration24hSummary"></div>

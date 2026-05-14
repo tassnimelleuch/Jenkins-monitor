@@ -241,9 +241,13 @@ function renderDeploymentFrequencyChart(freq) {
   const successful = freq?.successful ?? 0;
   const total = freq?.total ?? 0;
   const other = Math.max(total - successful, 0);
+  const rateValue = Number(freq?.rate);
+  const rate = Number.isFinite(rateValue)
+    ? rateValue
+    : (total > 0 ? (successful / total) * 100 : 0);
 
   const badge = document.getElementById('deployFreqBadge');
-  if (badge) badge.textContent = `${successful} / ${total}`;
+  if (badge) badge.textContent = `${rate.toFixed(1)}%`;
 
   renderDoughnutChart(
     'deployFreq',

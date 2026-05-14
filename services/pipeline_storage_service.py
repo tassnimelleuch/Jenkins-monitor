@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 from flask import current_app
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import selectinload
 
 from extensions import cache, db
 from pipeline_storage_models import (
@@ -91,6 +92,12 @@ def _extract_stage_duration_ms(stage):
     return int(getattr(stage, 'duration_ms', 0) or 0)
 
 
+def _extract_stage_status(stage):
+    if isinstance(stage, Mapping):
+        return (stage.get('status') or '').strip().upper()
+    return (getattr(stage, 'status', None) or '').strip().upper()
+
+
 def build_tests_duration_points(builds, branch_name=None, finished_only=False, include_empty=False):
     points = []
 
@@ -146,6 +153,58 @@ def build_tests_duration_points(builds, branch_name=None, finished_only=False, i
         })
 
     return points
+
+
+def build_stage_success_frequency(builds, stage_name_contains):
+    marker = (stage_name_contains or '').strip().lower()
+    successful = 0
+    total = 0
+
+    for build in builds or []:
+        if _build_result_from_payload(build) is None:
+            continue
+
+        total += 1
+        if isinstance(build, Mapping):
+            stages = build.get('stages') or []
+        else:
+            stages = getattr(build, 'stages', []) or []
+
+        if any(
+            marker in _extract_stage_name(stage).lower()
+            and _extract_stage_status(stage) == 'SUCCESS'
+            for stage in stages
+        ):
+            successful += 1
+
+    return {
+        'successful': successful,
+        'total': total,
+        'rate': round((successful / total) * 100, 1) if total > 0 else 0,
+    }
+
+
+def get_stored_branch_stage_success_frequency(branch_name=None, stage_name_contains='deploy to aks'):
+    pipeline = _load_pipeline_definition()
+    if pipeline is None:
+        return {'successful': 0, 'total': 0, 'rate': 0}
+
+    clean_branch_name = (branch_name or '').strip() or _selected_branch_from_config()
+    branch_row = PipelineBranch.query.filter_by(
+        pipeline_id=pipeline.id,
+        name=clean_branch_name,
+    ).one_or_none()
+    if branch_row is None:
+        return {'successful': 0, 'total': 0, 'rate': 0}
+
+    build_rows = (
+        PipelineBranchBuild.query
+        .options(selectinload(PipelineBranchBuild.stages))
+        .filter_by(branch_id=branch_row.id)
+        .order_by(PipelineBranchBuild.build_number.desc())
+        .all()
+    )
+    return build_stage_success_frequency(build_rows, stage_name_contains)
 
 
 def _chunked(items, size):
