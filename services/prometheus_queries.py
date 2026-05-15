@@ -13,9 +13,13 @@ def now_range_iso(minutes: int = 30) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
-# ── VM metrics ───────────────────────────────────────────────────────────────
 VM_CPU_PCT_QUERY = (
     '100 - (avg by(instance) (rate(node_cpu_seconds_total'
+    f'{{mode="idle", job="{VM_JOB}"}}[5m])) * 100)'
+)
+
+VM_CPU_PER_CORE_PCT_QUERY = (
+    '100 - (avg by(instance, cpu) (rate(node_cpu_seconds_total'
     f'{{mode="idle", job="{VM_JOB}"}}[5m])) * 100)'
 )
 

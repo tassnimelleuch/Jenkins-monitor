@@ -62,3 +62,5 @@ def query_range_series(promql: str, start: str, end: str, step: str = "60s", lab
     except Exception as e:
         logger.warning("Prometheus series range query failed [%s]: %s", promql, e)
         return {}
+
+

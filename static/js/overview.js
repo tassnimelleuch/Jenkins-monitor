@@ -539,7 +539,6 @@ async function loadKPIs() {
     try {
         const res = await fetch(document.body.dataset.kpisUrl);
         const d   = await res.json();
-        // Only clear on connection failure; preserve visible data during polling
         if (!d.connected) {
             resetOverviewRenderCache();
             _prevRunningNumbers = new Set();
@@ -771,7 +770,7 @@ function triggerBuild() {
         queuedMessage: '✅ Build queued — watch Active Builds',
         triggerErrorMessage: 'Failed to trigger build',
         onQueued() {
-            startPolling(5000);
+            startPolling(2000);
             setTimeout(() => startPolling(10000), 10000);
         }
     });

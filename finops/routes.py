@@ -66,7 +66,6 @@ def _delete_finops_keys():
             f"Available attrs: {[a for a in dir(backend) if not a.startswith('__')]}"
         )
 
-    # Scan and delete all keys that contain "cost" (covers daily + rg keys)
     patterns = [
         "flask_cache_daily_cost_chart:*",
         "flask_cache_rg_costs:*",

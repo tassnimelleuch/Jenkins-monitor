@@ -178,7 +178,7 @@
 
 {% if show_vm_metrics %}
 {% set vm_metrics_cards = [
-  {'title': 'VM CPU', 'sub': 'CPU usage over time', 'badge_class': '', 'badge_id': 'vmCpuBadge', 'badge_text': '--', 'canvas_id': 'vmCpuChart'},
+  {'title': 'VM CPU', 'sub': 'Per-core CPU usage over time', 'badge_class': '', 'badge_id': 'vmCpuBadge', 'badge_text': '--', 'canvas_id': 'vmCpuChart'},
   {'title': 'VM RAM', 'sub': 'Memory usage over time', 'badge_class': 'cbadge-b', 'badge_id': 'vmRamBadge', 'badge_text': '--', 'canvas_id': 'vmRamChart'},
   {'title': 'VM Network Traffic', 'sub': 'Inbound and outbound traffic', 'badge_class': 'cbadge-g', 'badge_id': 'vmNetBadge', 'badge_text': '--', 'canvas_id': 'vmNetChart'},
   {'title': 'VM Disk Space', 'sub': 'Disk usage over time', 'badge_class': 'cbadge-o', 'badge_id': 'vmDiskBadge', 'badge_text': '--', 'canvas_id': 'vmDiskChart'}

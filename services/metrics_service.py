@@ -14,6 +14,7 @@ from services.prometheus_queries import (
     NAMESPACE_NET_HISTORY_QUERIES,
     NAMESPACE_RAM_HISTORY_QUERIES,
     VM_CPU_PCT_QUERY,
+    VM_CPU_PER_CORE_PCT_QUERY,
     VM_DISK_USED_PCT_QUERY,
     VM_NET_RX_MBPS_QUERY,
     VM_NET_TX_MBPS_QUERY,
@@ -44,6 +45,13 @@ def get_vm_metrics():
         start, end = now_range_iso(30)
 
         cpu_history = query_range(VM_CPU_PCT_QUERY, start, end, step=DEFAULT_HISTORY_STEP)
+        cpu_core_history = query_range_series(
+            VM_CPU_PER_CORE_PCT_QUERY,
+            start,
+            end,
+            step=DEFAULT_HISTORY_STEP,
+            label="cpu",
+        )
         ram_history = query_range(
             VM_RAM_PCT_HISTORY_QUERY, start, end, step=DEFAULT_HISTORY_STEP
         )
@@ -65,6 +73,7 @@ def get_vm_metrics():
             "ram_total_gb": round(ram_total_bytes / 1e9, 2) if ram_total_bytes else None,
             "disk_pct": round(disk_used_pct, 1) if disk_used_pct is not None else None,
             "cpu_history": cpu_history,
+            "cpu_core_history": cpu_core_history,
             "ram_history": ram_history,
             "net_rx_history": net_rx_history,
             "net_tx_history": net_tx_history,

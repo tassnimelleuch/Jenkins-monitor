@@ -4,9 +4,9 @@ Flask-Login
 Flask-Bcrypt
 dotenv
 requests
-azure-identity 
-azure-mgmt-containerservice
-kubernetes
-redis 
+azure-identity  #Azure authentication (managed identity, service principal, tokens).
+azure-mgmt-containerservice #Azure SDK to manage/query AKS (Azure Kubernetes Service) resources.
+kubernetes  #Python client to interact with Kubernetes clusters (pods, deployments, status).
+redis
 flask-caching
 psycopg2-binary

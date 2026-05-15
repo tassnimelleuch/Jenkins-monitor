@@ -1658,6 +1658,56 @@ let vmRamChart = null;
 let vmNetChart = null;
 let vmDiskChart = null;
 
+function getLatestSeriesValue(points, digits = 1) {
+  if (!Array.isArray(points) || !points.length) return null;
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    const num = Number(points[i]?.[1]);
+    if (Number.isFinite(num)) return Number(num.toFixed(digits));
+  }
+  return null;
+}
+
+function buildVmCpuSeries(cpuCoreHistory, fallbackHistory) {
+  const palette = ['#5cb85c', '#3ab8f8', '#ff9f43', '#ff4560', '#7c6fff', '#00dba0'];
+  const entries = Object.entries(cpuCoreHistory || {})
+    .filter(([, points]) => Array.isArray(points) && points.length)
+    .sort((a, b) => Number(a[0]) - Number(b[0]));
+
+  if (entries.length) {
+    const labels = entries[0][1].map(([ts]) => ts);
+    const datasets = entries.map(([cpu, points], index) => ({
+      label: `CPU ${cpu}`,
+      values: points.map(([, v]) => parseFloat(Number(v).toFixed(1))),
+      color: palette[index % palette.length],
+    }));
+    const latestValues = entries
+      .map(([cpu, points]) => ({ cpu, value: getLatestSeriesValue(points, 1) }))
+      .filter(item => item.value !== null);
+
+    return { labels, datasets, latestValues };
+  }
+
+  if (!Array.isArray(fallbackHistory) || !fallbackHistory.length) return null;
+
+  return {
+    labels: fallbackHistory.map(([ts]) => ts),
+    datasets: [{
+      label: 'CPU',
+      values: fallbackHistory.map(([, v]) => parseFloat(Number(v).toFixed(1))),
+      color: '#5cb85c',
+      fillArea: true,
+    }],
+    latestValues: [],
+  };
+}
+
+function formatVmCpuBadge(latestValues) {
+  if (!Array.isArray(latestValues) || !latestValues.length) return 'Now —%';
+  return latestValues
+    .map(({ cpu, value }) => `CPU ${cpu} ${value}%`)
+    .join(' · ');
+}
+
 function renderVmLineChart(canvasId, series, chartRef, opts = {}) {
   const ctx = document.getElementById(canvasId)?.getContext('2d');
   if (!ctx) return chartRef;
@@ -1690,17 +1740,23 @@ async function loadVmMetrics() {
     if (!d.connected) return;
 
     if (d.cpu_history?.length) {
-      const labels = d.cpu_history.map(([ts]) => ts);
-      const values = d.cpu_history.map(([, v]) => parseFloat(v.toFixed(1)));
+      const cpuSeries = buildVmCpuSeries(d.cpu_core_history, d.cpu_history);
       const badge = document.getElementById('vmCpuBadge');
-      const avgCpu = avgValue(values, 1);
-      if (badge) badge.textContent = avgCpu ? `Avg ${avgCpu}%` : 'Avg —%';
-      vmCpuChart = renderVmLineChart(
-        'vmCpuChart',
-        { labels, datasets: [{ label: 'CPU', values, color: '#5cb85c', fillArea: true }] },
-        vmCpuChart,
-        { unit: '%', min: 0, max: 100 }
-      );
+      if (!cpuSeries) {
+        if (badge) badge.textContent = 'Now —%';
+      } else {
+        if (badge) {
+          badge.textContent = cpuSeries.latestValues.length
+            ? formatVmCpuBadge(cpuSeries.latestValues)
+            : 'Now —%';
+        }
+        vmCpuChart = renderVmLineChart(
+          'vmCpuChart',
+          { labels: cpuSeries.labels, datasets: cpuSeries.datasets },
+          vmCpuChart,
+          { unit: '%', min: 0, max: 100 }
+        );
+      }
     }
 
     if (d.ram_history?.length) {
