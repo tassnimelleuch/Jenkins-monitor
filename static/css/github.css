@@ -102,6 +102,17 @@
   flex-wrap:wrap;
   margin:8px 0 10px;
 }
+.gh-analytics-notice{
+  margin:0 0 14px;
+  padding:10px 12px;
+  border-radius:12px;
+  background:rgba(245, 158, 11, 0.08);
+  border:1px solid rgba(245, 158, 11, 0.22);
+  color:#9a6700;
+  font-size:11.5px;
+  font-weight:600;
+  line-height:1.45;
+}
 .gh-summary-pill{
   display:inline-flex;
   align-items:center;

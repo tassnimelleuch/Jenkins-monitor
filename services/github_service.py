@@ -13,6 +13,7 @@ from collectors.github_collector import (
     enrich_commits_with_files,
 )
 from collectors.jenkins_collector import (
+    get_all_builds,
     get_last_failed_build,
     get_build_info,
     extract_build_commit_sha,
@@ -22,6 +23,10 @@ from collectors.jenkins_collector import (
 
 logger = logging.getLogger(__name__)
 MAIN_PIPELINE_BRANCH = 'main'
+BRANCH_HEAD_COMMIT_LIMIT = 12
+UNAUTHENTICATED_BRANCH_HEAD_COMMIT_LIMIT = 6
+AUTHENTICATED_24H_DETAIL_LIMIT = 40
+UNAUTHENTICATED_24H_DETAIL_LIMIT = 12
 
 
 def is_tag_branch_allowed(branch_name):
@@ -64,6 +69,10 @@ def _get_owner_repo():
     return owner, repo
 
 
+def _github_token_configured():
+    return bool(str(current_app.config.get('GITHUB_TOKEN') or '').strip())
+
+
 def _commit_item(c):
     commit = c.get('commit', {}) if isinstance(c, dict) else {}
     author = commit.get('author', {}) or {}
@@ -94,6 +103,22 @@ def _commit_item(c):
         'date': author.get('date') or committer.get('date'),
         'html_url': c.get('html_url'),
     }
+
+
+def _branch_head_commit_limit():
+    return (
+        BRANCH_HEAD_COMMIT_LIMIT
+        if _github_token_configured()
+        else UNAUTHENTICATED_BRANCH_HEAD_COMMIT_LIMIT
+    )
+
+
+def _detail_commit_limit_last_24h():
+    return (
+        AUTHENTICATED_24H_DETAIL_LIMIT
+        if _github_token_configured()
+        else UNAUTHENTICATED_24H_DETAIL_LIMIT
+    )
 
 
 def _run_in_app_context(app, func):
@@ -277,6 +302,14 @@ def _calculate_file_changes_with_limit(commits_raw, since_date=None, since_datet
     return sorted_items[:limit]
 
 
+def _count_commits_with_file_details(commits_raw):
+    return sum(
+        1
+        for commit in (commits_raw or [])
+        if (commit.get('files') or commit.get('stats'))
+    )
+
+
 def _pr_item(pr):
     """Format a pull request for display."""
     user = pr.get('user', {}) or {}
@@ -333,6 +366,7 @@ def _empty_last_24h_file_change_dataset():
         'scope_label': 'Top 5 most changed files in the last 24 hours',
         'ranking_label': 'Ranked by total lines changed',
         'commit_count': 0,
+        'detail_commit_count': 0,
         'total_files': 0,
         'total_line_changes': 0,
         'total_additions': 0,
@@ -345,6 +379,7 @@ def _empty_last_24h_code_churn_dataset():
     return {
         'scope_label': 'Code churn in the last 24 hours',
         'commit_count': 0,
+        'detail_commit_count': 0,
         'changed_files': 0,
         'additions': 0,
         'deletions': 0,
@@ -353,12 +388,31 @@ def _empty_last_24h_code_churn_dataset():
     }
 
 
-def _build_last_24h_file_change_dataset(commits_raw):
+def _build_last_24h_scope_label(base_label, detailed_commit_count, total_commit_count):
+    if total_commit_count > detailed_commit_count > 0:
+        return (
+            f'{base_label} '
+            f'(based on the latest {detailed_commit_count} of {total_commit_count} main commits with file details)'
+        )
+    if total_commit_count > 0 and detailed_commit_count == 0:
+        return f'{base_label} (GitHub did not return file-level commit details)'
+    return base_label
+
+
+def _build_last_24h_file_change_dataset(commits_raw, total_commit_count=None):
     dataset = _empty_last_24h_file_change_dataset()
+    detail_commit_count = _count_commits_with_file_details(commits_raw)
+    total_commit_count = int(total_commit_count or detail_commit_count)
+    dataset['commit_count'] = total_commit_count
+    dataset['detail_commit_count'] = detail_commit_count
+    dataset['scope_label'] = _build_last_24h_scope_label(
+        dataset['scope_label'],
+        detail_commit_count,
+        total_commit_count,
+    )
     if not commits_raw:
         return dataset
 
-    dataset['commit_count'] = len(commits_raw)
     all_items = _calculate_file_changes_with_limit(commits_raw, limit=None)
     dataset['total_files'] = len(all_items)
     dataset['total_line_changes'] = sum(item['line_changes'] for item in all_items)
@@ -369,8 +423,17 @@ def _build_last_24h_file_change_dataset(commits_raw):
     return dataset
 
 
-def _build_last_24h_code_churn_dataset(commits_raw, file_change_dataset=None):
+def _build_last_24h_code_churn_dataset(commits_raw, file_change_dataset=None, total_commit_count=None):
     dataset = _empty_last_24h_code_churn_dataset()
+    detail_commit_count = _count_commits_with_file_details(commits_raw)
+    total_commit_count = int(total_commit_count or detail_commit_count)
+    dataset['commit_count'] = total_commit_count
+    dataset['detail_commit_count'] = detail_commit_count
+    dataset['scope_label'] = _build_last_24h_scope_label(
+        dataset['scope_label'],
+        detail_commit_count,
+        total_commit_count,
+    )
     if not commits_raw:
         return dataset
 
@@ -381,7 +444,6 @@ def _build_last_24h_code_churn_dataset(commits_raw, file_change_dataset=None):
         additions += commit_additions
         deletions += commit_deletions
 
-    dataset['commit_count'] = len(commits_raw)
     dataset['changed_files'] = int((file_change_dataset or {}).get('total_files', 0) or 0)
     dataset['additions'] = additions
     dataset['deletions'] = deletions
@@ -403,6 +465,7 @@ def _fetch_branch_head_commits(app, owner, repo, branches_raw):
     if not branches_raw:
         return []
 
+    selected_branches = list(branches_raw[:_branch_head_commit_limit()])
     tasks = {
         branch.get('name'): (
             lambda branch_name=branch.get('name'): _run_in_app_context(
@@ -410,7 +473,7 @@ def _fetch_branch_head_commits(app, owner, repo, branches_raw):
                 lambda: get_latest_commit_for_branch(owner, repo, branch_name),
             )
         )
-        for branch in branches_raw
+        for branch in selected_branches
         if branch.get('name')
     }
     latest_by_branch = (
@@ -420,7 +483,7 @@ def _fetch_branch_head_commits(app, owner, repo, branches_raw):
     )
 
     commits = []
-    for branch in branches_raw:
+    for branch in selected_branches:
         branch_name = branch.get('name')
         commit_raw = latest_by_branch.get(branch_name) if branch_name else None
         if not isinstance(commit_raw, dict):
@@ -457,6 +520,65 @@ def _merge_commit_items(primary, fallback):
     return merged
 
 
+def _load_commit_item(owner, repo, sha, branch_name=None):
+    if not sha:
+        return None
+
+    commit_raw = get_commit(owner, repo, sha)
+    if not isinstance(commit_raw, dict):
+        return None
+
+    return _commit_item({
+        **commit_raw,
+        'branch_name': branch_name,
+    })
+
+
+def _sort_builds_desc(builds):
+    return sorted(
+        [build for build in (builds or []) if isinstance(build, dict)],
+        key=lambda build: int(build.get('number') or 0),
+        reverse=True,
+    )
+
+
+def _find_fix_build_for_failure(builds, failed_build):
+    failed_number = int((failed_build or {}).get('number') or 0)
+    if not failed_number:
+        return None
+
+    candidate = None
+    for build in _sort_builds_desc(builds):
+        build_number = int(build.get('number') or 0)
+        if build_number == failed_number:
+            return candidate
+        if build.get('result') == 'SUCCESS':
+            candidate = build
+    return None
+
+
+def _build_commit_item_from_build(owner, repo, branch_name, commit_sha, build_commits):
+    commit_item = _load_commit_item(owner, repo, commit_sha, branch_name=branch_name)
+    if commit_item:
+        return commit_item
+
+    fallback_commit = next(
+        (item for item in (build_commits or []) if item.get('sha') == commit_sha),
+        None,
+    )
+    if fallback_commit:
+        return _fallback_commit_item(
+            owner,
+            repo,
+            commit_sha,
+            message=fallback_commit.get('message'),
+            author_name=fallback_commit.get('author_name'),
+            branch_name=branch_name,
+        )
+
+    return _fallback_commit_item(owner, repo, commit_sha, branch_name=branch_name)
+
+
 def get_github_summary():
     owner, repo = _get_owner_repo()
     if not owner or not repo:
@@ -469,13 +591,10 @@ def get_github_summary():
     now_utc = datetime.now(timezone.utc)
     since_24h = now_utc - timedelta(hours=24)
     since_24h_iso = since_24h.isoformat().replace('+00:00', 'Z')
+    token_configured = _github_token_configured()
     tasks = {
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
         'branches': lambda: _run_in_app_context(app, lambda: get_branches(owner, repo, per_page=100)),
-        'main_commits': lambda: _run_in_app_context(
-            app,
-            lambda: get_commits_for_branch(owner, repo, MAIN_PIPELINE_BRANCH, per_page=50, page_limit=2),
-        ),
         'main_commits_24h': lambda: _run_in_app_context(
             app,
             lambda: get_commits_for_branch(
@@ -483,17 +602,20 @@ def get_github_summary():
                 repo,
                 MAIN_PIPELINE_BRANCH,
                 per_page=100,
-                page_limit=3,
+                page_limit=2 if token_configured else 1,
                 since=since_24h_iso,
             ),
         ),
-        'failed_build': lambda: _run_in_app_context(
+        'builds': lambda: _run_in_app_context(
             app,
-            lambda: get_last_failed_build(branch_name=MAIN_PIPELINE_BRANCH),
+            lambda: get_all_builds(branch_name=MAIN_PIPELINE_BRANCH),
         ),
-        'pull_requests': lambda: _run_in_app_context(app, lambda: get_pull_requests(owner, repo, state='all', per_page=50)),
+        'pull_requests': lambda: _run_in_app_context(
+            app,
+            lambda: get_pull_requests(owner, repo, state='all', per_page=30),
+        ),
     }
-    results = parallel_execute(tasks, max_workers=5, timeout=20)
+    results = parallel_execute(tasks, max_workers=4, timeout=20)
     repo_raw = results.get('repo')
     branches_raw = results.get('branches')
 
@@ -505,42 +627,28 @@ def get_github_summary():
 
     branch_head_commits_raw = _fetch_branch_head_commits(app, owner, repo, branches_raw or [])
     commits = [_commit_item(c) for c in branch_head_commits_raw]
-    main_branch_commits_raw = _sort_commits_raw([
-        {**commit, 'branch_name': MAIN_PIPELINE_BRANCH}
-        for commit in (results.get('main_commits') or [])
-        if isinstance(commit, dict)
-    ])
     main_branch_commits_24h_raw = _sort_commits_raw([
         commit
         for commit in (results.get('main_commits_24h') or [])
         if isinstance(commit, dict)
     ])
-    
-    # Enrich commits with file change details for accurate analytics
-    main_branch_commits_raw = _run_in_app_context(
-        app,
-        lambda: enrich_commits_with_files(owner, repo, main_branch_commits_raw, max_commits=20)
-    )
+    main_branch_commits_24h_total = len(main_branch_commits_24h_raw)
+    analytics_detail_limit = min(main_branch_commits_24h_total, _detail_commit_limit_last_24h())
     main_branch_commits_24h_raw = _run_in_app_context(
         app,
         lambda: enrich_commits_with_files(
             owner,
             repo,
             main_branch_commits_24h_raw,
-            max_commits=min(len(main_branch_commits_24h_raw or []), 60),
+            max_commits=analytics_detail_limit,
         ),
     )
-    
-    main_branch_commits = [_commit_item(c) for c in main_branch_commits_raw]
-    main_branch_commits_by_sha = {
-        item.get('sha'): item
-        for item in main_branch_commits
-        if item.get('sha')
-    }
+    analytics_detail_commit_count = _count_commits_with_file_details(main_branch_commits_24h_raw)
 
     failing_commit = None
 
-    failed_build = results.get('failed_build')
+    builds = results.get('builds') or []
+    failed_build = get_last_failed_build(builds=builds, branch_name=MAIN_PIPELINE_BRANCH)
     if failed_build:
         build_number = failed_build.get('number')
         build_info = get_build_info(build_number, branch_name=MAIN_PIPELINE_BRANCH) if build_number else None
@@ -559,27 +667,26 @@ def get_github_summary():
                 author_name=item.get('author_name'),
                 branch_name=MAIN_PIPELINE_BRANCH,
             )
-            branch_commit = main_branch_commits_by_sha.get(sha) if sha else None
-            commit_items.append(_merge_commit_items(branch_commit, fallback) if branch_commit else fallback)
+            live_commit = _load_commit_item(owner, repo, sha, branch_name=MAIN_PIPELINE_BRANCH) if sha else None
+            commit_items.append(_merge_commit_items(live_commit, fallback) if live_commit else fallback)
 
         if failed_sha:
-            failed_commit_item = main_branch_commits_by_sha.get(failed_sha)
-            if not failed_commit_item:
-                failed_commit_item = next(
-                    (item for item in commit_items if item.get('sha') == failed_sha),
-                    None,
+            failed_commit_item = next(
+                (item for item in commit_items if item.get('sha') == failed_sha),
+                None,
+            )
+            live_failed_commit_item = _load_commit_item(
+                owner,
+                repo,
+                failed_sha,
+                branch_name=MAIN_PIPELINE_BRANCH,
+            )
+            if live_failed_commit_item:
+                failed_commit_item = (
+                    _merge_commit_items(live_failed_commit_item, failed_commit_item)
+                    if failed_commit_item
+                    else live_failed_commit_item
                 )
-                failed_commit_raw = get_commit(owner, repo, failed_sha)
-                if isinstance(failed_commit_raw, dict):
-                    direct_failed_commit_item = _commit_item({
-                        **failed_commit_raw,
-                        'branch_name': MAIN_PIPELINE_BRANCH,
-                    })
-                    failed_commit_item = (
-                        _merge_commit_items(direct_failed_commit_item, failed_commit_item)
-                        if failed_commit_item
-                        else direct_failed_commit_item
-                    )
             if not failed_commit_item:
                 failed_commit_item = _fallback_commit_item(
                     owner,
@@ -597,25 +704,28 @@ def get_github_summary():
                 'commits': commit_items,
                 'commit': failed_commit_item,
             }
-            
-            if main_branch_commits:
-                failed_commit_index = None
-                for idx, commit in enumerate(main_branch_commits):
-                    if commit.get('sha') == failed_sha:
-                        failed_commit_index = idx
-                        break
-                
-                # The fixing commit is the first one after the failing commit
-                if failed_commit_index is not None and failed_commit_index > 0:
-                    fix_commit = main_branch_commits[failed_commit_index - 1]  # More recent commits come first
-                    failing_commit['fix_commit'] = fix_commit
-                elif failed_commit_index is None and main_branch_commits:
-                    # If the failing commit is not in the list but we have recent commits,
-                    # try to assume the most recent commit might have fixed it
-                    # (This handles cases where the failing commit is very old)
-                    potential_fix = main_branch_commits[0]
-                    if potential_fix and potential_fix.get('sha') != failed_sha:
-                        failing_commit['fix_commit'] = potential_fix
+
+            fix_build = _find_fix_build_for_failure(builds, failed_build)
+            if fix_build:
+                fix_build_number = fix_build.get('number')
+                fix_build_info = (
+                    get_build_info(fix_build_number, branch_name=MAIN_PIPELINE_BRANCH)
+                    if fix_build_number else None
+                )
+                fix_build_commits = extract_build_commits(fix_build_info)
+                fix_sha = extract_build_commit_sha(fix_build_info)
+                if fix_sha:
+                    failing_commit['fix_commit'] = _build_commit_item_from_build(
+                        owner,
+                        repo,
+                        MAIN_PIPELINE_BRANCH,
+                        fix_sha,
+                        fix_build_commits,
+                    )
+                    failing_commit['fix_build_number'] = fix_build_number
+                    failing_commit['fix_build_timestamp'] = fix_build.get('timestamp')
+                    failing_commit['fix_build_url'] = (fix_build_info or {}).get('url')
+                    failing_commit['fix_same_sha'] = (fix_sha == failed_sha)
 
     code_churn_by_period = {'week': [], 'month': []}
     code_churn_24h = _empty_last_24h_code_churn_dataset()
@@ -627,18 +737,31 @@ def get_github_summary():
     code_churn_list = []
     file_changes = []
 
-    # Calculate code churn and file changes for week and month periods
-    if main_branch_commits_raw:
-        code_churn_by_period['week'] = _calculate_code_churn(main_branch_commits_raw, grouping='week', max_periods=4)
-        code_churn_by_period['month'] = _calculate_code_churn(main_branch_commits_raw, grouping='month', max_periods=6)
-        file_changes_by_period.update(_build_file_change_groups(main_branch_commits_raw, code_churn_by_period))
-
-    file_changes_by_period['24h'] = _build_last_24h_file_change_dataset(main_branch_commits_24h_raw)
+    file_changes_by_period['24h'] = _build_last_24h_file_change_dataset(
+        main_branch_commits_24h_raw,
+        total_commit_count=main_branch_commits_24h_total,
+    )
     code_churn_24h = _build_last_24h_code_churn_dataset(
         main_branch_commits_24h_raw,
         file_changes_by_period['24h'],
+        total_commit_count=main_branch_commits_24h_total,
     )
     file_changes = file_changes_by_period['24h']['items']
+    analytics_notice = None
+    if not token_configured:
+        analytics_notice = (
+            'Detailed GitHub analytics are running without GITHUB_TOKEN, so GitHub may rate-limit '
+            'commit file details and user enrichment.'
+        )
+    elif main_branch_commits_24h_total > analytics_detail_commit_count and analytics_detail_commit_count > 0:
+        analytics_notice = (
+            f'24-hour analytics are based on {analytics_detail_commit_count} of '
+            f'{main_branch_commits_24h_total} main commits with detailed file data.'
+        )
+    elif main_branch_commits_24h_total > 0 and analytics_detail_commit_count == 0:
+        analytics_notice = (
+            'GitHub returned recent commits, but file-level details were unavailable for the 24-hour analytics.'
+        )
 
     # Process pull requests
     prs_open = []
@@ -683,8 +806,13 @@ def get_github_summary():
             'branch_heads': len(commits),
         },
         'analytics_mode': 'full_history',
-        'analytics_message': 'Analytics based on recent commit history.',
-        'commit_scope_label': 'Recent commits from main branch',
+        'analytics_message': 'Analytics based on recent main-branch commit history.',
+        'analytics_notice': analytics_notice,
+        'commit_scope_label': (
+            f'Most recent commit on the first {len(commits)} branches returned by GitHub'
+            if branches_raw and len(commits) < len(branches_raw or [])
+            else 'Most recent commit on each branch'
+        ),
         'commits': commits,
         'failing_commit': failing_commit,
         'code_churn_24h': code_churn_24h,

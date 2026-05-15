@@ -15,6 +15,19 @@ function setText(id, value) {
   if (el) el.textContent = value;
 }
 
+function renderAnalyticsNotice(data) {
+  const el = document.getElementById('ghAnalyticsNotice');
+  if (!el) return;
+  const message = data?.analytics_notice;
+  if (!message) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  el.hidden = false;
+  el.textContent = message;
+}
+
 let _ghAnalyticsPayload = null;
 let _ghAnalyticsGrouping = '24h';
 
@@ -328,6 +341,7 @@ async function loadGitHub() {
     try {
       _ghAnalyticsPayload = data;
       updateGitHubAnalyticsButtons();
+      renderAnalyticsNotice(data);
       renderFailingCommit(data);
       renderFixCommit(data);
       renderTimeToFix(data);
@@ -430,7 +444,6 @@ function renderFixCommit(data) {
   }
 
   const c = fc.fix_commit;
-  console.log('Fix commit data:', c); // Debug log
 
   const ghUser =
     c.author_login ||
@@ -442,6 +455,11 @@ function renderFixCommit(data) {
   const avatarUrl = c.author_avatar || c.committer_avatar;
   const profileUrl = c.author_profile_url || c.committer_profile_url;
   const userName = c.author_name || c.committer_name || ghUser || 'Unknown';
+  const buildBadge = fc.fix_build_number ? `<span class="gh-build-badge gh-build-badge-success">Build #${fc.fix_build_number}</span>` : '';
+  const label = fc.fix_same_sha ? 'Recovered in' : 'Fixed by';
+  const detailNote = fc.fix_same_sha
+    ? '<div class="gh-meta">The same commit later passed on a successful Jenkins build.</div>'
+    : '';
 
   let userCardHTML = '';
   if (profileUrl) {
@@ -472,19 +490,24 @@ function renderFixCommit(data) {
         <div class="gh-commit-title-row">
           <div>
             <a href="${c.html_url}" target="_blank" rel="noopener" class="gh-commit-sha-badge gh-commit-sha-badge-success">${c.short_sha || '--'}</a>
+            ${buildBadge}
           </div>
         </div>
         <div class="gh-commit-msg gh-commit-msg-success">${displayMsg}</div>
+        ${detailNote}
       </div>
       
       <div class="gh-culprit-section gh-culprit-section-success">
-        <div class="gh-culprit-label gh-culprit-label-success">Fixed by</div>
+        <div class="gh-culprit-label gh-culprit-label-success">${label}</div>
         ${userCardHTML}
       </div>
       
       <div class="gh-commit-footer">
         ${fmtDate(c.date) !== '--' ? `<div class="gh-meta">Committed ${fmtDate(c.date)}</div>` : ''}
-        ${c.html_url ? `<a href="${c.html_url}" target="_blank" rel="noopener" class="gh-build-link gh-build-link-success">View commit →</a>` : ''}
+        <div class="gh-commit-actions">
+          ${fc.fix_build_url ? `<a href="${fc.fix_build_url}" target="_blank" rel="noopener" class="gh-build-link gh-build-link-success">View Jenkins build →</a>` : ''}
+          ${c.html_url ? `<a href="${c.html_url}" target="_blank" rel="noopener" class="gh-build-link gh-build-link-success">View commit →</a>` : ''}
+        </div>
       </div>
     </div>
   `;
@@ -501,8 +524,8 @@ function renderTimeToFix(data) {
     return;
   }
 
-  const failDate = new Date(fc.commit.date);
-  const fixDate = new Date(fc.fix_commit.date);
+  const failDate = fc.build_timestamp ? new Date(Number(fc.build_timestamp)) : new Date(fc.commit.date);
+  const fixDate = fc.fix_build_timestamp ? new Date(Number(fc.fix_build_timestamp)) : new Date(fc.fix_commit.date);
 
   if (isNaN(failDate.getTime()) || isNaN(fixDate.getTime())) {
     container.innerHTML = '<div class="gh-empty">Unable to calculate time to fix (missing dates).</div>';
@@ -534,25 +557,11 @@ function renderTimeToFix(data) {
     timeStr = `${diffSeconds}s`;
   }
 
-  // Determine severity color
-  let severity = 'good';
-  let severityLabel = 'Excellent';
-  if (diffHours >= 24) {
-    severity = 'critical';
-    severityLabel = 'Critical';
-  } else if (diffHours >= 8) {
-    severity = 'warning';
-    severityLabel = 'Fair';
-  } else if (diffHours >= 1) {
-    severity = 'caution';
-    severityLabel = 'Good';
-  }
-
   container.innerHTML = `
     <div class="ttf-container">
       <div class="ttf-main">
         <div class="ttf-time">${timeStr}</div>
-        <div class="ttf-label">From failure to fix</div>
+        <div class="ttf-label">From failed build to successful build</div>
       </div>
       
     </div>
@@ -592,10 +601,13 @@ function renderMostChanged(data) {
   const totalLineChanges = Number(dataset.total_line_changes ?? files.reduce((sum, file) => sum + fileLineChanges(file), 0));
   const totalLinesAdded = Number(dataset.total_additions ?? files.reduce((sum, file) => sum + (file.additions || 0), 0));
   const totalLinesDeleted = Number(dataset.total_deletions ?? files.reduce((sum, file) => sum + (file.deletions || 0), 0));
+  const totalCommits = Number(dataset.commit_count || 0);
+  const detailedCommits = Number(dataset.detail_commit_count ?? totalCommits);
   if (summary) {
     summary.innerHTML = `
       <span class="gh-summary-pill"><strong>${fmtNum(totalChangedFiles)}</strong> changed files</span>
-      <span class="gh-summary-pill"><strong>${fmtNum(dataset.commit_count || 0)}</strong> commits</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(totalCommits)}</strong> commits in 24h</span>
+      ${detailedCommits > 0 && detailedCommits !== totalCommits ? `<span class="gh-summary-pill"><strong>${fmtNum(detailedCommits)}</strong> commits with file details</span>` : ''}
       <span class="gh-summary-pill"><strong>${fmtNum(totalLineChanges)}</strong> lines changed</span>
       <span class="gh-summary-pill"><strong>${fmtNum(totalTouches)}</strong> touches</span>
       <span class="gh-summary-pill"><strong>+${fmtNum(totalLinesAdded)}</strong> / <strong>-${fmtNum(totalLinesDeleted)}</strong></span>
@@ -651,22 +663,29 @@ function renderCodeChurn(data) {
   if (subtitle) {
     subtitle.textContent = churnData.scope_label || 'Lines added and deleted in the last 24 hours';
   }
-  if (!churnData || (Number(churnData.additions || 0) === 0 && Number(churnData.deletions || 0) === 0 && Number(churnData.commit_count || 0) === 0)) {
+  const additions = Number(churnData.additions || 0);
+  const deletions = Number(churnData.deletions || 0);
+  const commitCount = Number(churnData.commit_count || 0);
+  const detailedCommitCount = Number(churnData.detail_commit_count ?? commitCount);
+  if (!churnData || (additions === 0 && deletions === 0 && commitCount === 0)) {
     if (summary) summary.innerHTML = '';
     container.innerHTML = '<div class="gh-empty">No code churn recorded on main in the last 24 hours.</div>';
     return;
   }
+  if (commitCount > 0 && detailedCommitCount === 0) {
+    if (summary) summary.innerHTML = '';
+    container.innerHTML = '<div class="gh-empty">GitHub returned recent commits, but file details were unavailable to calculate 24-hour churn.</div>';
+    return;
+  }
 
-  const additions = Number(churnData.additions || 0);
-  const deletions = Number(churnData.deletions || 0);
-  const commitCount = Number(churnData.commit_count || 0);
   const changedFiles = Number(churnData.changed_files || 0);
   const totalLinesChanged = Number(churnData.total_lines_changed ?? (additions + deletions));
   const netChange = Number(churnData.net_change ?? (additions - deletions));
 
   if (summary) {
     summary.innerHTML = `
-      <span class="gh-summary-pill"><strong>${fmtNum(commitCount)}</strong> commits</span>
+      <span class="gh-summary-pill"><strong>${fmtNum(commitCount)}</strong> commits in 24h</span>
+      ${detailedCommitCount > 0 && detailedCommitCount !== commitCount ? `<span class="gh-summary-pill"><strong>${fmtNum(detailedCommitCount)}</strong> commits with file details</span>` : ''}
       <span class="gh-summary-pill"><strong>${fmtNum(changedFiles)}</strong> changed files</span>
       <span class="gh-summary-pill"><strong>${fmtNum(totalLinesChanged)}</strong> lines changed</span>
       <span class="gh-summary-pill"><strong>${netChange >= 0 ? '+' : ''}${fmtNum(netChange)}</strong> net</span>
