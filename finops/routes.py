@@ -8,8 +8,11 @@ from config import Config
 from extensions import cache
 from collectors.azure_cost_collector import AzureCostProvider
 from services.finops_service import FinOpsService
-from services.finops_cache import get_cached_daily_cost_chart, get_cached_resource_group_costs
-from services.parallel_executor import parallel_execute
+from services.finops_storage_service import (
+    get_finops_daily_cost_chart,
+    get_finops_resource_group_costs,
+    refresh_finops_month,
+)
 from services.access_service import role_required
 
 finops_bp = Blueprint("finops", __name__)
@@ -105,8 +108,13 @@ def daily_cost():
         return jsonify({"error": "Invalid only filter. Use all, aks, vm, or subscription."}), 400
 
     try:
-        payload = get_cached_daily_cost_chart(
-            service, year=year, month=month, mode=mode, only=only
+        payload = get_finops_daily_cost_chart(
+            subscription_id,
+            year=year,
+            month=month,
+            mode=mode,
+            only=only,
+            service=service,
         )
         return jsonify(payload)
     except RuntimeError as exc:
@@ -132,8 +140,12 @@ def resource_group_costs():
         return jsonify({"error": "Invalid cost_type. Use ActualCost or AmortizedCost."}), 400
 
     try:
-        payload = get_cached_resource_group_costs(
-            service, year=year, month=month, cost_type=cost_type
+        payload = get_finops_resource_group_costs(
+            subscription_id,
+            year=year,
+            month=month,
+            cost_type=cost_type,
+            service=service,
         )
         return jsonify(payload)
     except RuntimeError as exc:
@@ -173,24 +185,19 @@ def refresh_cache():
 
     if prefetch:
         try:
-            service, _ = _make_service()
-            if service:
-                tasks = {
-                    "daily_all": lambda: get_cached_daily_cost_chart(
-                        service, year, month, "actual", "all"
-                    ),
-                    "daily_aks": lambda: get_cached_daily_cost_chart(
-                        service, year, month, "actual", "aks"
-                    ),
-                    "daily_vm": lambda: get_cached_daily_cost_chart(
-                        service, year, month, "actual", "vm"
-                    ),
-                    "rg_actual": lambda: get_cached_resource_group_costs(
-                        service, year, month, "ActualCost"
-                    ),
-                }
-                parallel_execute(tasks, max_workers=3, timeout=120)
-                result["prefetched"] = True
+            subscription_id = Config.AZURE_SUBSCRIPTION_ID
+            if not subscription_id:
+                raise RuntimeError("Missing AZURE_SUBSCRIPTION_ID in environment.")
+
+            result["sync"] = refresh_finops_month(
+                subscription_id,
+                year,
+                month,
+                daily_modes=("actual", "forecast"),
+                resource_group_cost_types=("ActualCost",),
+                force=True,
+            )
+            result["prefetched"] = True
         except Exception as exc:
             result["prefetch_error"] = f"{type(exc).__name__}: {exc}"
 

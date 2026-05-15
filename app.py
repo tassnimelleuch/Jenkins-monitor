@@ -29,7 +29,13 @@ cache.init_app(app)
 db.init_app(app)
 app.secret_key = app.config['SECRET_KEY']
 
+from alerts_models import PersistentAlert
 from auth_models import UserAccount
+from finops_models import (
+    FinOpsDailyCost,
+    FinOpsResourceGroupMonthlyCost,
+    FinOpsSyncState,
+)
 from pipeline_storage_models import PipelineBuildDuration, PipelineStageDuration
 with app.app_context():
     db.create_all()

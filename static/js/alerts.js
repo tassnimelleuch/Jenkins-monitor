@@ -14,6 +14,15 @@ function formatAlertTime(ts) {
   return new Date(ts).toLocaleString();
 }
 
+function formatCurrency(value, currencyCode = 'USD') {
+  if (value == null || Number.isNaN(Number(value))) return '-';
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: currencyCode || 'USD',
+    maximumFractionDigits: 2,
+  }).format(Number(value));
+}
+
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
@@ -24,46 +33,110 @@ function toggleHidden(id, hidden) {
   if (el) el.hidden = hidden;
 }
 
-function renderAlertRows(alerts) {
+function buildAlertMeta(alert) {
+  if (alert.kind === 'finops_daily_cost') {
+    return [
+      `Day: ${alert.usage_date || '--'}`,
+      `Current: ${formatCurrency(alert.current_value, alert.currency_code)}`,
+      `Average: ${formatCurrency(alert.threshold_value, alert.currency_code)}`,
+      `Over by: ${formatCurrency(alert.delta_value, alert.currency_code)}`,
+      `Month: ${alert.month_label || '--'}`,
+      `Detected: ${formatAlertTime(alert.last_detected_at)}`,
+    ];
+  }
+
+  return [
+    `Current: ${formatAlertDuration(alert.duration_ms)}`,
+    `Threshold: ${formatAlertDuration(alert.threshold_ms)}`,
+    `Over by: ${formatAlertDuration(alert.exceeded_by_ms)}`,
+    `Started: ${formatAlertTime(alert.started_at)}`,
+  ];
+}
+
+function renderAlertRows(alerts, canCheckAlerts) {
   const list = document.getElementById('alertsList');
   if (!list) return;
 
-  list.innerHTML = alerts.map(alert => `
-    <article class="alert-row">
-      <div class="alert-row-main">
-        <div class="alert-row-top">
-          <span class="alert-build-tag">Build #${alert.build_number}</span>
-          <span class="alert-severity">${alert.severity}</span>
+  list.innerHTML = alerts.map(alert => {
+    const metaItems = buildAlertMeta(alert)
+      .map(item => `<span>${item}</span>`)
+      .join('');
+
+    const checkAction = alert.requires_check && canCheckAlerts
+      ? `
+        <button
+          class="alert-check-btn"
+          type="button"
+          data-alert-check-id="${alert.id}">
+          Checked
+        </button>
+      `
+      : '';
+
+    return `
+      <article class="alert-row alert-row-${alert.kind}">
+        <div class="alert-row-main">
+          <div class="alert-row-top">
+            <span class="alert-source-tag">${alert.source_label || 'Alert'}</span>
+            <span class="alert-build-tag">${alert.label || 'Alert'}</span>
+            <span class="alert-severity">${alert.severity || 'warning'}</span>
+          </div>
+          <div class="alert-message">${alert.message || 'Alert triggered.'}</div>
+          <div class="alert-meta">${metaItems}</div>
         </div>
-        <div class="alert-message">${alert.message}</div>
-        <div class="alert-meta">
-          <span>Current: ${formatAlertDuration(alert.duration_ms)}</span>
-          <span>Threshold: ${formatAlertDuration(alert.threshold_ms)}</span>
-          <span>Over by: ${formatAlertDuration(alert.exceeded_by_ms)}</span>
-          <span>Started: ${formatAlertTime(alert.started_at)}</span>
-        </div>
-      </div>
-    </article>
-  `).join('');
+        ${checkAction}
+      </article>
+    `;
+  }).join('');
+}
+
+async function markAlertChecked(alertId) {
+  const template = document.body.dataset.alertCheckUrlTemplate || '';
+  if (!template || !alertId) return false;
+
+  const url = template.replace(/\/0\/check$/, `/${alertId}/check`);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    let message = 'Could not mark the alert as checked.';
+    try {
+      const payload = await response.json();
+      message = payload.error || message;
+    } catch (error) {
+      // Keep the fallback message.
+    }
+    throw new Error(message);
+  }
+
+  return true;
 }
 
 async function loadAlerts() {
   try {
     const url = document.body.dataset.alertsUrl;
-    const data = await (await fetch(url)).json();
+    const canCheckAlerts = document.body.dataset.canCheckAlerts === 'true';
+    const response = await fetch(url);
+    const data = await response.json();
     const summary = data.summary || {};
     const alerts = data.alerts || [];
     const pipeline = data.pipeline || {};
-    const rule = data.rule || {};
     const alertCount = Number(summary.alert_count ?? alerts.length ?? 0);
+    const finopsAlertCount = Number(summary.finops_alert_count ?? 0);
+    const buildAlertCount = Number(summary.build_alert_count ?? 0);
+    const thresholdMs = summary.threshold_ms || 0;
 
     setText(
       'alertsSubtitle',
-      `Watching ${pipeline.name || 'Jenkins Pipeline'} on ${pipeline.selected_branch || 'main'}`
+      `Monitoring ${finopsAlertCount} pending FinOps alert${finopsAlertCount === 1 ? '' : 's'} and ${buildAlertCount} Jenkins alert${buildAlertCount === 1 ? '' : 's'}.`
     );
     setText(
       'alertsRuleText',
-      `Running builds above the test threshold of ${formatAlertDuration(rule.threshold_ms || summary.threshold_ms || 0)}`
+      `FinOps alerts stay until an admin checks them. Jenkins alerts track running builds over ${formatAlertDuration(thresholdMs)} on ${pipeline.selected_branch || 'main'}.`
     );
     setText('alertsUpdatedAt', `Updated ${formatAlertTime(data.generated_at)}`);
 
@@ -78,7 +151,7 @@ async function loadAlerts() {
     toggleHidden('alertsIdleState', alertCount > 0);
 
     if (alertCount > 0) {
-      renderAlertRows(alerts);
+      renderAlertRows(alerts, canCheckAlerts);
     }
   } catch (e) {
     toggleHidden('alertsCard', true);
@@ -93,7 +166,26 @@ async function loadAlerts() {
   }
 }
 
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-alert-check-id]');
+  if (!button) return;
+
+  const alertId = button.dataset.alertCheckId;
+  if (!alertId) return;
+
+  button.disabled = true;
+  button.textContent = 'Checking...';
+
+  try {
+    await markAlertChecked(alertId);
+    await loadAlerts();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = 'Checked';
+  }
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   loadAlerts();
-  setInterval(loadAlerts, 2000);
+  setInterval(loadAlerts, 10000);
 });

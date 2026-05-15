@@ -7,13 +7,13 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-alerts-url="{{ url_for('alerts.alerts_api') }}" data-page="alerts"{% endblock %}
+{% block body_attrs %}data-alerts-url="{{ url_for('alerts.alerts_api') }}" data-alert-check-url-template="{{ url_for('alerts.check_alert', alert_id=0) }}" data-can-check-alerts="{{ 'true' if role == 'admin' else 'false' }}" data-page="alerts"{% endblock %}
 
 {% block page_content %}
 <div class="alerts-hero">
   <div>
     <div class="alerts-title">Alerts</div>
-    <div class="alerts-sub" id="alertsSubtitle">Watching for running builds that pass the 1 minute test threshold</div>
+    <div class="alerts-sub" id="alertsSubtitle">Monitoring FinOps daily cost spikes and running build duration alerts.</div>
   </div>
   <div class="alerts-pill" id="alertsStatusPill" hidden>Checking...</div>
 </div>
@@ -21,8 +21,8 @@
 <div class="alerts-list-card" id="alertsCard" hidden>
   <div class="chart-hdr alerts-list-hdr">
     <div>
-      <div class="chart-title">Duration Alerts</div>
-      <div class="chart-sub" id="alertsRuleText">Running builds whose duration is above 1 minute</div>
+      <div class="chart-title">Active Alerts</div>
+      <div class="chart-sub" id="alertsRuleText">Pending FinOps threshold alerts and live Jenkins build alerts.</div>
     </div>
     <div class="alerts-updated" id="alertsUpdatedAt">Updated just now</div>
   </div>
@@ -33,7 +33,7 @@
 </div>
 
 <div class="alerts-empty alerts-empty-standalone" id="alertsIdleState">
-  No active alerts right now. This page will only show alert cards when a running build exceeds 1 minute.
+  No active alerts right now. FinOps threshold alerts will stay here until an admin marks them as checked.
 </div>
 {% endblock %}
 

@@ -10,3 +10,5 @@ kubernetes  #Python client to interact with Kubernetes clusters (pods, deploymen
 redis
 flask-caching
 psycopg2-binary
+
+chromadb 

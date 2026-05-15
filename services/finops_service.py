@@ -418,7 +418,73 @@ class FinOpsService:
             "highest_day": highest_day.day if highest_day else None,
             "highest_day_cost": round(highest_day.total, 2) if highest_day else 0.0,
         }
-       
+
+    def get_daily_cost_storage_snapshot(
+        self,
+        year: int,
+        month: int,
+        mode: str = "actual",
+    ) -> dict:
+        year = int(year)
+        month = int(month)
+        mode = str(mode).strip().lower()
+
+        rows, meta, _ = self._load_daily_rows(year, month, mode, only="all")
+        storage_rows = []
+        for row in rows:
+            other_cost = round(row.total - row.aks - row.vm, 4)
+            storage_rows.append(
+                {
+                    "day": row.day,
+                    "aks_cost": round(row.aks, 4),
+                    "vm_cost": round(row.vm, 4),
+                    "other_cost": other_cost,
+                    "total_cost": round(row.total, 4),
+                }
+            )
+
+        return {
+            "year": year,
+            "month": month,
+            "mode": mode,
+            "currency_code": "USD",
+            "meta": meta,
+            "rows": storage_rows,
+        }
+
+    def get_resource_group_cost_storage_snapshot(
+        self,
+        year: int,
+        month: int,
+        cost_type: str = "ActualCost",
+    ) -> dict:
+        year = int(year)
+        month = int(month)
+        cost_type = str(cost_type).strip()
+
+        payload = self._build_rg_payload(year, month, cost_type=cost_type)
+        result = self.provider.query_usage(payload)
+        rg_costs = self._parse_rg_rows(result)
+
+        return {
+            "year": year,
+            "month": month,
+            "cost_type": cost_type,
+            "currency_code": "USD",
+            "total_cost": round(sum(rg.total for rg in rg_costs), 4),
+            "resource_groups": [
+                {
+                    "name": rg.name,
+                    "total": round(rg.total, 4),
+                    "aks": round(rg.aks, 4),
+                    "vm": round(rg.vm, 4),
+                    "other": round(rg.other, 4),
+                    "by_resource_type": rg.by_resource_type,
+                }
+                for rg in rg_costs
+            ],
+        }
+
     def get_daily_cost_chart(
         self,
         year: int,
@@ -487,26 +553,26 @@ class FinOpsService:
         month = int(month)
         cost_type = str(cost_type).strip()
 
-        payload = self._build_rg_payload(year, month, cost_type=cost_type)
-        result = self.provider.query_usage(payload)
-        rg_costs = self._parse_rg_rows(result)
-
-        total = round(sum(rg.total for rg in rg_costs), 2)
+        snapshot = self.get_resource_group_cost_storage_snapshot(
+            year,
+            month,
+            cost_type=cost_type,
+        )
 
         return {
-            "year": year,
-            "month": month,
-            "cost_type": cost_type,
-            "total_cost": total,
+            "year": snapshot["year"],
+            "month": snapshot["month"],
+            "cost_type": snapshot["cost_type"],
+            "total_cost": round(snapshot["total_cost"], 2),
             "resource_groups": [
                 {
-                    "name": rg.name,
-                    "total": round(rg.total, 2),
-                    "aks": round(rg.aks, 2),
-                    "vm": round(rg.vm, 2),
-                    "other": round(rg.other, 2),
-                    "by_resource_type": rg.by_resource_type,
+                    "name": item["name"],
+                    "total": round(item["total"], 2),
+                    "aks": round(item["aks"], 2),
+                    "vm": round(item["vm"], 2),
+                    "other": round(item["other"], 2),
+                    "by_resource_type": item["by_resource_type"],
                 }
-                for rg in rg_costs
+                for item in snapshot["resource_groups"]
             ],
         }
