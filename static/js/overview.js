@@ -532,6 +532,141 @@ function hasOverviewHistoryTimeline() {
     return Boolean(document.getElementById('overviewBuildTimeline'));
 }
 
+function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
+    if (!d?.connected) {
+        resetOverviewRenderCache();
+        _prevRunningNumbers = new Set();
+        Object.values(_activeTimers).forEach(clearInterval);
+        _activeTimers = {};
+        clearDashboard();
+        clearOverviewHistory();
+        clearOverviewTestsDuration24hChart('No tests duration data available');
+        return;
+    }
+
+    const trend = (d.build_trend || []).map(build => ({
+        ...build,
+        duration: build.duration ?? build.duration_ms ?? ((build.duration_seconds ?? 0) * 1000),
+        stages: Array.isArray(build.stages) ? build.stages : [],
+    }));
+    const metrics = _cacheOverviewMetrics(d);
+    const latestBuildTag = document.getElementById('latestBuildTag');
+
+    if (metrics.avg_duration_ms > 0) _avgDurationMs = metrics.avg_duration_ms;
+    if (latestBuildTag && metrics.last_build_number) {
+        latestBuildTag.textContent = '#' + metrics.last_build_number;
+    }
+
+    const statsSignature = JSON.stringify({
+        total_builds: metrics.total_builds,
+        successful: metrics.successful,
+        failed: metrics.failed,
+        aborted: metrics.aborted,
+        running: metrics.running,
+        success_rate: metrics.success_rate,
+        health_score: metrics.health_score,
+    });
+    if (_overviewStatsSignature !== statsSignature) {
+        if (typeof updateStatRow === 'function') {
+            updateStatRow(metrics);
+        }
+
+        updateCircle('health',       metrics.health_score, 'health-val', 'health-badge');
+        updateCircle('success-rate', metrics.success_rate, 'rate-val',   'rate-badge');
+        _overviewStatsSignature = statsSignature;
+    }
+
+    const nowRunning = new Set(trend.filter(b => b.result === null).map(b => b.number));
+    trend.filter(b => b.result !== null && _prevRunningNumbers.has(b.number))
+         .forEach(notifyBuildFinished);
+    _prevRunningNumbers = nowRunning;
+
+    const hasRunning = trend.some(build => build.result === null);
+    if (hasRunning && !_runningStagesHandle) {
+        if (hasOverviewHistoryTimeline()) {
+            _runningStagesHandle = setInterval(pollRunningStages, 2000);
+            if (eagerRunningStages) {
+                pollRunningStages();
+            }
+        }
+    } else if (!hasRunning && _runningStagesHandle) {
+        clearInterval(_runningStagesHandle);
+        _runningStagesHandle = null;
+    }
+
+    const activeBuilds = trend.filter(build => build.result === null);
+    const activeSignature = _buildListSignature(activeBuilds, { includeDuration: false });
+    if (_overviewActiveSignature !== activeSignature || metrics.running !== activeBuilds.length) {
+        updateActiveBuilds(activeBuilds.length, trend);
+        _overviewActiveSignature = activeSignature;
+    }
+
+    const now = Date.now();
+    const historyLast24h = trend
+        .filter(build => _isWithinLast24Hours(build, now))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0));
+    const finishedLast24h = trend.filter(
+        b => b.result !== null && _isWithinLast24Hours(b, now)
+    );
+    const finishedSignature = _buildListSignature(finishedLast24h);
+    if (finishedLast24h.length > 0) {
+        if (_overviewFinishedSignature !== finishedSignature) {
+            if (hasOverviewLatestBuildsChart()) renderBarChart(finishedLast24h);
+            if (hasOverviewTrendChart()) renderTrendChart(finishedLast24h);
+            _overviewFinishedSignature = finishedSignature;
+        }
+    } else {
+        if (_overviewFinishedSignature !== '__empty__') {
+            clearOverviewHistoryCharts();
+            _overviewFinishedSignature = '__empty__';
+        }
+    }
+
+    const testsDurationSignature = _buildTestsDurationSignature(d.tests_duration);
+    if (Array.isArray(d.tests_duration)) {
+        if (_overviewTestsDurationSignature !== testsDurationSignature) {
+            renderOverviewTestsDuration24hChart(d.tests_duration);
+            _overviewTestsDurationSignature = testsDurationSignature;
+        }
+    } else {
+        if (_overviewTestsDurationSignature !== '__empty__') {
+            clearOverviewTestsDuration24hChart();
+            _overviewTestsDurationSignature = '__empty__';
+        }
+    }
+
+    if (hasOverviewHistoryTimeline()) {
+        const historySignature = _buildListSignature(historyLast24h, {
+            includeStages: true,
+            includeDuration: false,
+            includeStageDurations: false,
+        });
+        if (_overviewHistorySignature !== historySignature) {
+            _overviewHistoryBuilds = historyLast24h;
+            renderOverviewHistory();
+            _overviewHistorySignature = historySignature;
+        }
+    } else {
+        if (_overviewHistorySignature !== '__empty__') {
+            clearOverviewHistory();
+            _overviewHistorySignature = '__empty__';
+        }
+    }
+}
+
+function getInitialOverviewPayload() {
+    const el = document.getElementById('overviewInitialData');
+    if (!el) return null;
+
+    try {
+        const payload = JSON.parse(el.textContent || '{}');
+        return Object.keys(payload).length ? payload : null;
+    } catch (e) {
+        console.error('Initial overview payload parse error:', e);
+        return null;
+    }
+}
+
 async function loadKPIs() {
     if (_overviewLoadInFlight) return;
     _overviewLoadInFlight = true;
@@ -539,119 +674,7 @@ async function loadKPIs() {
     try {
         const res = await fetch(document.body.dataset.kpisUrl);
         const d   = await res.json();
-        if (!d.connected) {
-            resetOverviewRenderCache();
-            _prevRunningNumbers = new Set();
-            Object.values(_activeTimers).forEach(clearInterval);
-            _activeTimers = {};
-            clearDashboard();
-            clearOverviewHistory();
-            clearOverviewTestsDuration24hChart('No tests duration data available');
-            return;
-        }
-
-        const trend = (d.build_trend || []).map(build => ({
-            ...build,
-            duration: build.duration ?? build.duration_ms ?? ((build.duration_seconds ?? 0) * 1000),
-            stages: Array.isArray(build.stages) ? build.stages : [],
-        }));
-        const metrics = _cacheOverviewMetrics(d);
-
-        if (metrics.avg_duration_ms > 0) _avgDurationMs = metrics.avg_duration_ms;
-
-        const statsSignature = JSON.stringify({
-            total_builds: metrics.total_builds,
-            successful: metrics.successful,
-            failed: metrics.failed,
-            aborted: metrics.aborted,
-            running: metrics.running,
-            success_rate: metrics.success_rate,
-            health_score: metrics.health_score,
-        });
-        if (_overviewStatsSignature !== statsSignature) {
-            if (typeof updateStatRow === 'function') {
-                updateStatRow(metrics);
-            }
-
-            updateCircle('health',       metrics.health_score, 'health-val', 'health-badge');
-            updateCircle('success-rate', metrics.success_rate, 'rate-val',   'rate-badge');
-            _overviewStatsSignature = statsSignature;
-        }
-
-        const nowRunning = new Set(trend.filter(b => b.result === null).map(b => b.number));
-        trend.filter(b => b.result !== null && _prevRunningNumbers.has(b.number))
-             .forEach(notifyBuildFinished);
-        _prevRunningNumbers = nowRunning;
-
-        const hasRunning = trend.some(build => build.result === null);
-        if (hasRunning && !_runningStagesHandle) {
-            if (hasOverviewHistoryTimeline()) {
-                _runningStagesHandle = setInterval(pollRunningStages, 2000);
-                pollRunningStages();
-            }
-        } else if (!hasRunning && _runningStagesHandle) {
-            clearInterval(_runningStagesHandle);
-            _runningStagesHandle = null;
-        }
-
-        const activeBuilds = trend.filter(build => build.result === null);
-        const activeSignature = _buildListSignature(activeBuilds, { includeDuration: false });
-        if (_overviewActiveSignature !== activeSignature || metrics.running !== activeBuilds.length) {
-            updateActiveBuilds(activeBuilds.length, trend);
-            _overviewActiveSignature = activeSignature;
-        }
-
-        const now = Date.now();
-        const historyLast24h = trend
-            .filter(build => _isWithinLast24Hours(build, now))
-            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0));
-        const finishedLast24h = trend.filter(
-            b => b.result !== null && _isWithinLast24Hours(b, now)
-        );
-        const finishedSignature = _buildListSignature(finishedLast24h);
-        if (finishedLast24h.length > 0) {
-            if (_overviewFinishedSignature !== finishedSignature) {
-                if (hasOverviewLatestBuildsChart()) renderBarChart(finishedLast24h);
-                if (hasOverviewTrendChart()) renderTrendChart(finishedLast24h);
-                _overviewFinishedSignature = finishedSignature;
-            }
-        } else {
-            if (_overviewFinishedSignature !== '__empty__') {
-                clearOverviewHistoryCharts();
-                _overviewFinishedSignature = '__empty__';
-            }
-        }
-
-        const testsDurationSignature = _buildTestsDurationSignature(d.tests_duration);
-        if (Array.isArray(d.tests_duration)) {
-            if (_overviewTestsDurationSignature !== testsDurationSignature) {
-                renderOverviewTestsDuration24hChart(d.tests_duration);
-                _overviewTestsDurationSignature = testsDurationSignature;
-            }
-        } else {
-            if (_overviewTestsDurationSignature !== '__empty__') {
-                clearOverviewTestsDuration24hChart();
-                _overviewTestsDurationSignature = '__empty__';
-            }
-        }
-
-        if (hasOverviewHistoryTimeline()) {
-            const historySignature = _buildListSignature(historyLast24h, {
-                includeStages: true,
-                includeDuration: false,
-                includeStageDurations: false,
-            });
-            if (_overviewHistorySignature !== historySignature) {
-                _overviewHistoryBuilds = historyLast24h;
-                renderOverviewHistory();
-                _overviewHistorySignature = historySignature;
-            }
-        } else {
-            if (_overviewHistorySignature !== '__empty__') {
-                clearOverviewHistory();
-                _overviewHistorySignature = '__empty__';
-            }
-        }
+        renderOverviewPayload(d);
     } catch (e) {
         console.error('KPI fetch error:', e);
     } finally {
@@ -927,7 +950,11 @@ let _runningStagesHandle = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     requestNotificationPermission();
-    checkStatus();
-    loadKPIs();
+    const initialPayload = getInitialOverviewPayload();
+    if (initialPayload) {
+        renderOverviewPayload(initialPayload, { eagerRunningStages: false });
+    } else {
+        loadKPIs();
+    }
     startPolling(2000);
 });

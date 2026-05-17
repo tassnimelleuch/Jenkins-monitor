@@ -3,7 +3,7 @@
 
 {% block title %}Overview - Jenkins Monitor{% endblock %}
 
-{% block body_attrs %}data-kpis-url="{{ url_for('overview.kpis') }}"{% endblock %}
+{% block body_attrs %}data-kpis-url="{{ url_for('overview.kpis') }}" data-page="overview"{% endblock %}
 
 {% block page_name %}Pipeline Overview{% endblock %}
 
@@ -137,6 +137,7 @@
     <div class="overview-st-status" id="overviewTipStatus"></div>
     <div class="overview-st-hint">click to open console</div>
 </div>
+<script id="overviewInitialData" type="application/json">{{ (initial_overview_kpis or {}) | tojson }}</script>
 {% endblock %}
 
 {% block extra_js %}

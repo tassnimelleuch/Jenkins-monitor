@@ -833,7 +833,7 @@ async function loadGitHubBadge() {
 document.addEventListener('DOMContentLoaded', () => {
   checkStatus();
   checkAzureStatus();
-  if (document.body.dataset.page !== 'pipeline-kpis') {
+  if (!['pipeline-kpis', 'overview'].includes(document.body.dataset.page || '')) {
     loadLatestBuild();
   }
   loadGitHubBadge();

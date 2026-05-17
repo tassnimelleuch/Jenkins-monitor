@@ -2,6 +2,7 @@ from flask import session, jsonify, render_template
 from overview import overview_bp
 from services.access_service import role_required
 from services.jenkins_service import get_overview_kpis
+from services.pipeline_storage_service import get_stored_overview_kpis
 from collectors.jenkins_collector import check_connection, get_console_log
 from services.azure_service import get_connection_status
 
@@ -11,7 +12,8 @@ def dashboard():
     return render_template(
         'overview.html',
         username=session.get('username'),
-        role=session.get('role')
+        role=session.get('role'),
+        initial_overview_kpis=get_stored_overview_kpis(),
     )
 
 
