@@ -51,6 +51,10 @@ class Config:
     JENKINS_TOKEN    = os.getenv('JENKINS_TOKEN')
     JENKINS_JOB      = os.getenv('JENKINS_JOB')
     JENKINS_BRANCH   = os.getenv('JENKINS_BRANCH', 'main')
+    PIPELINE_STORE_SELECTED_BRANCH_ONLY = os.getenv(
+        'PIPELINE_STORE_SELECTED_BRANCH_ONLY',
+        'true',
+    ).strip().lower() in ('1', 'true', 'yes', 'on')
 
     AZURE_SUBSCRIPTION_ID = os.getenv('AZURE_SUBSCRIPTION_ID')
     AKS_RESOURCE_GROUP    = os.getenv('AKS_RESOURCE_GROUP')
@@ -76,7 +80,19 @@ class Config:
     OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')
     OLLAMA_CHAT_ENDPOINT = os.getenv('OLLAMA_CHAT_ENDPOINT', '/api/chat')
     OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen')
+    OLLAMA_EMBED_ENDPOINT = os.getenv('OLLAMA_EMBED_ENDPOINT', '/api/embed')
+    OLLAMA_EMBED_MODEL = os.getenv('OLLAMA_EMBED_MODEL') or OLLAMA_MODEL
     OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', '60'))
+    CHROMA_PERSIST_DIR = os.getenv(
+        'CHROMA_PERSIST_DIR',
+        os.path.join(os.getcwd(), '.chroma'),
+    )
+    FINOPS_CHROMA_COLLECTION = os.getenv(
+        'FINOPS_CHROMA_COLLECTION',
+        'finops_daily_analysis',
+    )
+    FINOPS_CHUNK_SIZE = int(os.getenv('FINOPS_CHUNK_SIZE', '900'))
+    FINOPS_CHUNK_OVERLAP = int(os.getenv('FINOPS_CHUNK_OVERLAP', '120'))
 
     CACHE_TYPE = "RedisCache"
     CACHE_REDIS_HOST = "127.0.0.1"

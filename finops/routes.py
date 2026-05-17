@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from flask import Blueprint, jsonify, render_template, request, session
 
@@ -12,6 +12,15 @@ from services.finops_storage_service import (
     get_finops_daily_cost_chart,
     get_finops_resource_group_costs,
     refresh_finops_month,
+)
+from services.finops_build_documents_service import (
+    get_finops_build_document,
+    list_finops_build_documents,
+    sync_finops_build_documents,
+)
+from services.finops_chroma_service import (
+    get_finops_chroma_status,
+    sync_finops_documents_to_chroma,
 )
 from services.access_service import role_required
 
@@ -45,6 +54,15 @@ def _make_service():
         return None, None
     provider = AzureCostProvider(subscription_id=subscription_id)
     return FinOpsService(provider), subscription_id
+
+
+def _parse_iso_date(value, field_name):
+    if value in (None, ''):
+        return None
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError as exc:
+        raise ValueError(f"Invalid {field_name}. Expected YYYY-MM-DD.") from exc
 
 
 def _delete_finops_keys():
@@ -235,3 +253,102 @@ def list_cache_keys():
 
     keys_info.sort(key=lambda x: x["key"])
     return jsonify({"count": len(keys_info), "keys": keys_info}), 200
+
+
+@finops_bp.route("/api/finops/build-documents", methods=["GET"])
+@role_required("admin")
+def finops_build_documents():
+    document_date = request.args.get("date")
+    limit = request.args.get("limit", default=30, type=int)
+
+    try:
+        if document_date:
+            target_date = _parse_iso_date(document_date, "date")
+            row = get_finops_build_document(target_date)
+            if row is None:
+                return jsonify({"error": "No stored FinOps analysis document was found for that date."}), 404
+
+            return jsonify({
+                "document": {
+                    "id": row.id,
+                    "usage_date": row.usage_date.isoformat(),
+                    "pipeline_name": row.pipeline_name,
+                    "pipeline_job_path": row.pipeline_job_path,
+                    "currency_code": row.currency_code,
+                    "title": row.title,
+                    "content": row.content,
+                    "tags": (row.summary or {}).get("tags", []),
+                    "summary": row.summary or {},
+                    "last_generated_at": row.last_generated_at.isoformat() if row.last_generated_at else None,
+                }
+            })
+
+        rows = list_finops_build_documents(limit=limit)
+        return jsonify({
+            "count": len(rows),
+            "documents": [
+                {
+                    "id": row.id,
+                    "usage_date": row.usage_date.isoformat(),
+                    "pipeline_name": row.pipeline_name,
+                    "pipeline_job_path": row.pipeline_job_path,
+                    "currency_code": row.currency_code,
+                    "title": row.title,
+                    "tags": (row.summary or {}).get("tags", []),
+                    "summary": row.summary or {},
+                    "last_generated_at": row.last_generated_at.isoformat() if row.last_generated_at else None,
+                }
+                for row in rows
+            ],
+        })
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@finops_bp.route("/api/finops/build-documents/refresh", methods=["POST"])
+@role_required("admin")
+def refresh_finops_build_documents():
+    body = request.get_json(silent=True) or {}
+
+    try:
+        result = sync_finops_build_documents(
+            target_date=_parse_iso_date(body.get("date"), "date"),
+            start_date=_parse_iso_date(body.get("start_date"), "start_date"),
+            end_date=_parse_iso_date(body.get("end_date"), "end_date"),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"FinOps analysis document sync failed ({type(exc).__name__}): {exc}"}), 500
+
+    return jsonify(result), 200
+
+
+@finops_bp.route("/api/finops/build-documents/chroma/status", methods=["GET"])
+@role_required("admin")
+def finops_build_documents_chroma_status():
+    status = get_finops_chroma_status()
+    status_code = 200 if status.get('chromadb_installed') else 503
+    return jsonify(status), status_code
+
+
+@finops_bp.route("/api/finops/build-documents/chroma/sync", methods=["POST"])
+@role_required("admin")
+def sync_finops_build_documents_chroma():
+    body = request.get_json(silent=True) or {}
+
+    try:
+        result = sync_finops_documents_to_chroma(
+            target_date=_parse_iso_date(body.get("date"), "date"),
+            start_date=_parse_iso_date(body.get("start_date"), "start_date"),
+            end_date=_parse_iso_date(body.get("end_date"), "end_date"),
+            rebuild=bool(body.get("rebuild", False)),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 502
+    except Exception as exc:
+        return jsonify({"error": f"Chroma sync failed ({type(exc).__name__}): {exc}"}), 500
+
+    return jsonify(result), 200

@@ -146,3 +146,43 @@ class FinOpsSyncState(db.Model):
         default=_utcnow,
         onupdate=_utcnow,
     )
+
+
+class FinOpsBuildDocument(db.Model):
+    __tablename__ = 'finops_builds_documents'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'subscription_id',
+            'usage_date',
+            'pipeline_job_path',
+            name='uq_finops_build_document_scope',
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    subscription_id = db.Column(db.String(64), nullable=False, default='', index=True)
+    usage_date = db.Column(db.Date, nullable=False, index=True)
+    pipeline_job_path = db.Column(db.String(512), nullable=False, default='', index=True)
+    pipeline_name = db.Column(db.String(255), nullable=False, default='Jenkins Pipeline')
+    currency_code = db.Column(db.String(16), nullable=False, default='USD')
+    title = db.Column(db.String(255), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    summary = db.Column(db.JSON, nullable=False, default=dict)
+    source_system = db.Column(
+        db.String(32),
+        nullable=False,
+        default='finops_builds_rag',
+    )
+    last_generated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        index=True,
+    )
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+    )

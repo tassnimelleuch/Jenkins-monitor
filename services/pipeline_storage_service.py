@@ -260,6 +260,10 @@ def _selected_branch_from_config():
     return branch or 'main'
 
 
+def _store_selected_branch_only():
+    return bool(current_app.config.get('PIPELINE_STORE_SELECTED_BRANCH_ONLY', True))
+
+
 def _pipeline_job_path_from_config():
     normalized = _normalize_job_path(current_app.config.get('JENKINS_JOB'))
     if not normalized:
@@ -793,10 +797,22 @@ def _sync_build_stages(build_row, stages):
             db.session.delete(row)
 
 
+def _branches_payload_for_storage(branches_payload, selected_branch):
+    payload = dict(branches_payload or {})
+    if not payload or not _store_selected_branch_only():
+        return payload
+
+    clean_selected_branch = (selected_branch or '').strip()
+    if clean_selected_branch and clean_selected_branch in payload:
+        return {
+            clean_selected_branch: payload[clean_selected_branch],
+        }
+
+    return payload
+
+
 def _sync_branch_builds(branch_row, branch_payload):
     prepared = _prepare_branch_build_payloads(branch_payload)
-    if not prepared:
-        return
 
     PipelineBranchBuild.query.filter_by(branch_id=branch_row.id).update(
         {
@@ -809,11 +825,14 @@ def _sync_branch_builds(branch_row, branch_payload):
     build_numbers = list(prepared.keys())
     existing = {
         row.build_number: row
-        for row in PipelineBranchBuild.query.filter(
-            PipelineBranchBuild.branch_id == branch_row.id,
-            PipelineBranchBuild.build_number.in_(build_numbers),
-        ).all()
+        for row in PipelineBranchBuild.query.filter_by(branch_id=branch_row.id).all()
     }
+
+    for build_number, row in list(existing.items()):
+        if build_number in prepared:
+            continue
+        db.session.delete(row)
+        existing.pop(build_number, None)
 
     for build_number, payload in prepared.items():
         row = existing.get(build_number)
@@ -850,6 +869,7 @@ def sync_pipeline_snapshot(payload):
 
     now = _utcnow()
     selected_branch = pipeline_payload.get('selected_branch') or _selected_branch_from_config()
+    branches_payload = _branches_payload_for_storage(branches_payload, selected_branch)
     job_path = _pipeline_job_path_from_config()
 
     try:
@@ -874,6 +894,13 @@ def sync_pipeline_snapshot(payload):
             row.name: row
             for row in PipelineBranch.query.filter_by(pipeline_id=pipeline_row.id).all()
         }
+        incoming_branch_names = set(branches_payload)
+
+        for branch_name, row in list(existing_branches.items()):
+            if branch_name in incoming_branch_names:
+                continue
+            db.session.delete(row)
+            existing_branches.pop(branch_name, None)
 
         for branch_name, branch_payload in branches_payload.items():
             row = existing_branches.get(branch_name)

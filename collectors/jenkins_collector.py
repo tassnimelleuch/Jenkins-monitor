@@ -148,17 +148,25 @@ def check_connection():
         return False
 
 def get_all_builds(branch_name=None):
-    try:
-        resp = requests.get(
-            f'{_get_base(branch_name=branch_name)}/api/json?tree=builds[number,status,timestamp,duration,result]',
-            auth=_get_auth(),
-            timeout=10
-        )
-        resp.raise_for_status()
-        return resp.json().get('builds', [])
-    except Exception as e:
-        logger.error(f'[Jenkins] get_all_builds error: {e}')
-        return None
+    base = _get_base(branch_name=branch_name)
+
+    data = _get_json(
+        f'{base}/api/json?tree=allBuilds[number,status,timestamp,duration,result]',
+        timeout=10,
+    )
+    if isinstance(data, dict) and isinstance(data.get('allBuilds'), list):
+        return data.get('allBuilds', [])
+
+    data = _get_json(
+        f'{base}/api/json?tree=builds[number,status,timestamp,duration,result]',
+        timeout=10,
+    )
+    if isinstance(data, dict) and isinstance(data.get('builds'), list):
+        logger.warning('[Jenkins] Falling back to builds[] because allBuilds[] is unavailable.')
+        return data.get('builds', [])
+
+    logger.error('[Jenkins] get_all_builds error: no usable builds payload was returned.')
+    return None
 
 
 def _serialize_branch_build(build, branch_name):

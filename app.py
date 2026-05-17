@@ -32,11 +32,20 @@ app.secret_key = app.config['SECRET_KEY']
 from alerts_models import PersistentAlert
 from auth_models import UserAccount
 from finops_models import (
+    FinOpsBuildDocument,
     FinOpsDailyCost,
     FinOpsResourceGroupMonthlyCost,
     FinOpsSyncState,
 )
-from pipeline_storage_models import PipelineBuildDuration, PipelineStageDuration
+from pipeline_storage_models import (
+    PipelineBranch,
+    PipelineBranchBuild,
+    PipelineBranchBuildStage,
+    PipelineBranchStageKpi,
+    PipelineBuildDuration,
+    PipelineDefinition,
+    PipelineStageDuration,
+)
 with app.app_context():
     db.create_all()
     ensure_user_preference_columns()

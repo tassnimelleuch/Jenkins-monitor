@@ -20,7 +20,6 @@ from services.pipeline_storage_service import (
     get_overview_kpis_from_stored_pipeline,
     get_stored_pipeline_kpis,
     get_stored_overview_kpis,
-    sync_pipeline_durations,
     sync_pipeline_snapshot,
     warm_pipeline_snapshot_cache,
 )
@@ -694,7 +693,6 @@ def refresh_pipeline_storage_from_jenkins():
         test_report_fetcher=lambda n: _run_in_app_context(app, lambda: get_test_report(n)),
     )
 
-    sync_pipeline_durations(selected_payload.get('builds') or [])
     warm_pipeline_snapshot_cache()
     _cache_pipeline_head_from_payload(payload)
     return payload
