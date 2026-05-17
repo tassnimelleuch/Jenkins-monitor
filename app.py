@@ -13,6 +13,7 @@ from ecoops import ecoops_bp
 from settings import settings_bp
 from chatbot import chatbot_bp
 from extensions import cache, db
+from pipeline_identity import configured_branch_name, pipeline_name
 from services.user_account_service import (
     ensure_user_preference_columns,
     ensure_admin_account,
@@ -39,15 +40,13 @@ from finops_models import (
 )
 from pipeline_storage_models import (
     PipelineBranch,
-    PipelineBranchBuild,
-    PipelineBranchBuildStage,
-    PipelineBranchStageKpi,
-    PipelineBuildDuration,
-    PipelineDefinition,
-    PipelineStageDuration,
+    PipelineMainBuild,
+    PipelineMainBuildStage,
+    ensure_pipeline_storage_schema,
 )
 with app.app_context():
     db.create_all()
+    ensure_pipeline_storage_schema()
     ensure_user_preference_columns()
     ensure_admin_account()
 
@@ -64,22 +63,6 @@ app.register_blueprint(ecoops_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(chatbot_bp)
 
-
-def _display_pipeline_name(job_path, branch_name=None):
-    raw_job = (job_path or '').strip().strip('/')
-    if not raw_job:
-        return 'Jenkins Pipeline'
-
-    normalized = raw_job.replace('/job/', '/')
-    if normalized.startswith('job/'):
-        normalized = normalized[4:]
-
-    parts = [part for part in normalized.split('/') if part]
-    if branch_name and len(parts) > 1 and parts[-1] == branch_name:
-        parts = parts[:-1]
-    return parts[-1] if parts else raw_job
-
-
 @app.route('/')
 def home():
     if session.get('username'):
@@ -93,7 +76,7 @@ def home():
 
 @app.context_processor
 def inject_pending_count():
-    branch_name = (app.config.get('JENKINS_BRANCH') or 'main').strip() or 'main'
+    branch_name = configured_branch_name(app.config, default='main')
     current_user = None
     current_role = session.get('role')
     if session.get('username'):
@@ -102,7 +85,7 @@ def inject_pending_count():
             current_role = normalize_role(current_user.role)
             session['role'] = current_role
     context = {
-        'pipeline_name': _display_pipeline_name(app.config.get('JENKINS_JOB'), branch_name),
+        'pipeline_name': pipeline_name(app.config.get('JENKINS_JOB'), branch_name=branch_name),
         'branch_name': branch_name,
         'has_role': lambda *roles, role=current_role: role_matches(role, roles),
         'user_preferences': get_user_preferences(current_user),

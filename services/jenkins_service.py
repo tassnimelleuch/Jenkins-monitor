@@ -5,14 +5,13 @@ from collectors.jenkins_collector import (
     get_all_builds,
     get_branch_jobs,
     get_selected_branch_build_head,
-    get_last_n_finished,
-    get_running_builds,
     get_health_score,
     get_stages,
     get_coverage_percent,
     get_test_report,
 )
 from flask import current_app
+from pipeline_identity import configured_branch_name, pipeline_name
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import (
     backfill_branch_test_results,
@@ -39,37 +38,16 @@ _pipeline_refresh_lock = threading.Lock()
 _pipeline_refresh_in_progress = False
 
 
-def _stage_status_map(stages):
+def _map_stage_statuses(stages):
     return {
         (s.get('name') or '').strip(): (s.get('status') or '').strip().upper()
         for s in (stages or [])
     }
 
 
-def _run_in_app_context(app, func):
+def _call_in_app_context(app, func):
     with app.app_context():
         return func()
-
-
-def _get_selected_branch_name():
-    branch = (current_app.config.get('JENKINS_BRANCH') or 'main').strip().strip('/')
-    return branch or 'main'
-
-
-def _get_pipeline_name(branch_name=None):
-    raw_job = (current_app.config.get('JENKINS_JOB') or '').strip().strip('/')
-    if not raw_job:
-        return 'Jenkins Pipeline'
-
-    normalized = raw_job.replace('/job/', '/')
-    if normalized.startswith('job/'):
-        normalized = normalized[4:]
-
-    parts = [part for part in normalized.split('/') if part]
-    branch = branch_name or _get_selected_branch_name()
-    if branch and len(parts) > 1 and parts[-1] == branch:
-        parts = parts[:-1]
-    return parts[-1] if parts else raw_job
 
 
 def _snapshot_is_stale(timestamp, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS, now=None):
@@ -84,14 +62,14 @@ def _snapshot_is_stale(timestamp, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SE
     return current_time - snapshot_time >= timedelta(seconds=max_age_seconds)
 
 
-def _selected_branch_data(payload):
+def _get_selected_branch_snapshot(payload):
     pipeline = payload.get('pipeline') or {}
     selected_branch = pipeline.get('selected_branch')
     branches = payload.get('branches') or {}
     return selected_branch, (branches.get(selected_branch) or {})
 
 
-def _build_identity(build):
+def _build_snapshot_key(build):
     build = build or {}
     return (
         build.get('number'),
@@ -100,13 +78,13 @@ def _build_identity(build):
     )
 
 
-def _pipeline_head_has_changed(stored_payload, live_head):
+def _selected_branch_head_changed(stored_payload, live_head):
     if not stored_payload:
         return True
     if not live_head:
         return False
 
-    _, branch_payload = _selected_branch_data(stored_payload)
+    _, branch_payload = _get_selected_branch_snapshot(stored_payload)
     if not branch_payload:
         return True
 
@@ -114,13 +92,13 @@ def _pipeline_head_has_changed(stored_payload, live_head):
     stored_last_completed = branch_payload.get('last_completed_build') or {}
 
     return (
-        _build_identity(stored_last_build) != _build_identity(live_head.get('last_build'))
-        or _build_identity(stored_last_completed)
-        != _build_identity(live_head.get('last_completed_build'))
+        _build_snapshot_key(stored_last_build) != _build_snapshot_key(live_head.get('last_build'))
+        or _build_snapshot_key(stored_last_completed)
+        != _build_snapshot_key(live_head.get('last_completed_build'))
     )
 
 
-def _find_branch_build(branch_payload, build_number):
+def _find_build_in_branch_payload(branch_payload, build_number):
     if build_number is None:
         return None
 
@@ -134,7 +112,7 @@ def _find_branch_build(branch_payload, build_number):
     )
 
 
-def _find_branch_trend_item(branch_payload, trend_name, build_number):
+def _find_branch_trend_point(branch_payload, trend_name, build_number):
     if build_number is None:
         return None
 
@@ -149,7 +127,7 @@ def _find_branch_trend_item(branch_payload, trend_name, build_number):
     )
 
 
-def _build_expects_test_artifacts(build_payload):
+def _build_has_test_related_stages(build_payload):
     for stage in build_payload.get('stages') or []:
         stage_name = (stage.get('name') or '').strip().lower()
         if any(marker in stage_name for marker in ('pytest', 'test', 'pylint', 'sonar')):
@@ -157,15 +135,15 @@ def _build_expects_test_artifacts(build_payload):
     return False
 
 
-def _build_requires_artifact_refresh(branch_payload, build_number):
-    build_payload = _find_branch_build(branch_payload, build_number)
+def _build_needs_artifact_refresh(branch_payload, build_number):
+    build_payload = _find_build_in_branch_payload(branch_payload, build_number)
     if not build_payload:
         return False
 
     if build_payload.get('result') is None:
         return not bool(build_payload.get('stages'))
 
-    if not _build_expects_test_artifacts(build_payload):
+    if not _build_has_test_related_stages(build_payload):
         return False
 
     has_coverage = build_payload.get('coverage_percent') is not None
@@ -174,8 +152,8 @@ def _build_requires_artifact_refresh(branch_payload, build_number):
         for key in ('junit_total', 'junit_passed', 'junit_failed', 'junit_skipped')
     )
 
-    coverage_item = _find_branch_trend_item(branch_payload, 'coverage', build_number) or {}
-    junit_item = _find_branch_trend_item(branch_payload, 'junit', build_number) or {}
+    coverage_item = _find_branch_trend_point(branch_payload, 'coverage', build_number) or {}
+    junit_item = _find_branch_trend_point(branch_payload, 'junit', build_number) or {}
 
     has_coverage = has_coverage or coverage_item.get('coverage') is not None
     has_junit = has_junit or any(
@@ -186,29 +164,28 @@ def _build_requires_artifact_refresh(branch_payload, build_number):
     return not has_coverage or not has_junit
 
 
-def _stored_payload_requires_refresh(stored_payload, live_head):
-    if not stored_payload or not live_head:
+def _stored_payload_needs_artifact_refresh(stored_payload):
+    if not stored_payload:
         return True
 
-    _, branch_payload = _selected_branch_data(stored_payload)
+    _, branch_payload = _get_selected_branch_snapshot(stored_payload)
     if not branch_payload:
         return True
 
     return any(
-        _build_requires_artifact_refresh(branch_payload, build.get('number'))
+        _build_needs_artifact_refresh(branch_payload, build.get('number'))
         for build in (branch_payload.get('builds') or [])
         if build.get('number') is not None
     )
 
 
-def _get_cached_pipeline_head(force=False):
+def _get_cached_selected_branch_head():
     now = datetime.now(timezone.utc)
     with _pipeline_head_cache_lock:
         checked_at = _pipeline_head_cache.get('checked_at')
         cached_head = _pipeline_head_cache.get('head')
         if (
-            not force
-            and checked_at is not None
+            checked_at is not None
             and not _snapshot_is_stale(checked_at, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS, now=now)
         ):
             return cached_head
@@ -222,8 +199,8 @@ def _get_cached_pipeline_head(force=False):
     return live_head
 
 
-def _cache_pipeline_head_from_payload(payload):
-    selected_branch, branch_payload = _selected_branch_data(payload)
+def _cache_selected_branch_head(payload):
+    selected_branch, branch_payload = _get_selected_branch_snapshot(payload)
     if not selected_branch or not branch_payload:
         return
 
@@ -238,16 +215,16 @@ def _cache_pipeline_head_from_payload(payload):
         }
 
 
-def _run_async_pipeline_refresh(app, stored_payload=None):
+def _refresh_pipeline_storage_in_background(app, stored_payload=None):
     global _pipeline_refresh_in_progress
 
     try:
         with app.app_context():
             if stored_payload is not None:
-                live_head = _get_cached_pipeline_head()
+                live_head = _get_cached_selected_branch_head()
                 if (
-                    not _pipeline_head_has_changed(stored_payload, live_head)
-                    and not _stored_payload_requires_refresh(stored_payload, live_head)
+                    not _selected_branch_head_changed(stored_payload, live_head)
+                    and not _stored_payload_needs_artifact_refresh(stored_payload)
                 ):
                     return
 
@@ -259,7 +236,7 @@ def _run_async_pipeline_refresh(app, stored_payload=None):
             _pipeline_refresh_in_progress = False
 
 
-def _start_async_pipeline_refresh(stored_payload=None):
+def _start_background_pipeline_refresh(stored_payload=None):
     global _pipeline_refresh_in_progress
 
     with _pipeline_refresh_lock:
@@ -269,7 +246,7 @@ def _start_async_pipeline_refresh(stored_payload=None):
 
     app = current_app._get_current_object()
     thread = threading.Thread(
-        target=_run_async_pipeline_refresh,
+        target=_refresh_pipeline_storage_in_background,
         args=(app, stored_payload),
         daemon=True,
         name='pipeline-refresh',
@@ -278,21 +255,20 @@ def _start_async_pipeline_refresh(stored_payload=None):
     return True
 
 
-def _schedule_pipeline_refresh_if_due(stored_payload):
+def _schedule_background_refresh_if_needed(stored_payload):
     with _pipeline_head_cache_lock:
         checked_at = _pipeline_head_cache.get('checked_at')
-        cached_head = _pipeline_head_cache.get('head')
 
-    if _stored_payload_requires_refresh(stored_payload, cached_head):
-        return _start_async_pipeline_refresh(stored_payload=stored_payload)
+    if _stored_payload_needs_artifact_refresh(stored_payload):
+        return _start_background_pipeline_refresh(stored_payload=stored_payload)
 
     if not _snapshot_is_stale(checked_at, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS):
         return False
 
-    return _start_async_pipeline_refresh(stored_payload=stored_payload)
+    return _start_background_pipeline_refresh(stored_payload=stored_payload)
 
 
-def _serialize_build(build, branch_name):
+def _build_summary_payload(build, branch_name):
     duration_seconds = build.get('duration_seconds')
     if duration_seconds is None:
         duration_seconds = build.get('duration')
@@ -309,6 +285,7 @@ def _serialize_build(build, branch_name):
     return {
         'branch': branch_name,
         'number': build.get('number'),
+        'status': build.get('status'),
         'result': build.get('result'),
         'duration_seconds': duration_seconds,
         'duration_ms': duration_ms,
@@ -316,20 +293,20 @@ def _serialize_build(build, branch_name):
     }
 
 
-def _serialize_detailed_build(build, branch_name):
-    payload = _serialize_build(build, branch_name)
+def _build_detail_payload(build, branch_name):
+    payload = _build_summary_payload(build, branch_name)
     payload['stages'] = build.get('stages', [])
     return payload
 
 
-def _branch_status(color):
+def _branch_status_payload(color):
     return {
         'color': color,
         'building': 'anime' in (color or ''),
     }
 
 
-def _selected_branch_payload(
+def _build_selected_branch_payload(
     branch_name,
     summary,
     health_score,
@@ -343,8 +320,8 @@ def _selected_branch_payload(
     deployment_frequency,
 ):
     finished = [b for b in builds_data if b.get('result') is not None]
-    api_builds = [_serialize_detailed_build(b, branch_name) for b in builds_data]
-    trend_builds = [_serialize_build(b, branch_name) for b in builds_data]
+    detailed_builds = [_build_detail_payload(b, branch_name) for b in builds_data]
+    trend_builds = [_build_summary_payload(b, branch_name) for b in builds_data]
     return {
         'name': branch_name,
         'selected': True,
@@ -360,12 +337,12 @@ def _selected_branch_payload(
             'avg_duration_ms': summary['avg_duration_ms'],
             'avg_duration_seconds': avg_duration,
         },
-        'status': _branch_status(None),
-        'last_build': _serialize_build(api_builds[0], branch_name) if api_builds else None,
+        'status': _branch_status_payload(None),
+        'last_build': _build_summary_payload(builds_data[0], branch_name) if builds_data else None,
         'last_completed_build': (
-            _serialize_build(finished[0], branch_name) if finished else None
+            _build_summary_payload(finished[0], branch_name) if finished else None
         ),
-        'builds': api_builds,
+        'builds': detailed_builds,
         'trends': {
             'builds': trend_builds,
             'durations': [
@@ -393,7 +370,7 @@ def _selected_branch_payload(
     }
 
 
-def _branch_overview_payload(branch, selected_branch_name):
+def _build_branch_overview_payload(branch, selected_branch_name):
     name = branch.get('name')
     return {
         'name': name,
@@ -405,7 +382,7 @@ def _branch_overview_payload(branch, selected_branch_name):
                 (branch.get('last_completed_build') or {}).get('number')
             ),
         },
-        'status': _branch_status(branch.get('color')),
+        'status': _branch_status_payload(branch.get('color')),
         'last_build': branch.get('last_build'),
         'last_completed_build': branch.get('last_completed_build'),
         'links': {
@@ -414,11 +391,11 @@ def _branch_overview_payload(branch, selected_branch_name):
     }
 
 
-def _summarize_builds(all_builds):
+def _summarize_build_history(all_builds):
     last_build_number = all_builds[0].get('number') if all_builds else None
 
-    finished = get_last_n_finished(None, builds=all_builds)
-    running_lst = get_running_builds(builds=all_builds)
+    finished = [build for build in all_builds if build.get('result') is not None]
+    running_lst = [build for build in all_builds if build.get('result') is None]
 
     successful = sum(1 for b in finished if b.get('result') == 'SUCCESS')
     failed = sum(1 for b in finished if b.get('result') == 'FAILURE')
@@ -445,12 +422,12 @@ def _summarize_builds(all_builds):
     }
 
 
-def _collect_overview_kpis_from_jenkins():
+def _fetch_overview_kpis_from_jenkins():
     all_builds = get_all_builds()
     if all_builds is None:
         return {'connected': False}
 
-    summary = _summarize_builds(all_builds)
+    summary = _summarize_build_history(all_builds)
 
     return {
         'connected': True,
@@ -467,18 +444,18 @@ def _collect_overview_kpis_from_jenkins():
     }
 
 
-def _collect_pipeline_kpis_from_jenkins():
-    selected_branch = _get_selected_branch_name()
+def _fetch_pipeline_kpis_from_jenkins():
+    selected_branch = configured_branch_name(current_app.config, default='main')
     all_builds = get_all_builds()
     if all_builds is None:
         return {'connected': False}
 
-    summary = _summarize_builds(all_builds)
+    summary = _summarize_build_history(all_builds)
     app = current_app._get_current_object()
 
     stage_tasks = {
         b.get('number'): (
-            lambda n=b.get('number'): _run_in_app_context(app, lambda: get_stages(n))
+            lambda n=b.get('number'): _call_in_app_context(app, lambda: get_stages(n))
         )
         for b in all_builds
         if b.get('number')
@@ -496,6 +473,7 @@ def _collect_pipeline_kpis_from_jenkins():
         builds_data.append({
             'branch': selected_branch,
             'number': num,
+            'status': b.get('status'),
             'result': b.get('result'),
             'duration': b.get('duration', 0) // 1000 if b.get('duration') else 0,
             'duration_ms': b.get('duration', 0) or 0,
@@ -532,14 +510,14 @@ def _collect_pipeline_kpis_from_jenkins():
 
     coverage_tasks = {
         b.get('number'): (
-            lambda n=b.get('number'): _run_in_app_context(app, lambda: get_coverage_percent(n))
+            lambda n=b.get('number'): _call_in_app_context(app, lambda: get_coverage_percent(n))
         )
         for b in coverage_builds
         if b.get('number')
     }
     test_report_tasks = {
         b.get('number'): (
-            lambda n=b.get('number'): _run_in_app_context(app, lambda: get_test_report(n))
+            lambda n=b.get('number'): _call_in_app_context(app, lambda: get_test_report(n))
         )
         for b in junit_builds
         if b.get('number')
@@ -596,7 +574,7 @@ def _collect_pipeline_kpis_from_jenkins():
     total_finished_builds = len(finished)
 
     for b in finished:
-        stage_map = _stage_status_map(b.get('stages', []))
+        stage_map = _map_stage_statuses(b.get('stages', []))
         deploy_ok = stage_map.get(DEPLOY_STAGE) == 'SUCCESS'
         rollout_ok = stage_map.get(ROLLOUT_STAGE) == 'SUCCESS'
 
@@ -614,7 +592,7 @@ def _collect_pipeline_kpis_from_jenkins():
         'rate': deployment_rate,
     }
 
-    current_branch_payload = _selected_branch_payload(
+    current_branch_payload = _build_selected_branch_payload(
         branch_name=selected_branch,
         summary=summary,
         health_score=health_score,
@@ -642,7 +620,7 @@ def _collect_pipeline_kpis_from_jenkins():
             name = branch.get('name')
             if not name:
                 continue
-            ordered_branches[name] = _branch_overview_payload(branch, selected_branch)
+            ordered_branches[name] = _build_branch_overview_payload(branch, selected_branch)
 
         selected_overview = ordered_branches.get(selected_branch, {})
         ordered_branches[selected_branch] = {
@@ -668,7 +646,10 @@ def _collect_pipeline_kpis_from_jenkins():
     return {
         'connected': True,
         'pipeline': {
-            'name': _get_pipeline_name(selected_branch),
+            'name': pipeline_name(
+                current_app.config.get('JENKINS_JOB'),
+                branch_name=selected_branch,
+            ),
             'type': 'multibranch' if branch_jobs else 'single-branch',
             'selected_branch': selected_branch,
         },
@@ -677,7 +658,7 @@ def _collect_pipeline_kpis_from_jenkins():
 
 
 def refresh_pipeline_storage_from_jenkins():
-    payload = _collect_pipeline_kpis_from_jenkins()
+    payload = _fetch_pipeline_kpis_from_jenkins()
     if not payload.get('connected'):
         return payload
 
@@ -689,19 +670,19 @@ def refresh_pipeline_storage_from_jenkins():
     backfill_branch_test_results(
         selected_branch,
         selected_payload.get('builds') or [],
-        coverage_fetcher=lambda n: _run_in_app_context(app, lambda: get_coverage_percent(n)),
-        test_report_fetcher=lambda n: _run_in_app_context(app, lambda: get_test_report(n)),
+        coverage_fetcher=lambda n: _call_in_app_context(app, lambda: get_coverage_percent(n)),
+        test_report_fetcher=lambda n: _call_in_app_context(app, lambda: get_test_report(n)),
     )
 
     warm_pipeline_snapshot_cache()
-    _cache_pipeline_head_from_payload(payload)
+    _cache_selected_branch_head(payload)
     return payload
 
 
-def get_kpis():
+def get_overview_kpis():
     stored_pipeline = get_stored_pipeline_kpis()
     if stored_pipeline:
-        _schedule_pipeline_refresh_if_due(stored_pipeline)
+        _schedule_background_refresh_if_needed(stored_pipeline)
         stored_overview = get_stored_overview_kpis()
         if stored_overview:
             return stored_overview
@@ -719,13 +700,13 @@ def get_kpis():
         if overview:
             return overview
 
-    return _collect_overview_kpis_from_jenkins()
+    return _fetch_overview_kpis_from_jenkins()
 
 
 def get_pipeline_kpis():
     stored = get_stored_pipeline_kpis()
     if stored:
-        _schedule_pipeline_refresh_if_due(stored)
+        _schedule_background_refresh_if_needed(stored)
         return stored
 
     live = refresh_pipeline_storage_from_jenkins()

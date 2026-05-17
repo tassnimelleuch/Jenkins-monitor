@@ -5,11 +5,16 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 
 from flask import current_app
+from pipeline_identity import (
+    configured_pipeline_job_path,
+    normalize_job_path,
+    pipeline_name as resolve_pipeline_name,
+)
 from sqlalchemy.orm import selectinload
 
 from extensions import db
 from finops_models import FinOpsBuildDocument, FinOpsDailyCost
-from pipeline_storage_models import PipelineBranch, PipelineBranchBuild, PipelineDefinition
+from pipeline_storage_models import PipelineBranch, PipelineMainBuild
 from services.pipeline_storage_service import build_tests_duration_points
 
 
@@ -20,49 +25,25 @@ def _utcnow():
 def _to_float(value) -> float:
     return round(float(value or 0.0), 4)
 
-
-def _normalize_job_path(job_path):
-    raw_job = (job_path or '').strip().strip('/')
-    if not raw_job:
-        return ''
-
-    normalized = raw_job.replace('/job/', '/')
-    if normalized.startswith('job/'):
-        normalized = normalized[4:]
-
-    return '/'.join(part for part in normalized.split('/') if part)
-
-
-def _pipeline_job_path_from_config():
-    normalized = _normalize_job_path(current_app.config.get('JENKINS_JOB'))
-    if not normalized:
-        return ''
-
-    parts = [part for part in normalized.split('/') if part]
-    branch = (current_app.config.get('JENKINS_BRANCH') or 'main').strip().strip('/')
-    if branch and len(parts) > 1 and parts[-1] == branch:
-        parts = parts[:-1]
-    return '/'.join(parts)
-
-
-def _pipeline_name_from_job_path(job_path):
-    if not job_path:
-        return 'Jenkins Pipeline'
-    return job_path.split('/')[-1]
-
-
 def _resolve_subscription_id(subscription_id=None):
     return str(subscription_id or current_app.config.get('AZURE_SUBSCRIPTION_ID') or '').strip()
 
 
-def _resolve_pipeline_definition(pipeline_job_path=None):
-    clean_job_path = _normalize_job_path(pipeline_job_path) or _pipeline_job_path_from_config()
-    query = PipelineDefinition.query.filter_by(source_system='jenkins')
-    if clean_job_path:
-        row = query.filter_by(job_path=clean_job_path).one_or_none()
-        if row is not None:
-            return row
-    return query.order_by(PipelineDefinition.last_synced_at.desc()).first()
+def _resolve_pipeline_context(pipeline_job_path=None):
+    resolved_job_path = normalize_job_path(pipeline_job_path) or configured_pipeline_job_path(
+        current_app.config,
+        default_branch='main',
+    )
+    primary_branch = (
+        PipelineBranch.query
+        .order_by(PipelineBranch.is_primary.desc(), PipelineBranch.name.asc())
+        .first()
+    )
+    return {
+        'job_path': resolved_job_path,
+        'name': resolve_pipeline_name(resolved_job_path),
+        'branch_name': primary_branch.name if primary_branch is not None else 'main',
+    }
 
 
 def _normalize_date_input(value):
@@ -116,13 +97,11 @@ def _load_cost_date_candidates(subscription_id, start_date=None, end_date=None):
     return {row.usage_date for row in query.all() if row.usage_date is not None}
 
 
-def _load_build_date_candidates(branch_ids, start_date=None, end_date=None):
-    if not branch_ids:
+def _load_build_date_candidates(branch_name, start_date=None, end_date=None):
+    if not branch_name:
         return set()
 
-    query = PipelineBranchBuild.query.filter(
-        PipelineBranchBuild.branch_id.in_(branch_ids),
-    )
+    query = PipelineMainBuild.query.filter_by(branch_name=branch_name)
 
     dates = set()
     for row in query.all():
@@ -152,8 +131,8 @@ def _load_month_cost_rows(subscription_id, year, month):
     )
 
 
-def _load_month_build_rows(branch_ids, year, month):
-    if not branch_ids:
+def _load_month_build_rows(branch_name, year, month):
+    if not branch_name:
         return []
 
     month_start, month_end = _month_bounds(year, month)
@@ -161,17 +140,17 @@ def _load_month_build_rows(branch_ids, year, month):
     _, next_day_dt = _day_bounds(month_end)
 
     return (
-        PipelineBranchBuild.query
+        PipelineMainBuild.query
         .options(
-            selectinload(PipelineBranchBuild.stages),
-            selectinload(PipelineBranchBuild.branch),
+            selectinload(PipelineMainBuild.stages),
+            selectinload(PipelineMainBuild.branch),
         )
         .filter(
-            PipelineBranchBuild.branch_id.in_(branch_ids),
-            PipelineBranchBuild.started_at >= start_dt,
-            PipelineBranchBuild.started_at < next_day_dt,
+            PipelineMainBuild.branch_name == branch_name,
+            PipelineMainBuild.started_at >= start_dt,
+            PipelineMainBuild.started_at < next_day_dt,
         )
-        .order_by(PipelineBranchBuild.started_at.asc(), PipelineBranchBuild.build_number.asc())
+        .order_by(PipelineMainBuild.started_at.asc(), PipelineMainBuild.build_number.asc())
         .all()
     )
 
@@ -208,7 +187,11 @@ def _format_duration(duration_ms):
 def _build_branch_breakdown(build_rows):
     branch_totals = defaultdict(lambda: {'build_count': 0, 'total_duration_ms': 0})
     for row in build_rows:
-        branch_name = (row.branch.name if row.branch is not None else None) or 'unknown'
+        branch_name = (
+            row.branch_name
+            or (row.branch.name if row.branch is not None else None)
+            or 'unknown'
+        )
         branch_totals[branch_name]['build_count'] += 1
         branch_totals[branch_name]['total_duration_ms'] += _build_duration_ms(row)
 
@@ -258,7 +241,11 @@ def _build_longest_builds(build_rows):
     for row in sorted(build_rows, key=lambda item: (-_build_duration_ms(item), item.build_number or 0))[:5]:
         items.append({
             'build_number': row.build_number,
-            'branch_name': (row.branch.name if row.branch is not None else None) or 'unknown',
+            'branch_name': (
+                row.branch_name
+                or (row.branch.name if row.branch is not None else None)
+                or 'unknown'
+            ),
             'result': row.result,
             'duration_ms': _build_duration_ms(row),
         })
@@ -610,11 +597,8 @@ def _build_document_query(subscription_id, pipeline_job_path):
 def get_finops_build_document(target_date, subscription_id=None, pipeline_job_path=None):
     target_date = _normalize_date_input(target_date)
     subscription_id = _resolve_subscription_id(subscription_id)
-    pipeline = _resolve_pipeline_definition(pipeline_job_path)
-    resolved_job_path = (
-        pipeline.job_path if pipeline is not None
-        else (_normalize_job_path(pipeline_job_path) or _pipeline_job_path_from_config())
-    )
+    pipeline = _resolve_pipeline_context(pipeline_job_path)
+    resolved_job_path = pipeline['job_path']
 
     return (
         _build_document_query(subscription_id, resolved_job_path)
@@ -625,11 +609,8 @@ def get_finops_build_document(target_date, subscription_id=None, pipeline_job_pa
 
 def list_finops_build_documents(subscription_id=None, pipeline_job_path=None, limit=30):
     subscription_id = _resolve_subscription_id(subscription_id)
-    pipeline = _resolve_pipeline_definition(pipeline_job_path)
-    resolved_job_path = (
-        pipeline.job_path if pipeline is not None
-        else (_normalize_job_path(pipeline_job_path) or _pipeline_job_path_from_config())
-    )
+    pipeline = _resolve_pipeline_context(pipeline_job_path)
+    resolved_job_path = pipeline['job_path']
 
     return (
         _build_document_query(subscription_id, resolved_job_path)
@@ -656,19 +637,10 @@ def sync_finops_build_documents(*, subscription_id=None, pipeline_job_path=None,
         raise ValueError('start_date must be before or equal to end_date.')
 
     subscription_id = _resolve_subscription_id(subscription_id)
-    pipeline = _resolve_pipeline_definition(pipeline_job_path)
-
-    resolved_job_path = _normalize_job_path(pipeline_job_path) or _pipeline_job_path_from_config()
-    pipeline_name = _pipeline_name_from_job_path(resolved_job_path)
-    branch_ids = []
-
-    if pipeline is not None:
-        resolved_job_path = pipeline.job_path or resolved_job_path
-        pipeline_name = pipeline.name or pipeline_name
-        branch_ids = [
-            row.id
-            for row in PipelineBranch.query.filter_by(pipeline_id=pipeline.id).all()
-        ]
+    pipeline = _resolve_pipeline_context(pipeline_job_path)
+    resolved_job_path = pipeline['job_path']
+    pipeline_name = pipeline['name']
+    branch_name = pipeline['branch_name']
 
     cost_dates = _load_cost_date_candidates(
         subscription_id,
@@ -676,7 +648,7 @@ def sync_finops_build_documents(*, subscription_id=None, pipeline_job_path=None,
         end_date=end_date,
     )
     build_dates = _load_build_date_candidates(
-        branch_ids,
+        branch_name,
         start_date=start_date,
         end_date=end_date,
     )
@@ -715,7 +687,7 @@ def sync_finops_build_documents(*, subscription_id=None, pipeline_job_path=None,
     for (year, month), month_dates in sorted(grouped_dates.items()):
         month_cost_rows = _load_month_cost_rows(subscription_id, year, month)
         cost_map = {row.usage_date: row for row in month_cost_rows}
-        month_build_rows = _load_month_build_rows(branch_ids, year, month)
+        month_build_rows = _load_month_build_rows(branch_name, year, month)
         builds_by_date = _group_builds_by_date(month_build_rows)
 
         for usage_date in month_dates:

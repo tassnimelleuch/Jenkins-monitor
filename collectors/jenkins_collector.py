@@ -3,15 +3,10 @@ import xml.etree.ElementTree as ET
 from urllib.parse import quote, unquote
 import requests
 from flask import current_app
+from pipeline_identity import configured_branch_name, job_path_segments, normalize_branch_name, pipeline_job_path
 
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_branch_name(branch_name):
-    normalized = (branch_name or '').strip().strip('/')
-    return normalized or None
-
 
 def _get_auth():
     return (
@@ -31,36 +26,22 @@ def _get_base(branch_name=None):
 def _get_root():
     return current_app.config['JENKINS_URL'].rstrip('/')
 
-
-def _get_job_segments():
-    raw_job = (current_app.config.get('JENKINS_JOB') or '').strip().strip('/')
-    if not raw_job:
-        return []
-
-    normalized = raw_job.replace('/job/', '/')
-    if normalized.startswith('job/'):
-        normalized = normalized[4:]
-
-    return [segment for segment in normalized.split('/') if segment]
-
-
 def _get_pipeline_segments(branch_name=None):
-    segments = _get_job_segments()
-    configured_branch = _get_branch_name()
-    target_branch = _resolve_branch_name(branch_name)
-    strip_branch = configured_branch or target_branch
-    if strip_branch and len(segments) > 1 and segments[-1] == strip_branch:
-        return segments[:-1]
-    return segments
+    return job_path_segments(
+        pipeline_job_path(
+            current_app.config.get('JENKINS_JOB'),
+            branch_name=_get_branch_name() or _resolve_branch_name(branch_name),
+        )
+    )
 
 
 def _get_branch_name():
-    return _normalize_branch_name(current_app.config.get('JENKINS_BRANCH'))
+    return configured_branch_name(current_app.config)
 
 
 def _resolve_branch_name(branch_name=None):
     if branch_name is not None:
-        return _normalize_branch_name(branch_name)
+        return normalize_branch_name(branch_name)
     return _get_branch_name()
 
 
@@ -247,36 +228,16 @@ def get_selected_branch_build_head():
     }
 
 
-def get_last_n_finished(n=10, builds=None):
-    if builds is None:
-        builds = get_all_builds()
-    if not builds:
-        return []
-    finished = [b for b in builds if b.get('result') is not None]
-    return finished if n is None else finished[:n]
-
-
-def get_running_builds(builds=None):
-    if builds is None:
-        builds = get_all_builds()
-    if not builds:
-        return []
-    return [b for b in builds if b.get('result') is None]
-
-
 def get_health_score():
-    try:
-        resp = requests.get(
-            f'{_get_base()}/api/json?tree=healthReport[score,description]',
-            auth=_get_auth(),
-            timeout=10
-        )
-        resp.raise_for_status()
-        reports = resp.json().get('healthReport', [])
-        return reports[0].get('score', 0) if reports else 0
-    except Exception as e:
-        logger.error(f'[Jenkins] get_health_score error: {e}')
+    data = _get_json(
+        f'{_get_base()}/api/json?tree=healthReport[score,description]',
+        timeout=10,
+    )
+    if not isinstance(data, dict):
         return 0
+
+    reports = data.get('healthReport', [])
+    return reports[0].get('score', 0) if reports else 0
 
 
 def get_console_log(build_number):
@@ -358,7 +319,8 @@ def get_stages(build_number):
 
 
 def get_running_stages():
-    running = get_running_builds()
+    builds = get_all_builds()
+    running = [b for b in (builds or []) if b.get('result') is None]
     if not running:
         return []
     result = []

@@ -2,6 +2,7 @@ import logging
 
 import requests
 from flask import current_app
+from pipeline_identity import normalize_branch_name
 
 
 logger = logging.getLogger(__name__)
@@ -29,14 +30,8 @@ def _get_image_name():
         image_name = image_name[len('docker.io/'):]
     return image_name or None
 
-
-def _normalize_branch_name(branch_name):
-    branch = (branch_name or '').strip().strip('/')
-    return branch or None
-
-
 def _safe_branch_name(branch_name):
-    branch = _normalize_branch_name(branch_name)
+    branch = normalize_branch_name(branch_name)
     if not branch:
         return None
     return branch.replace('/', '-').lower()

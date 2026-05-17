@@ -7,7 +7,7 @@ from collectors.docker_image_collector import (
     get_latest_image_metadata,
     get_repository_tag,
 )
-from collectors.jenkins_collector import get_console_log, get_last_n_finished, get_stages
+from collectors.jenkins_collector import get_all_builds, get_console_log, get_stages
 
 
 IMAGE_PATTERNS = [
@@ -74,7 +74,11 @@ def get_latest_image_artifact(search_limit=12):
             return metadata
 
     target_branch = (current_app.config.get('JENKINS_BRANCH') or 'main').strip()
-    finished_builds = get_last_n_finished(None) or []
+    finished_builds = [
+        build
+        for build in (get_all_builds() or [])
+        if build.get('result') is not None
+    ]
     for build in finished_builds[:search_limit]:
         build_number = build.get('number')
         if not build_number:

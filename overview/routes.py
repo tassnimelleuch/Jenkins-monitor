@@ -1,7 +1,7 @@
 from flask import session, jsonify, render_template
 from overview import overview_bp
 from services.access_service import role_required
-from services.jenkins_service import get_kpis
+from services.jenkins_service import get_overview_kpis
 from collectors.jenkins_collector import check_connection, get_console_log
 from services.azure_service import get_connection_status
 
@@ -18,7 +18,7 @@ def dashboard():
 @overview_bp.route('/api/pipeline/kpis')
 @role_required('admin', 'developer', 'tester')
 def kpis():
-    return jsonify(get_kpis())
+    return jsonify(get_overview_kpis())
 
 
 @overview_bp.route('/api/status')
@@ -47,7 +47,7 @@ def console(build_number):
 @overview_bp.route('/api/latest_build')
 @role_required('admin', 'developer', 'tester')
 def latest_build():
-    kpis = get_kpis()
+    kpis = get_overview_kpis()
     return jsonify({
         'build_number': kpis.get('last_build_number')
     })
