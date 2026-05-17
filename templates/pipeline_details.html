@@ -22,34 +22,31 @@
 
 <div class="pd-grid">
   <div class="pd-card">
-    <div class="pd-card-title">Triggers</div>
-    <div id="pdTriggers" class="pd-list"></div>
-  </div>
-
-  <div class="pd-card">
     <div class="pd-card-title">Pipeline</div>
     <div class="pd-kv"><span>Type</span><span id="pdPipeType">--</span></div>
-    <div class="pd-kv"><span>Multibranch</span><span id="pdMultibranch">--</span></div>
-    <div class="pd-kv"><span>Job class</span><span id="pdJobClass">--</span></div>
-    <div class="pd-kv"><span>Definition</span><span id="pdDefClass">--</span></div>
-    <div class="pd-kv"><span>Script Path</span><span id="pdScriptPath">--</span></div>
-    <div class="pd-kv"><span>Max builds to keep</span><span id="pdMaxBuilds">--</span></div>
+    <div class="pd-kv"><span>KPI source branch</span><span id="pdKpiBranch">--</span></div>
+    <div class="pd-kv pd-kv-wrap"><span>All branches</span><span id="pdAllBranches">--</span></div>
   </div>
 </div>
 
 <div class="pd-row">
   <div class="pd-card pd-card-wide">
-    <div class="pd-card-title">Parameters</div>
-    <div class="pd-table">
-      <div class="pd-table-head">
-        <span>Name</span>
-        <span>Type</span>
-        <span>Default</span>
+    <div class="pd-card-head">
+      <div>
+        <div class="pd-card-title">Branches</div>
+        <div class="pd-card-sub" id="pdBranchNote">Pipeline KPIs are collected from the main branch only.</div>
       </div>
-      <div id="pdParams"></div>
+    </div>
+    <div class="pd-branch-table">
+      <div class="pd-branch-head">
+        <span>Branch</span>
+        <span>Latest build</span>
+        <span>Latest completed</span>
+        <span>Status</span>
+      </div>
+      <div id="pdBranches"></div>
     </div>
   </div>
-
 </div>
 
 {% endblock %}

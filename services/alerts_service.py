@@ -419,3 +419,21 @@ def get_alerts_payload():
         'alerts': alerts,
         'generated_at': generated_at,
     }
+
+
+def get_pending_alert_count():
+    try:
+        persistent_count = (
+            PersistentAlert.query
+            .filter_by(is_checked=False)
+            .count()
+        )
+    except SQLAlchemyError:
+        current_app.logger.exception('Failed to count persistent alerts for the sidebar.')
+        persistent_count = 0
+
+    build_alert_count = (
+        (_duration_alerts_payload().get('summary') or {}).get('alert_count')
+        or 0
+    )
+    return int(persistent_count or 0) + int(build_alert_count or 0)
