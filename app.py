@@ -14,7 +14,6 @@ from settings import settings_bp
 from chatbot import chatbot_bp
 from extensions import cache, db
 from pipeline_identity import configured_branch_name, pipeline_name
-from services.alerts_service import get_pending_alert_count
 from services.user_account_service import (
     ensure_user_preference_columns,
     ensure_admin_account,
@@ -93,8 +92,6 @@ def inject_pending_count():
     }
     if current_role == 'admin':
         context['pending_count'] = get_pending_count()
-    if role_matches(current_role, ('admin', 'developer', 'tester')):
-        context['pending_alert_count'] = get_pending_alert_count()
     return context
 
 
