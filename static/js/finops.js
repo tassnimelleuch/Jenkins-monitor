@@ -1,4 +1,5 @@
 let chartInstance = null;
+const DAILY_TOTAL_FILTER = 'subscription';
 
 function formatMonthLabel(year, month) {
   if (!year || !month) return 'previous month';
@@ -105,11 +106,6 @@ function setDeltaText(id, change, previousMonthLabel, options = {}) {
   applyCostTrendClass(el, amount);
 }
 
-function sumSeries(values) {
-  if (!Array.isArray(values)) return 0;
-  return values.reduce((acc, val) => acc + (Number(val) || 0), 0);
-}
-
 function parseCssColor(value, alpha) {
   if (!value) return `rgba(0,0,0,${alpha})`;
   const v = value.trim();
@@ -135,10 +131,15 @@ async function loadFinopsChart() {
   const year = ym[0];
   const month = ym[1];
   const mode = document.getElementById('modeSelector').value;
-  const only = document.getElementById('onlySelector').value;
 
   const baseUrl = document.body.dataset.finopsUrl || '/api/finops/daily-cost';
-  const resp = await fetch(`${baseUrl}?year=${year}&month=${month}&mode=${mode}&only=${only}`);
+  const params = new URLSearchParams({
+    year,
+    month,
+    mode,
+    only: DAILY_TOTAL_FILTER
+  });
+  const resp = await fetch(`${baseUrl}?${params.toString()}`);
   const data = await resp.json();
 
   if (!resp.ok || data.error) {
@@ -154,8 +155,6 @@ async function loadFinopsChart() {
   }
 
   setText('totalCost', formatCurrency(data.summary.total_cost));
-  setText('aksTotal', formatCurrency(data.summary.aks_total));
-  setText('vmTotal', formatCurrency(data.summary.vm_total));
   setText('avgDaily', formatCurrency(data.summary.average_daily_cost));
   setText(
     'highestDay',
@@ -170,10 +169,17 @@ async function loadFinopsChart() {
   );
   const selectedMonthLabel = formatMonthLabel(data.year, data.month);
   const totalDelta = data.summary.delta?.total_cost;
+  const chartTitle = mode === 'forecast' ? 'Daily Forecast Cost' : 'Daily Total Cost';
+  const totalSeries = Array.isArray(data.series?.subscription_total)
+    ? data.series.subscription_total
+    : [];
+
+  if (totalSeries.length !== data.labels.length) {
+    showError('Combined daily totals are unavailable. Try refreshing the FinOps cache.');
+    return;
+  }
 
   setDeltaText('totalCostDelta', totalDelta, previousMonthLabel);
-  setDeltaText('aksTotalDelta', data.summary.delta?.aks_total, previousMonthLabel);
-  setDeltaText('vmTotalDelta', data.summary.delta?.vm_total, previousMonthLabel);
   setDeltaText('avgDailyDelta', data.summary.delta?.average_daily_cost, previousMonthLabel);
   setDeltaText('highestDayDelta', data.summary.delta?.highest_day_cost, previousMonthLabel, { prefix: 'Peak ' });
 
@@ -184,12 +190,12 @@ async function loadFinopsChart() {
   applyCostTrendClass(document.getElementById('monthChange'), Number(totalDelta?.amount || 0));
   setDeltaText('monthChangeMeta', totalDelta, previousMonthLabel, { suffix: ' total' });
 
+  setText('finopsChartTitle', chartTitle);
   setText('finopsChartSub', `${selectedMonthLabel} compared with ${previousMonthLabel}`);
 
   const ctx = document.getElementById('dailyCostChart').getContext('2d');
   const rootStyle = getComputedStyle(document.documentElement);
-  const aksColor = rootStyle.getPropertyValue('--green') || '#00dba0';
-  const vmColor = rootStyle.getPropertyValue('--blue') || '#3ab8f8';
+  const totalColor = rootStyle.getPropertyValue('--blue') || '#3ab8f8';
 
   if (chartInstance) {
     chartInstance.destroy();
@@ -201,20 +207,13 @@ async function loadFinopsChart() {
       labels: data.labels,
       datasets: [
         {
-          label: 'AKS',
-          data: data.series.aks,
-          stack: 'cost',
-          backgroundColor: parseCssColor(aksColor, 0.6),
-          borderColor: parseCssColor(aksColor, 0.9),
-          borderWidth: 1
-        },
-        {
-          label: 'VM',
-          data: data.series.vm,
-          stack: 'cost',
-          backgroundColor: parseCssColor(vmColor, 0.6),
-          borderColor: parseCssColor(vmColor, 0.9),
-          borderWidth: 1
+          label: mode === 'forecast' ? 'Forecast total' : 'Total',
+          data: totalSeries,
+          backgroundColor: parseCssColor(totalColor, 0.6),
+          borderColor: parseCssColor(totalColor, 0.9),
+          borderWidth: 1,
+          borderRadius: 8,
+          maxBarThickness: 36
         }
       ]
     },
@@ -225,20 +224,14 @@ async function loadFinopsChart() {
         tooltip: {
           callbacks: {
             label: function(context) {
-              const label = context.dataset.label || '';
-              return `${label}: ${formatCurrency(context.parsed.y)}`;
-            },
-            footer: function(items) {
-              const total = items.reduce((sum, item) => sum + item.parsed.y, 0);
-              return `Total: ${formatCurrency(total)}`;
+              return `${context.dataset.label}: ${formatCurrency(context.parsed.y)}`;
             }
           }
         }
       },
       scales: {
-        x: { stacked: true },
+        x: { stacked: false },
         y: {
-          stacked: true,
           beginAtZero: true,
           title: { display: true, text: 'Daily cost' },
           ticks: {
@@ -258,5 +251,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('monthSelector').addEventListener('change', loadFinopsChart);
   document.getElementById('modeSelector').addEventListener('change', loadFinopsChart);
-  document.getElementById('onlySelector').addEventListener('change', loadFinopsChart);
 });

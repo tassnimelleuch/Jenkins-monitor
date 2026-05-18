@@ -71,6 +71,7 @@ function _buildTestsDurationSignature(points) {
 function _cacheOverviewMetrics(payload) {
     const previous = _lastOverviewMetrics || {};
     const metrics = {
+        last_build_number: payload?.last_build_number ?? previous.last_build_number,
         total_builds: payload?.total_builds ?? previous.total_builds,
         successful: payload?.successful ?? previous.successful,
         failed: payload?.failed ?? previous.failed,
@@ -956,5 +957,5 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         loadKPIs();
     }
-    startPolling(2000);
+    startPolling(5000);
 });

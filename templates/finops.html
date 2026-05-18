@@ -12,27 +12,16 @@
 <div class="finops-hero">
   <div>
     <div class="finops-title">FinOps</div>
-    <div class="finops-sub">Track daily spend for your AKS and VM resources across the subscription.</div>
+    <div class="finops-sub">Track whole-day Azure spend for the selected month.</div>
   </div>
-
 </div>
 
 <div class="finops-filters">
-  <select id="scopeSelector" disabled>
-    <option value="subscription">Subscription</option>
-  </select>
-
   <select id="monthSelector"></select>
 
   <select id="modeSelector">
     <option value="actual">Actual cost</option>
     <option value="forecast">Predicted cost</option>
-  </select>
-
-  <select id="onlySelector">
-    <option value="all">AKS vs VM</option>
-    <option value="aks">AKS only</option>
-    <option value="vm">VM only</option>
   </select>
 </div>
 
@@ -41,16 +30,6 @@
     <div class="finops-card-label">Total</div>
     <div class="finops-card-value" id="totalCost">-</div>
     <div class="finops-card-meta" id="totalCostDelta">Compared to previous month</div>
-  </div>
-  <div class="finops-card">
-    <div class="finops-card-label">AKS total</div>
-    <div class="finops-card-value" id="aksTotal">-</div>
-    <div class="finops-card-meta" id="aksTotalDelta">Compared to previous month</div>
-  </div>
-  <div class="finops-card">
-    <div class="finops-card-label">VM total</div>
-    <div class="finops-card-value" id="vmTotal">-</div>
-    <div class="finops-card-meta" id="vmTotalDelta">Compared to previous month</div>
   </div>
   <div class="finops-card">
     <div class="finops-card-label">Average / day</div>
@@ -74,18 +53,8 @@
 <div class="finops-chart-card">
   <div class="finops-chart-header">
     <div>
-      <div class="finops-chart-title">Daily Cost (AKS + VM)</div>
+      <div class="finops-chart-title" id="finopsChartTitle">Daily Total Cost</div>
       <div class="finops-chart-sub" id="finopsChartSub"></div>
-    </div>
-    <div class="finops-legend">
-      <span class="finops-legend-item">
-        <span class="finops-legend-swatch aks"></span>
-        AKS
-      </span>
-      <span class="finops-legend-item">
-        <span class="finops-legend-swatch vm"></span>
-        VM
-      </span>
     </div>
   </div>
   <canvas id="dailyCostChart"></canvas>

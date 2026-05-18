@@ -6,30 +6,20 @@ from extensions import db
 def _utcnow():
     return datetime.now(timezone.utc)
 
-
 class FinOpsDailyCost(db.Model):
     __tablename__ = 'finops_daily_costs'
     __table_args__ = (
         db.UniqueConstraint(
             'subscription_id',
-            'cost_mode',
             'usage_date',
-            name='uq_finops_daily_cost_subscription_mode_date',
-        ),
-        db.CheckConstraint(
-            "cost_mode IN ('actual', 'forecast')",
-            name='ck_finops_daily_costs_mode',
+            name='uq_finops_daily_cost_subscription_date',
         ),
     )
 
     id = db.Column(db.Integer, primary_key=True)
     subscription_id = db.Column(db.String(64), nullable=False, index=True)
     usage_date = db.Column(db.Date, nullable=False, index=True)
-    cost_mode = db.Column(db.String(16), nullable=False, default='actual', index=True)
     currency_code = db.Column(db.String(16), nullable=False, default='USD')
-    aks_cost = db.Column(db.Numeric(18, 4), nullable=False, default=0)
-    vm_cost = db.Column(db.Numeric(18, 4), nullable=False, default=0)
-    other_cost = db.Column(db.Numeric(18, 4), nullable=False, default=0)
     total_cost = db.Column(db.Numeric(18, 4), nullable=False, default=0)
     source_system = db.Column(
         db.String(32),
@@ -49,7 +39,6 @@ class FinOpsDailyCost(db.Model):
         default=_utcnow,
         onupdate=_utcnow,
     )
-
 
 class FinOpsResourceGroupMonthlyCost(db.Model):
     __tablename__ = 'finops_resource_group_monthly_costs'
