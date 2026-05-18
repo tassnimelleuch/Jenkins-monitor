@@ -132,11 +132,11 @@ async function loadAlerts() {
 
     setText(
       'alertsSubtitle',
-      `Monitoring ${finopsAlertCount} pending FinOps alert${finopsAlertCount === 1 ? '' : 's'} and ${buildAlertCount} Jenkins alert${buildAlertCount === 1 ? '' : 's'}.`
+      `Monitoring ${finopsAlertCount} pending total-cost FinOps alert${finopsAlertCount === 1 ? '' : 's'} and ${buildAlertCount} Jenkins alert${buildAlertCount === 1 ? '' : 's'}.`
     );
     setText(
       'alertsRuleText',
-      `FinOps alerts stay until an admin checks them. Jenkins alerts track running builds over ${formatAlertDuration(thresholdMs)} on ${pipeline.selected_branch || 'main'}.`
+      `Total-cost FinOps alerts stay until an admin checks them. Jenkins alerts track running builds over ${formatAlertDuration(thresholdMs)} on ${pipeline.selected_branch || 'main'}.`
     );
     setText('alertsUpdatedAt', `Updated ${formatAlertTime(data.generated_at)}`);
 

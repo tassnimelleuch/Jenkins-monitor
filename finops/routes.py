@@ -10,7 +10,6 @@ from collectors.azure_cost_collector import AzureCostProvider
 from services.finops_service import FinOpsService
 from services.finops_storage_service import (
     get_finops_daily_cost_chart,
-    get_finops_resource_group_costs,
     refresh_finops_month,
 )
 from services.finops_build_documents_service import (
@@ -116,53 +115,11 @@ def daily_cost():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    mode = request.args.get("mode", default="actual").lower()
-    only = request.args.get("only", default="all").lower()
-
-    if mode not in ("actual", "forecast"):
-        return jsonify({"error": "Invalid mode. Use actual or forecast."}), 400
-
-    if only not in ("all", "aks", "vm", "subscription"):
-        return jsonify({"error": "Invalid only filter. Use all, aks, vm, or subscription."}), 400
-
     try:
         payload = get_finops_daily_cost_chart(
             subscription_id,
             year=year,
             month=month,
-            mode=mode,
-            only=only,
-            service=service,
-        )
-        return jsonify(payload)
-    except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 502
-    except Exception as exc:
-        return jsonify({"error": f"Azure cost query failed ({type(exc).__name__}): {exc}"}), 502
-
-
-@finops_bp.route("/api/finops/resource-groups")
-@role_required("admin")
-def resource_group_costs():
-    service, subscription_id = _make_service()
-    if not service:
-        return jsonify({"error": "Missing AZURE_SUBSCRIPTION_ID in environment."}), 400
-
-    try:
-        year, month = _get_year_month()
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-    cost_type = request.args.get("cost_type", default="ActualCost")
-    if cost_type not in ("ActualCost", "AmortizedCost"):
-        return jsonify({"error": "Invalid cost_type. Use ActualCost or AmortizedCost."}), 400
-
-    try:
-        payload = get_finops_resource_group_costs(
-            subscription_id,
-            year=year,
-            month=month,
-            cost_type=cost_type,
             service=service,
         )
         return jsonify(payload)
@@ -211,8 +168,6 @@ def refresh_cache():
                 subscription_id,
                 year,
                 month,
-                daily_modes=("actual", "forecast"),
-                resource_group_cost_types=("ActualCost",),
                 force=True,
             )
             result["prefetched"] = True

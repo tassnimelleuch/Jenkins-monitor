@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -10,13 +10,6 @@ from typing import Dict, List, Optional, Tuple
 class DailyCostRow:
     day: str
     total: float
-
-
-@dataclass
-class ResourceGroupCost:
-    name: str
-    total: float
-    by_resource_type: Dict[str, float] = field(default_factory=dict)
 
 
 class FinOpsService:
@@ -84,37 +77,9 @@ class FinOpsService:
                         "function": "Sum",
                     }
                 },
-                "grouping": [],  # no grouping needed, just daily total
+                "grouping": [],
             },
         }
-
-    def _build_rg_payload(self, year: int, month: int) -> dict:
-        start, end = self._month_bounds(year, month)
-        return {
-            "type": "ActualCost",
-            "timeframe": "Custom",
-            "timePeriod": {
-                "from": start.isoformat() + "Z",
-                "to": end.isoformat() + "Z",
-            },
-            "dataset": {
-                "granularity": "None",
-                "aggregation": {
-                    "totalCost": {
-                        "name": "PreTaxCost",
-                        "function": "Sum",
-                    }
-                },
-                "grouping": [
-                    {"type": "Dimension", "name": "ResourceGroupName"},
-                    {"type": "Dimension", "name": "ResourceType"},
-                ],
-            },
-        }
-
-    # ------------------------------------------------------------------
-    # Row parsers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _rows_to_daily_map(result: dict) -> Tuple[Dict[str, float], dict]:
@@ -136,6 +101,7 @@ class FinOpsService:
             "row_count": len(rows or []),
             "date_col": date_col,
             "cost_col": cost_col,
+            "query_scope": "subscription_daily_total",
         }
 
         if cost_col is None or date_col is None:
@@ -148,47 +114,6 @@ class FinOpsService:
             out[day] = out.get(day, 0.0) + cost
 
         return out, meta
-
-    def _parse_rg_rows(self, result: dict) -> List[ResourceGroupCost]:
-        props = result.get("properties", {})
-        columns = props.get("columns", [])
-        rows = props.get("rows", [])
-
-        col_index = {col["name"]: idx for idx, col in enumerate(columns)}
-
-        cost_col = next(
-            (c for c in ("PreTaxCost", "Cost", "totalCost") if c in col_index), None
-        )
-        rg_col = next(
-            (c for c in ("ResourceGroupName", "ResourceGroup") if c in col_index), None
-        )
-        type_col = "ResourceType" if "ResourceType" in col_index else None
-
-        if cost_col is None or rg_col is None:
-            return []
-
-        rg_map: Dict[str, Dict] = {}
-        for row in rows:
-            rg = str(row[col_index[rg_col]] or "Unknown").lower()
-            rtype = str(row[col_index[type_col]] or "").lower() if type_col else ""
-            cost = float(row[col_index[cost_col]])
-
-            if rg not in rg_map:
-                rg_map[rg] = {"total": 0.0, "by_type": {}}
-
-            rg_map[rg]["total"] += cost
-            rg_map[rg]["by_type"][rtype] = rg_map[rg]["by_type"].get(rtype, 0.0) + cost
-
-        result_list = [
-            ResourceGroupCost(
-                name=rg_name,
-                total=round(data["total"], 4),
-                by_resource_type={k: round(v, 4) for k, v in data["by_type"].items()},
-            )
-            for rg_name, data in rg_map.items()
-        ]
-        result_list.sort(key=lambda x: x.total, reverse=True)
-        return result_list
 
     # ------------------------------------------------------------------
     # Helpers
@@ -266,26 +191,6 @@ class FinOpsService:
             "rows": [{"day": row.day, "total_cost": row.total} for row in rows],
         }
 
-    def get_resource_group_cost_storage_snapshot(self, year: int, month: int) -> dict:
-        year, month = int(year), int(month)
-        payload = self._build_rg_payload(year, month)
-        result = self.provider.query_usage(payload)
-        rg_costs = self._parse_rg_rows(result)
-        return {
-            "year": year,
-            "month": month,
-            "currency_code": "USD",
-            "total_cost": round(sum(rg.total for rg in rg_costs), 4),
-            "resource_groups": [
-                {
-                    "name": rg.name,
-                    "total": round(rg.total, 4),
-                    "by_resource_type": rg.by_resource_type,
-                }
-                for rg in rg_costs
-            ],
-        }
-
     def get_daily_cost_chart(self, year: int, month: int) -> dict:
         year, month = int(year), int(month)
         rows, meta, totals = self._load_daily_rows(year, month)
@@ -328,21 +233,4 @@ class FinOpsService:
                     ),
                 },
             },
-        }
-
-    def get_resource_group_costs(self, year: int, month: int) -> dict:
-        year, month = int(year), int(month)
-        snapshot = self.get_resource_group_cost_storage_snapshot(year, month)
-        return {
-            "year": snapshot["year"],
-            "month": snapshot["month"],
-            "total_cost": round(snapshot["total_cost"], 2),
-            "resource_groups": [
-                {
-                    "name": item["name"],
-                    "total": round(item["total"], 2),
-                    "by_resource_type": item["by_resource_type"],
-                }
-                for item in snapshot["resource_groups"]
-            ],
         }

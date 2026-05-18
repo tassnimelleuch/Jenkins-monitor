@@ -213,8 +213,6 @@ def _chunk_metadata(row, chunk_index, chunk_count):
         'cost_spike': bool(signal_summary.get('cost_spike')),
         'high_build_activity': bool(signal_summary.get('high_build_activity')),
         'long_build_activity': bool(signal_summary.get('long_build_activity')),
-        'vm_cost_dominant': bool(signal_summary.get('vm_cost_dominant')),
-        'aks_cost_dominant': bool(signal_summary.get('aks_cost_dominant')),
         'build_count': int(build_summary.get('build_count') or 0),
         'total_duration_ms': int(build_summary.get('total_duration_ms') or 0),
         'total_cost': float(cost_summary.get('total_cost') or 0.0),

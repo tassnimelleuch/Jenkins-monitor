@@ -1,5 +1,4 @@
 let chartInstance = null;
-const DAILY_TOTAL_FILTER = 'subscription';
 
 function formatMonthLabel(year, month) {
   if (!year || !month) return 'previous month';
@@ -130,15 +129,9 @@ async function loadFinopsChart() {
   const ym = document.getElementById('monthSelector').value.split('-');
   const year = ym[0];
   const month = ym[1];
-  const mode = document.getElementById('modeSelector').value;
 
   const baseUrl = document.body.dataset.finopsUrl || '/api/finops/daily-cost';
-  const params = new URLSearchParams({
-    year,
-    month,
-    mode,
-    only: DAILY_TOTAL_FILTER
-  });
+  const params = new URLSearchParams({ year, month });
   const resp = await fetch(`${baseUrl}?${params.toString()}`);
   const data = await resp.json();
 
@@ -146,9 +139,7 @@ async function loadFinopsChart() {
     showError(data.error || 'Could not load cost data from Azure.');
     return;
   }
-  if (data.meta && data.meta.row_count === 0) {
-    showError('No cost rows returned for this month. Try a previous month or verify Cost Management access.');
-  } else if (data.meta && (!data.meta.date_col || !data.meta.type_col || !data.meta.cost_col)) {
+  if (data.meta && (!data.meta.date_col || !data.meta.cost_col)) {
     showError('Cost API returned unexpected columns. Check debug output.');
   } else {
     showError('');
@@ -169,13 +160,12 @@ async function loadFinopsChart() {
   );
   const selectedMonthLabel = formatMonthLabel(data.year, data.month);
   const totalDelta = data.summary.delta?.total_cost;
-  const chartTitle = mode === 'forecast' ? 'Daily Forecast Cost' : 'Daily Total Cost';
-  const totalSeries = Array.isArray(data.series?.subscription_total)
-    ? data.series.subscription_total
+  const totalSeries = Array.isArray(data.series?.total)
+    ? data.series.total
     : [];
 
   if (totalSeries.length !== data.labels.length) {
-    showError('Combined daily totals are unavailable. Try refreshing the FinOps cache.');
+    showError('Daily totals are unavailable. Try refreshing the FinOps cache.');
     return;
   }
 
@@ -190,7 +180,7 @@ async function loadFinopsChart() {
   applyCostTrendClass(document.getElementById('monthChange'), Number(totalDelta?.amount || 0));
   setDeltaText('monthChangeMeta', totalDelta, previousMonthLabel, { suffix: ' total' });
 
-  setText('finopsChartTitle', chartTitle);
+  setText('finopsChartTitle', 'Daily Total Cost');
   setText('finopsChartSub', `${selectedMonthLabel} compared with ${previousMonthLabel}`);
 
   const ctx = document.getElementById('dailyCostChart').getContext('2d');
@@ -207,7 +197,7 @@ async function loadFinopsChart() {
       labels: data.labels,
       datasets: [
         {
-          label: mode === 'forecast' ? 'Forecast total' : 'Total',
+          label: 'Total',
           data: totalSeries,
           backgroundColor: parseCssColor(totalColor, 0.6),
           borderColor: parseCssColor(totalColor, 0.9),
@@ -250,5 +240,4 @@ document.addEventListener('DOMContentLoaded', () => {
   loadFinopsChart();
 
   document.getElementById('monthSelector').addEventListener('change', loadFinopsChart);
-  document.getElementById('modeSelector').addEventListener('change', loadFinopsChart);
 });

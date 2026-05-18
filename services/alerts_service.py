@@ -17,11 +17,8 @@ from services.pipeline_storage_service import get_stored_pipeline_kpis
 ALERT_RULE_ID = 'build_duration_over_one_minute'
 TEST_ALERT_THRESHOLD_MS = 60_000
 FINOPS_DAILY_COST_RULE_ID = 'finops_daily_cost_above_average'
-FINOPS_ALERT_SCOPES = (
-    ('combined', 'AKS + VM'),
-    ('aks', 'AKS'),
-    ('vm', 'VM'),
-)
+FINOPS_TOTAL_SCOPE = 'total'
+FINOPS_TOTAL_LABEL = 'Total cost'
 
 
 def _utcnow():
@@ -76,36 +73,20 @@ def _timestamp_ms(value):
     return int(normalized.timestamp() * 1000)
 
 
-def _finops_alert_key(subscription_id: str, usage_date: date, scope_name: str) -> str:
+def _finops_alert_key(subscription_id: str, usage_date: date) -> str:
     return (
         f'{FINOPS_DAILY_COST_RULE_ID}:{subscription_id}:'
-        f'{usage_date.isoformat()}:{scope_name}'
+        f'{usage_date.isoformat()}:{FINOPS_TOTAL_SCOPE}'
     )
-
-
-def _finops_scope_values(row):
-    aks_value = _to_float(row.aks_cost)
-    vm_value = _to_float(row.vm_cost)
-    return {
-        'combined': round(aks_value + vm_value, 4),
-        'aks': aks_value,
-        'vm': vm_value,
-    }
-
-
-def _scope_label(scope_name):
-    return dict(FINOPS_ALERT_SCOPES).get(scope_name, scope_name.upper())
 
 
 def _upsert_finops_alert(
     subscription_id: str,
     row,
-    scope_name: str,
-    scope_label: str,
     current_value: float,
     average_value: float,
 ):
-    alert_key = _finops_alert_key(subscription_id, row.usage_date, scope_name)
+    alert_key = _finops_alert_key(subscription_id, row.usage_date)
     existing = PersistentAlert.query.filter_by(alert_key=alert_key).one_or_none()
     if existing is not None and existing.is_checked:
         return None
@@ -113,7 +94,7 @@ def _upsert_finops_alert(
     now = _utcnow()
     delta_value = round(current_value - average_value, 4)
     message = (
-        f'{scope_label} daily cost on {row.usage_date.isoformat()} '
+        f'{FINOPS_TOTAL_LABEL} on {row.usage_date.isoformat()} '
         f'exceeded the month-to-date daily average.'
     )
 
@@ -123,8 +104,8 @@ def _upsert_finops_alert(
             rule_id=FINOPS_DAILY_COST_RULE_ID,
             source_system='finops',
             severity='warning',
-            title=f'{scope_label} daily cost spike',
-            resource_scope=scope_name,
+            title='Total daily cost spike',
+            resource_scope=FINOPS_TOTAL_SCOPE,
             year=row.usage_date.year,
             month=row.usage_date.month,
             usage_date=row.usage_date,
@@ -135,8 +116,8 @@ def _upsert_finops_alert(
         existing_payload = existing.payload or {}
         incoming_payload = {
             'subscription_id': subscription_id,
-            'scope_name': scope_name,
-            'scope_label': scope_label,
+            'scope_name': FINOPS_TOTAL_SCOPE,
+            'scope_label': FINOPS_TOTAL_LABEL,
             'usage_date': row.usage_date.isoformat(),
             'month_label': f'{row.usage_date.year}-{row.usage_date.month:02d}',
         }
@@ -157,13 +138,33 @@ def _upsert_finops_alert(
     existing.delta_value = delta_value
     existing.payload = {
         'subscription_id': subscription_id,
-        'scope_name': scope_name,
-        'scope_label': scope_label,
+        'scope_name': FINOPS_TOTAL_SCOPE,
+        'scope_label': FINOPS_TOTAL_LABEL,
         'usage_date': row.usage_date.isoformat(),
         'month_label': f'{row.usage_date.year}-{row.usage_date.month:02d}',
     }
     existing.last_detected_at = now
     return existing
+
+
+def _delete_legacy_finops_alerts(subscription_id: str):
+    legacy_rows = (
+        PersistentAlert.query
+        .filter(
+            PersistentAlert.rule_id == FINOPS_DAILY_COST_RULE_ID,
+            PersistentAlert.is_checked.is_(False),
+            PersistentAlert.resource_scope != FINOPS_TOTAL_SCOPE,
+        )
+        .all()
+    )
+    removed = 0
+    for row in legacy_rows:
+        payload = row.payload or {}
+        if payload.get('subscription_id') and payload.get('subscription_id') != subscription_id:
+            continue
+        db.session.delete(row)
+        removed += 1
+    return removed
 
 
 def sync_finops_daily_cost_threshold_alerts(
@@ -184,8 +185,6 @@ def sync_finops_daily_cost_threshold_alerts(
         subscription_id,
         target_year,
         target_month,
-        mode='actual',
-        only='all',
     )
 
     start_date, end_date = _current_month_bounds(target_year, target_month)
@@ -193,7 +192,6 @@ def sync_finops_daily_cost_threshold_alerts(
         FinOpsDailyCost.query
         .filter(
             FinOpsDailyCost.subscription_id == subscription_id,
-            FinOpsDailyCost.cost_mode == 'actual',
             FinOpsDailyCost.usage_date >= start_date,
             FinOpsDailyCost.usage_date <= end_date,
         )
@@ -201,42 +199,29 @@ def sync_finops_daily_cost_threshold_alerts(
         .all()
     )
     if not rows:
+        _delete_legacy_finops_alerts(subscription_id)
+        db.session.commit()
         return []
 
     count = len(rows)
-    average_by_scope = {
-        'combined': round(
-            sum(_finops_scope_values(row)['combined'] for row in rows) / count,
-            4,
-        ),
-        'aks': round(
-            sum(_finops_scope_values(row)['aks'] for row in rows) / count,
-            4,
-        ),
-        'vm': round(
-            sum(_finops_scope_values(row)['vm'] for row in rows) / count,
-            4,
-        ),
-    }
+    average_total = round(
+        sum(_to_float(row.total_cost) for row in rows) / count,
+        4,
+    )
 
-    changed = False
+    changed = bool(_delete_legacy_finops_alerts(subscription_id))
     for row in rows:
-        scope_values = _finops_scope_values(row)
-        for scope_name, scope_label in FINOPS_ALERT_SCOPES:
-            current_value = scope_values[scope_name]
-            average_value = average_by_scope[scope_name]
-            if average_value <= 0 or current_value <= average_value:
-                continue
+        current_value = _to_float(row.total_cost)
+        if average_total <= 0 or current_value <= average_total:
+            continue
 
-            alert_row = _upsert_finops_alert(
-                subscription_id,
-                row,
-                scope_name,
-                scope_label,
-                current_value,
-                average_value,
-            )
-            changed = changed or alert_row is not None
+        alert_row = _upsert_finops_alert(
+            subscription_id,
+            row,
+            current_value,
+            average_total,
+        )
+        changed = changed or alert_row is not None
 
     if changed:
         try:
@@ -285,7 +270,7 @@ def _serialize_persistent_alert(row):
         'kind': 'finops_daily_cost',
         'rule_id': row.rule_id,
         'source_label': 'FinOps',
-        'label': payload.get('scope_label') or _scope_label(row.resource_scope),
+        'label': FINOPS_TOTAL_LABEL,
         'severity': row.severity,
         'message': row.message,
         'usage_date': row.usage_date.isoformat() if row.usage_date else None,
@@ -390,9 +375,10 @@ def get_alerts_payload():
 
         finops_rows = (
             PersistentAlert.query
-            .filter_by(
-                rule_id=FINOPS_DAILY_COST_RULE_ID,
-                is_checked=False,
+            .filter(
+                PersistentAlert.rule_id == FINOPS_DAILY_COST_RULE_ID,
+                PersistentAlert.is_checked.is_(False),
+                PersistentAlert.resource_scope == FINOPS_TOTAL_SCOPE,
             )
             .order_by(
                 PersistentAlert.last_detected_at.desc(),

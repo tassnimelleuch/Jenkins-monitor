@@ -49,7 +49,6 @@ class AzureCostProvider:
             if response.status_code == 204:
                 return {"properties": {"columns": [], "rows": []}}
 
-            # Raise for any non-2xx that isn't 429/204 — don't retry, surface the error
             try:
                 response.raise_for_status()
             except Exception as exc:

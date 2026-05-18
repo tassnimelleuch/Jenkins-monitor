@@ -86,10 +86,7 @@ def _build_duration_ms(build_row):
 
 
 def _load_cost_date_candidates(subscription_id, start_date=None, end_date=None):
-    query = FinOpsDailyCost.query.filter_by(
-        subscription_id=subscription_id,
-        cost_mode='actual',
-    )
+    query = FinOpsDailyCost.query.filter_by(subscription_id=subscription_id)
     if start_date is not None:
         query = query.filter(FinOpsDailyCost.usage_date >= start_date)
     if end_date is not None:
@@ -122,7 +119,6 @@ def _load_month_cost_rows(subscription_id, year, month):
         FinOpsDailyCost.query
         .filter(
             FinOpsDailyCost.subscription_id == subscription_id,
-            FinOpsDailyCost.cost_mode == 'actual',
             FinOpsDailyCost.usage_date >= month_start,
             FinOpsDailyCost.usage_date <= month_end,
         )
@@ -315,22 +311,13 @@ def _build_month_cost_baseline(cost_rows):
         return {
             'day_count': 0,
             'avg_total_cost': 0.0,
-            'avg_aks_cost': 0.0,
-            'avg_vm_cost': 0.0,
-            'avg_other_cost': 0.0,
         }
 
     totals = [_to_float(row.total_cost) for row in cost_rows]
-    aks_costs = [_to_float(row.aks_cost) for row in cost_rows]
-    vm_costs = [_to_float(row.vm_cost) for row in cost_rows]
-    other_costs = [_to_float(row.other_cost) for row in cost_rows]
 
     return {
         'day_count': len(cost_rows),
         'avg_total_cost': round(sum(totals) / len(totals), 4),
-        'avg_aks_cost': round(sum(aks_costs) / len(aks_costs), 4),
-        'avg_vm_cost': round(sum(vm_costs) / len(vm_costs), 4),
-        'avg_other_cost': round(sum(other_costs) / len(other_costs), 4),
     }
 
 
@@ -347,9 +334,6 @@ def _cost_rank(target_date, cost_rows):
 
 def _build_signals(cost_row, build_metrics, cost_baseline, build_baseline):
     total_cost = _to_float(cost_row.total_cost) if cost_row is not None else 0.0
-    aks_cost = _to_float(cost_row.aks_cost) if cost_row is not None else 0.0
-    vm_cost = _to_float(cost_row.vm_cost) if cost_row is not None else 0.0
-    other_cost = _to_float(cost_row.other_cost) if cost_row is not None else 0.0
 
     avg_total_cost = cost_baseline['avg_total_cost']
     build_count = build_metrics['build_count']
@@ -370,13 +354,6 @@ def _build_signals(cost_row, build_metrics, cost_baseline, build_baseline):
     )
     build_pressure = high_build_activity or long_build_activity
 
-    vm_share = round((vm_cost / total_cost), 4) if total_cost > 0 else 0.0
-    aks_share = round((aks_cost / total_cost), 4) if total_cost > 0 else 0.0
-    other_share = round((other_cost / total_cost), 4) if total_cost > 0 else 0.0
-
-    vm_cost_dominant = vm_cost > 0 and vm_share >= 0.35 and vm_cost >= aks_cost
-    aks_cost_dominant = aks_cost > 0 and aks_share >= 0.35 and aks_cost > vm_cost
-    other_cost_dominant = other_cost > 0 and other_share >= 0.35
     failure_pressure = (
         (build_metrics['failure_count'] + build_metrics['aborted_count']) >= 2
         and build_count > 0
@@ -385,12 +362,8 @@ def _build_signals(cost_row, build_metrics, cost_baseline, build_baseline):
 
     if build_pressure:
         likely_driver = 'jenkins_build_activity'
-    elif vm_cost_dominant:
-        likely_driver = 'open_vm_cost'
-    elif aks_cost_dominant:
-        likely_driver = 'aks_usage'
-    elif other_cost_dominant:
-        likely_driver = 'other_azure_resources'
+    elif cost_spike:
+        likely_driver = 'other_or_mixed_azure_usage'
     else:
         likely_driver = 'mixed_or_unclear'
 
@@ -399,13 +372,7 @@ def _build_signals(cost_row, build_metrics, cost_baseline, build_baseline):
         'high_build_activity': high_build_activity,
         'long_build_activity': long_build_activity,
         'build_pressure': build_pressure,
-        'vm_cost_dominant': vm_cost_dominant,
-        'aks_cost_dominant': aks_cost_dominant,
-        'other_cost_dominant': other_cost_dominant,
         'failure_pressure': failure_pressure,
-        'vm_share': vm_share,
-        'aks_share': aks_share,
-        'other_share': other_share,
         'likely_driver': likely_driver,
     }
 
@@ -423,12 +390,6 @@ def _build_tags(signals, build_metrics, cost_row):
         tags.append('high_build_activity')
     if signals['long_build_activity']:
         tags.append('long_build_duration')
-    if signals['vm_cost_dominant']:
-        tags.append('vm_cost_dominant')
-    if signals['aks_cost_dominant']:
-        tags.append('aks_cost_dominant')
-    if signals['other_cost_dominant']:
-        tags.append('other_cost_dominant')
     if signals['failure_pressure']:
         tags.append('failure_pressure')
 
@@ -458,12 +419,8 @@ def _build_interpretation_lines(signals, cost_row, build_metrics, cost_baseline)
 
     if signals['likely_driver'] == 'jenkins_build_activity':
         lines.append('The stored evidence suggests Jenkins build activity is the strongest likely contributor.')
-    elif signals['likely_driver'] == 'open_vm_cost':
-        lines.append('VM cost dominated while build pressure was not elevated, so unnecessary running VMs are the strongest likely contributor.')
-    elif signals['likely_driver'] == 'aks_usage':
-        lines.append('AKS cost dominated while build pressure was not elevated, so cluster workload or leftover AKS resources are the strongest likely contributor.')
-    elif signals['likely_driver'] == 'other_azure_resources':
-        lines.append('Neither build pressure nor AKS/VM dominance fully explains the day, so other Azure resources should be investigated.')
+    elif signals['likely_driver'] == 'other_or_mixed_azure_usage':
+        lines.append('Build pressure was not elevated, so the extra cost likely came from Azure usage outside the Jenkins activity pattern.')
     else:
         lines.append('The day looks mixed, so this should be treated as a correlation-based hint rather than a definitive cause.')
 
@@ -488,9 +445,6 @@ def _render_document(target_date, pipeline_name, pipeline_job_path, cost_row, mo
     tags = _build_tags(signals, build_metrics, cost_row)
 
     total_cost = _to_float(cost_row.total_cost) if cost_row is not None else 0.0
-    aks_cost = _to_float(cost_row.aks_cost) if cost_row is not None else 0.0
-    vm_cost = _to_float(cost_row.vm_cost) if cost_row is not None else 0.0
-    other_cost = _to_float(cost_row.other_cost) if cost_row is not None else 0.0
 
     lines = [
         f'Document kind: daily_finops_analysis',
@@ -504,9 +458,6 @@ def _render_document(target_date, pipeline_name, pipeline_job_path, cost_row, mo
         '',
         'Cost evidence:',
         f'- Total cost: {_format_currency(total_cost, currency_code)}',
-        f'- AKS cost: {_format_currency(aks_cost, currency_code)}',
-        f'- VM cost: {_format_currency(vm_cost, currency_code)}',
-        f'- Other cost: {_format_currency(other_cost, currency_code)}',
         f'- Month average total cost: {_format_currency(cost_baseline["avg_total_cost"], currency_code)}',
     ])
     if cost_rank['rank'] is not None:
@@ -565,9 +516,6 @@ def _render_document(target_date, pipeline_name, pipeline_job_path, cost_row, mo
             'available': cost_row is not None,
             'currency_code': currency_code,
             'total_cost': total_cost,
-            'aks_cost': aks_cost,
-            'vm_cost': vm_cost,
-            'other_cost': other_cost,
             'month_average_total_cost': cost_baseline['avg_total_cost'],
             'month_rank': cost_rank['rank'],
             'month_rank_day_count': cost_rank['day_count'],
