@@ -6,12 +6,12 @@ from datetime import date
 import requests
 from flask import current_app
 
-from finops_models import FinOpsBuildDocument
+from finops_models import FinOpsBuildDocument, FinOpsBuildDocumentChunk
 
 
 DEFAULT_COLLECTION_METADATA = {
     'domain': 'finops_rag',
-    'source_table': 'finops_builds_documents',
+    'source_table': 'finops_builds_document_chunks',
 }
 
 
@@ -42,8 +42,6 @@ def _get_chroma_runtime_config():
     timeout = current_app.config.get('OLLAMA_TIMEOUT')
     persist_dir = current_app.config.get('CHROMA_PERSIST_DIR')
     collection_name = current_app.config.get('FINOPS_CHROMA_COLLECTION')
-    chunk_size = int(current_app.config.get('FINOPS_CHUNK_SIZE', 900))
-    chunk_overlap = int(current_app.config.get('FINOPS_CHUNK_OVERLAP', 120))
 
     if (
         not base_url
@@ -62,8 +60,6 @@ def _get_chroma_runtime_config():
         'timeout': int(timeout),
         'persist_dir': str(persist_dir),
         'collection_name': str(collection_name),
-        'chunk_size': max(chunk_size, 200),
-        'chunk_overlap': max(min(chunk_overlap, chunk_size // 2), 0),
     }
 
 
@@ -143,119 +139,87 @@ def _embed_texts(texts, config):
     return embeddings
 
 
-def _split_text_into_chunks(text, chunk_size, overlap):
-    content = str(text or '').strip()
-    if not content:
-        return []
-
-    chunks = []
-    start = 0
-    text_length = len(content)
-
-    while start < text_length:
-        end = min(start + chunk_size, text_length)
-        if end < text_length:
-            preferred_boundary = max(start + int(chunk_size * 0.55), start)
-            boundary = content.rfind('\n\n', preferred_boundary, end)
-            if boundary == -1:
-                boundary = content.rfind('\n', preferred_boundary, end)
-            if boundary == -1:
-                boundary = content.rfind('. ', preferred_boundary, end)
-                if boundary != -1:
-                    boundary += 1
-            if boundary > start:
-                end = boundary
-
-        chunk = content[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-
-        if end >= text_length:
-            break
-
-        next_start = max(end - overlap, start + 1)
-        start = next_start
-
-    return chunks
-
-
-def _document_query(target_date=None, start_date=None, end_date=None):
-    query = FinOpsBuildDocument.query.order_by(FinOpsBuildDocument.usage_date.asc(), FinOpsBuildDocument.id.asc())
+def _chunk_query(target_date=None, start_date=None, end_date=None):
+    query = (
+        FinOpsBuildDocumentChunk.query
+        .order_by(
+            FinOpsBuildDocumentChunk.usage_date.asc(),
+            FinOpsBuildDocumentChunk.document_id.asc(),
+            FinOpsBuildDocumentChunk.chunk_index.asc(),
+        )
+    )
 
     if target_date is not None:
-        query = query.filter(FinOpsBuildDocument.usage_date == target_date)
-        return query
+        return query.filter(FinOpsBuildDocumentChunk.usage_date == target_date)
 
     if start_date is not None:
-        query = query.filter(FinOpsBuildDocument.usage_date >= start_date)
+        query = query.filter(FinOpsBuildDocumentChunk.usage_date >= start_date)
     if end_date is not None:
-        query = query.filter(FinOpsBuildDocument.usage_date <= end_date)
+        query = query.filter(FinOpsBuildDocumentChunk.usage_date <= end_date)
     return query
 
 
-def _chunk_metadata(row, chunk_index, chunk_count):
+def _chunk_metadata(row):
     summary = row.summary or {}
-    cost_summary = summary.get('cost') or {}
-    build_summary = summary.get('builds') or {}
-    signal_summary = summary.get('signals') or {}
-    tag_list = summary.get('tags') or []
 
     return {
-        'source_document_id': str(row.id),
+        'source_chunk_id': str(row.id),
+        'source_document_id': str(row.document_id),
         'usage_date': row.usage_date.isoformat() if row.usage_date else '',
         'pipeline_name': row.pipeline_name or '',
         'pipeline_job_path': row.pipeline_job_path or '',
         'currency_code': row.currency_code or 'USD',
-        'chunk_index': int(chunk_index),
-        'chunk_count': int(chunk_count),
-        'tag_csv': ','.join(str(item) for item in tag_list),
-        'likely_driver': str(signal_summary.get('likely_driver') or ''),
-        'cost_spike': bool(signal_summary.get('cost_spike')),
-        'high_build_activity': bool(signal_summary.get('high_build_activity')),
-        'long_build_activity': bool(signal_summary.get('long_build_activity')),
-        'build_count': int(build_summary.get('build_count') or 0),
-        'total_duration_ms': int(build_summary.get('total_duration_ms') or 0),
-        'total_cost': float(cost_summary.get('total_cost') or 0.0),
+        'chunk_index': int(summary.get('chunk_index') or row.chunk_index or 0),
+        'chunk_count': int(summary.get('chunk_count') or row.chunk_count or 0),
+        'tag_csv': str(summary.get('tag_csv') or ''),
+        'likely_driver': str(summary.get('likely_driver') or ''),
+        'cost_spike': bool(summary.get('cost_spike')),
+        'high_build_activity': bool(summary.get('high_build_activity')),
+        'long_build_activity': bool(summary.get('long_build_activity')),
+        'build_pressure': bool(summary.get('build_pressure')),
+        'failure_pressure': bool(summary.get('failure_pressure')),
+        'build_count': int(summary.get('build_count') or 0),
+        'success_count': int(summary.get('success_count') or 0),
+        'failure_count': int(summary.get('failure_count') or 0),
+        'aborted_count': int(summary.get('aborted_count') or 0),
+        'running_count': int(summary.get('running_count') or 0),
+        'total_duration_ms': int(summary.get('total_duration_ms') or 0),
+        'avg_duration_ms': int(summary.get('avg_duration_ms') or 0),
+        'total_cost': float(summary.get('total_cost') or 0.0),
+        'month_average_total_cost': float(summary.get('month_average_total_cost') or 0.0),
     }
 
 
-def _chunk_text_for_row(row, config):
-    full_text = '\n'.join(
-        item
-        for item in [
-            row.title or '',
-            f'Document date: {row.usage_date.isoformat()}' if row.usage_date else '',
-            row.content or '',
-        ]
-        if item
-    ).strip()
+def _record_id(row):
+    return f'finops-doc-{row.document_id}-chunk-{row.chunk_index}'
 
-    chunk_bodies = _split_text_into_chunks(
-        full_text,
-        config['chunk_size'],
-        config['chunk_overlap'],
-    )
 
-    records = []
-    chunk_count = len(chunk_bodies)
-    for index, chunk_text in enumerate(chunk_bodies):
-        records.append({
-            'id': f'finops-doc-{row.id}-chunk-{index}',
-            'document': chunk_text,
-            'metadata': _chunk_metadata(row, index, chunk_count),
-        })
-    return records
+def _chunk_record(row):
+    return {
+        'id': _record_id(row),
+        'document': str(row.content or '').strip(),
+        'metadata': _chunk_metadata(row),
+    }
 
 
 def get_finops_chroma_status():
-    config = _get_chroma_runtime_config()
+    try:
+        config = _get_chroma_runtime_config()
+    except RuntimeError as exc:
+        return {
+            'chromadb_installed': False,
+            'error': str(exc),
+            'document_rows': FinOpsBuildDocument.query.count(),
+            'stored_chunk_rows': FinOpsBuildDocumentChunk.query.count(),
+            'chunk_rows': 0,
+        }
+
     status = {
         'persist_dir': config['persist_dir'],
         'collection_name': config['collection_name'],
         'embedding_model': config['embed_model'],
-        'chunk_size': config['chunk_size'],
-        'chunk_overlap': config['chunk_overlap'],
         'document_rows': FinOpsBuildDocument.query.count(),
+        'stored_chunk_rows': FinOpsBuildDocumentChunk.query.count(),
         'chromadb_installed': False,
         'chunk_rows': 0,
     }
@@ -286,8 +250,14 @@ def sync_finops_documents_to_chroma(*, target_date=None, start_date=None, end_da
         raise ValueError('start_date must be before or equal to end_date.')
 
     _, collection, config = _get_chroma_collection(rebuild=rebuild)
-    rows = _document_query(target_date=target_date, start_date=start_date, end_date=end_date).all()
+    rows = _chunk_query(target_date=target_date, start_date=start_date, end_date=end_date).all()
+
     if not rows:
+        if not rebuild and target_date is not None:
+            try:
+                collection.delete(where={'usage_date': target_date.isoformat()})
+            except Exception:
+                pass
         return {
             'collection_name': config['collection_name'],
             'persist_dir': config['persist_dir'],
@@ -296,29 +266,28 @@ def sync_finops_documents_to_chroma(*, target_date=None, start_date=None, end_da
             'chunks_upserted': 0,
             'dates': [],
             'rebuild': bool(rebuild),
+            'collection_count': int(collection.count()),
         }
 
-    chunk_records = []
-    for row in rows:
-        row_records = _chunk_text_for_row(row, config)
-        if row_records:
-            chunk_records.extend(row_records)
+    document_ids = sorted({row.document_id for row in rows if row.document_id is not None})
+    chunk_records = [_chunk_record(row) for row in rows if str(row.content or '').strip()]
 
     if not chunk_records:
         return {
             'collection_name': config['collection_name'],
             'persist_dir': config['persist_dir'],
             'embedding_model': config['embed_model'],
-            'documents_indexed': 0,
+            'documents_indexed': len(document_ids),
             'chunks_upserted': 0,
-            'dates': [],
+            'dates': sorted({row.usage_date.isoformat() for row in rows if row.usage_date is not None}),
             'rebuild': bool(rebuild),
+            'collection_count': int(collection.count()),
         }
 
     if not rebuild:
-        for row in rows:
+        for document_id in document_ids:
             try:
-                collection.delete(where={'source_document_id': str(row.id)})
+                collection.delete(where={'source_document_id': str(document_id)})
             except Exception:
                 pass
 
@@ -337,9 +306,9 @@ def sync_finops_documents_to_chroma(*, target_date=None, start_date=None, end_da
         'collection_name': config['collection_name'],
         'persist_dir': config['persist_dir'],
         'embedding_model': config['embed_model'],
-        'documents_indexed': len(rows),
+        'documents_indexed': len(document_ids),
         'chunks_upserted': len(chunk_records),
-        'dates': [row.usage_date.isoformat() for row in rows if row.usage_date is not None],
+        'dates': sorted({row.usage_date.isoformat() for row in rows if row.usage_date is not None}),
         'rebuild': bool(rebuild),
         'collection_count': int(collection.count()),
     }

@@ -100,11 +100,11 @@ function resetOverviewRenderCache() {
 }
 
 function fmtDate(ts) {
-    if (!ts) return '';
-    const date = new Date(ts);
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
-        ' ' +
-        date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return formatUserDateTime(ts, {
+        includeYear: false,
+        includeSeconds: false,
+        fallback: ''
+    });
 }
 
 function currentUserCanManageBuilds() {

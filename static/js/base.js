@@ -46,6 +46,148 @@ function getUserDateParts(dateValue) {
   }, {});
 }
 
+function buildUserDateKey(year, month, day) {
+  return [
+    String(year).padStart(4, '0'),
+    String(month).padStart(2, '0'),
+    String(day).padStart(2, '0')
+  ].join('-');
+}
+
+function parseUserDateKey(key) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return null;
+
+  return { year, month, day };
+}
+
+function getUserDateKey(dateValue) {
+  const parts = getUserDateParts(dateValue);
+  if (!parts) return null;
+  return buildUserDateKey(parts.year, parts.month, parts.day);
+}
+
+function userDateKeyToUtcDate(key) {
+  const parsed = parseUserDateKey(key);
+  if (!parsed) return null;
+  return new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day, 12, 0, 0));
+}
+
+function getUserDateKeySortValue(key) {
+  const date = userDateKeyToUtcDate(key);
+  return date ? date.getTime() : 0;
+}
+
+function getUserWeekStartKey(dateValueOrKey) {
+  const key = parseUserDateKey(dateValueOrKey) ? dateValueOrKey : getUserDateKey(dateValueOrKey);
+  const date = userDateKeyToUtcDate(key);
+  if (!date) return null;
+
+  const day = date.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setUTCDate(date.getUTCDate() + diff);
+  return buildUserDateKey(
+    date.getUTCFullYear(),
+    date.getUTCMonth() + 1,
+    date.getUTCDate()
+  );
+}
+
+function getUserWeekEndKey(startKey) {
+  const date = userDateKeyToUtcDate(startKey);
+  if (!date) return null;
+
+  date.setUTCDate(date.getUTCDate() + 6);
+  return buildUserDateKey(
+    date.getUTCFullYear(),
+    date.getUTCMonth() + 1,
+    date.getUTCDate()
+  );
+}
+
+function getUserMonthStartKey(dateValueOrKey) {
+  const key = parseUserDateKey(dateValueOrKey) ? dateValueOrKey : getUserDateKey(dateValueOrKey);
+  const parsed = parseUserDateKey(key);
+  if (!parsed) return null;
+  return buildUserDateKey(parsed.year, parsed.month, 1);
+}
+
+function getUserMonthEndKey(startKey) {
+  const parsed = parseUserDateKey(startKey);
+  if (!parsed) return null;
+
+  const date = new Date(Date.UTC(parsed.year, parsed.month, 0, 12, 0, 0));
+  return buildUserDateKey(
+    date.getUTCFullYear(),
+    date.getUTCMonth() + 1,
+    date.getUTCDate()
+  );
+}
+
+function formatUserDateKey(key, opts = {}) {
+  const parsed = parseUserDateKey(key);
+  if (!parsed) return opts.fallback ?? '--';
+
+  const includeYear = opts.includeYear !== false;
+  const monthStyle = opts.monthStyle || null;
+  const year = String(parsed.year).padStart(4, '0');
+  const month = String(parsed.month).padStart(2, '0');
+  const day = String(parsed.day).padStart(2, '0');
+
+  if (monthStyle === 'short' || monthStyle === 'long') {
+    const date = userDateKeyToUtcDate(key);
+    if (!date) return opts.fallback ?? '--';
+
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: 'UTC',
+      month: monthStyle,
+      day: 'numeric',
+      year: includeYear ? 'numeric' : undefined
+    }).format(date);
+  }
+
+  const { dateFormat } = getUserDisplayPreferences();
+  if (!includeYear) {
+    if (dateFormat === 'mm/dd/yyyy') return `${month}/${day}`;
+    if (dateFormat === 'yyyy-mm-dd') return `${month}-${day}`;
+    return `${day}/${month}`;
+  }
+
+  if (dateFormat === 'mm/dd/yyyy') return `${month}/${day}/${year}`;
+  if (dateFormat === 'yyyy-mm-dd') return `${year}-${month}-${day}`;
+  return `${day}/${month}/${year}`;
+}
+
+function formatUserDateKeyRange(startKey, endKey, opts = {}) {
+  const startLabel = formatUserDateKey(startKey, {
+    includeYear: false,
+    monthStyle: opts.monthStyle,
+    fallback: opts.fallback
+  });
+  const endLabel = formatUserDateKey(endKey, {
+    includeYear: true,
+    monthStyle: opts.monthStyle,
+    fallback: opts.fallback
+  });
+  return `${startLabel} - ${endLabel}`;
+}
+
+function formatUserMonthKeyLabel(startKey, style = 'long', opts = {}) {
+  const date = userDateKeyToUtcDate(startKey);
+  if (!date) return opts.fallback ?? '--';
+
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: 'UTC',
+    month: style === 'short' ? 'short' : 'long',
+    year: 'numeric'
+  }).format(date);
+}
+
 function formatUserDate(dateValue, opts = {}) {
   const parts = getUserDateParts(dateValue);
   if (!parts) return opts.fallback ?? '--';

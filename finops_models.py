@@ -202,11 +202,50 @@ EXPECTED_FINOPS_DAILY_COLUMNS = {
     'updated_at',
 }
 
+EXPECTED_FINOPS_DOCUMENT_COLUMNS = {
+    'id',
+    'subscription_id',
+    'usage_date',
+    'pipeline_job_path',
+    'pipeline_name',
+    'currency_code',
+    'title',
+    'content',
+    'summary',
+    'source_system',
+    'last_generated_at',
+    'created_at',
+    'updated_at',
+}
+
+EXPECTED_FINOPS_CHUNK_COLUMNS = {
+    'id',
+    'document_id',
+    'subscription_id',
+    'usage_date',
+    'pipeline_job_path',
+    'pipeline_name',
+    'currency_code',
+    'chunk_index',
+    'chunk_count',
+    'title',
+    'content',
+    'summary',
+    'source_system',
+    'last_generated_at',
+    'created_at',
+    'updated_at',
+}
+
 LEGACY_FINOPS_DAILY_COLUMNS = {
     'cost_mode',
     'aks_cost',
     'vm_cost',
     'other_cost',
+}
+
+LEGACY_FINOPS_CHUNK_COLUMNS = {
+    'chunk_kind',
 }
 
 OBSOLETE_FINOPS_TABLES = (
@@ -223,6 +262,22 @@ def _table_columns(inspector, table_name):
 def _has_expected_daily_constraint(inspector):
     expected = {'subscription_id', 'usage_date'}
     for constraint in inspector.get_unique_constraints(FinOpsDailyCost.__tablename__):
+        if set(constraint.get('column_names') or []) == expected:
+            return True
+    return False
+
+
+def _has_expected_document_constraint(inspector):
+    expected = {'subscription_id', 'usage_date', 'pipeline_job_path'}
+    for constraint in inspector.get_unique_constraints(FinOpsBuildDocument.__tablename__):
+        if set(constraint.get('column_names') or []) == expected:
+            return True
+    return False
+
+
+def _has_expected_chunk_constraint(inspector):
+    expected = {'document_id', 'chunk_index'}
+    for constraint in inspector.get_unique_constraints(FinOpsBuildDocumentChunk.__tablename__):
         if set(constraint.get('column_names') or []) == expected:
             return True
     return False
@@ -291,6 +346,175 @@ def _rebuild_daily_costs_table(connection, existing_columns):
     connection.execute(text(f'DROP TABLE IF EXISTS {legacy_table} CASCADE'))
 
 
+def _ensure_build_document_table(connection, inspector):
+    table_name = FinOpsBuildDocument.__tablename__
+    if not inspector.has_table(table_name):
+        FinOpsBuildDocument.__table__.create(bind=connection)
+        return True
+
+    existing_columns = _table_columns(inspector, table_name)
+    if EXPECTED_FINOPS_DOCUMENT_COLUMNS.issubset(existing_columns) and _has_expected_document_constraint(inspector):
+        return False
+
+    legacy_table = f'{table_name}_legacy'
+    connection.execute(text(f'DROP TABLE IF EXISTS {legacy_table} CASCADE'))
+    connection.execute(
+        text(
+            f'''
+            CREATE TABLE {legacy_table} AS
+            SELECT *
+            FROM {table_name}
+            '''
+        )
+    )
+    connection.execute(text(f'DROP TABLE IF EXISTS {table_name} CASCADE'))
+    FinOpsBuildDocument.__table__.create(bind=connection)
+    connection.execute(
+        text(
+            f'''
+            INSERT INTO {table_name} (
+                id,
+                subscription_id,
+                usage_date,
+                pipeline_job_path,
+                pipeline_name,
+                currency_code,
+                title,
+                content,
+                summary,
+                source_system,
+                last_generated_at,
+                created_at,
+                updated_at
+            )
+            SELECT
+                id,
+                COALESCE(subscription_id, ''),
+                usage_date,
+                COALESCE(pipeline_job_path, ''),
+                COALESCE(pipeline_name, 'Jenkins Pipeline'),
+                COALESCE(currency_code, 'USD'),
+                title,
+                content,
+                COALESCE(summary, '{{}}'::json),
+                COALESCE(source_system, 'finops_builds_rag'),
+                COALESCE(last_generated_at, NOW()),
+                COALESCE(created_at, NOW()),
+                COALESCE(updated_at, NOW())
+            FROM {legacy_table}
+            '''
+        )
+    )
+    connection.execute(
+        text(
+            f'''
+            SELECT setval(
+                pg_get_serial_sequence('{table_name}', 'id'),
+                COALESCE((SELECT MAX(id) FROM {table_name}), 1),
+                true
+            )
+            '''
+        )
+    )
+    connection.execute(text(f'DROP TABLE IF EXISTS {legacy_table} CASCADE'))
+    return True
+
+
+def _ensure_build_document_chunk_table(connection, inspector):
+    table_name = FinOpsBuildDocumentChunk.__tablename__
+    if not inspector.has_table(table_name):
+        FinOpsBuildDocumentChunk.__table__.create(bind=connection)
+        return True
+
+    existing_columns = _table_columns(inspector, table_name)
+    needs_rebuild = (
+        not EXPECTED_FINOPS_CHUNK_COLUMNS.issubset(existing_columns)
+        or bool(existing_columns & LEGACY_FINOPS_CHUNK_COLUMNS)
+        or not _has_expected_chunk_constraint(inspector)
+    )
+    if not needs_rebuild:
+        return False
+
+    legacy_table = f'{table_name}_legacy'
+    connection.execute(text(f'DROP TABLE IF EXISTS {legacy_table} CASCADE'))
+    connection.execute(
+        text(
+            f'''
+            CREATE TABLE {legacy_table} AS
+            SELECT *
+            FROM {table_name}
+            '''
+        )
+    )
+    connection.execute(text(f'DROP TABLE IF EXISTS {table_name} CASCADE'))
+    FinOpsBuildDocumentChunk.__table__.create(bind=connection)
+    connection.execute(
+        text(
+            f'''
+            INSERT INTO {table_name} (
+                id,
+                document_id,
+                subscription_id,
+                usage_date,
+                pipeline_job_path,
+                pipeline_name,
+                currency_code,
+                chunk_index,
+                chunk_count,
+                title,
+                content,
+                summary,
+                source_system,
+                last_generated_at,
+                created_at,
+                updated_at
+            )
+            SELECT
+                legacy.id,
+                legacy.document_id,
+                COALESCE(legacy.subscription_id, ''),
+                legacy.usage_date,
+                COALESCE(legacy.pipeline_job_path, ''),
+                COALESCE(legacy.pipeline_name, 'Jenkins Pipeline'),
+                COALESCE(document_row.currency_code, 'USD'),
+                legacy.chunk_index,
+                COALESCE(chunk_counts.chunk_count, 0),
+                legacy.title,
+                legacy.content,
+                COALESCE(legacy.summary, '{{}}'::json),
+                COALESCE(legacy.source_system, 'finops_builds_rag'),
+                COALESCE(legacy.last_generated_at, NOW()),
+                COALESCE(legacy.created_at, NOW()),
+                COALESCE(legacy.updated_at, NOW())
+            FROM {legacy_table} AS legacy
+            LEFT JOIN {FinOpsBuildDocument.__tablename__} AS document_row
+                ON document_row.id = legacy.document_id
+            LEFT JOIN (
+                SELECT
+                    document_id,
+                    COUNT(*)::integer AS chunk_count
+                FROM {legacy_table}
+                GROUP BY document_id
+            ) AS chunk_counts
+                ON chunk_counts.document_id = legacy.document_id
+            '''
+        )
+    )
+    connection.execute(
+        text(
+            f'''
+            SELECT setval(
+                pg_get_serial_sequence('{table_name}', 'id'),
+                COALESCE((SELECT MAX(id) FROM {table_name}), 1),
+                true
+            )
+            '''
+        )
+    )
+    connection.execute(text(f'DROP TABLE IF EXISTS {legacy_table} CASCADE'))
+    return True
+
+
 def ensure_finops_storage_schema():
     changed = False
     inspector = inspect(db.engine)
@@ -320,6 +544,15 @@ def ensure_finops_storage_schema():
             changed = True
 
     FinOpsSyncState.__table__.create(bind=db.engine, checkfirst=True)
-    FinOpsBuildDocument.__table__.create(bind=db.engine, checkfirst=True)
-    FinOpsBuildDocumentChunk.__table__.create(bind=db.engine, checkfirst=True)
+
+    inspector = inspect(db.engine)
+    with db.engine.begin() as connection:
+        if _ensure_build_document_table(connection, inspector):
+            changed = True
+
+    inspector = inspect(db.engine)
+    with db.engine.begin() as connection:
+        if _ensure_build_document_chunk_table(connection, inspector):
+            changed = True
+
     return changed

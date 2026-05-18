@@ -67,7 +67,7 @@ def _extract_build_date(build_row):
         started_at = build_row.started_at
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=timezone.utc)
-        return started_at.date()
+        return started_at.astimezone(timezone.utc).date()
 
     if build_row.timestamp_ms:
         return datetime.fromtimestamp(
@@ -756,6 +756,27 @@ def list_finops_build_documents(subscription_id=None, pipeline_job_path=None, li
         _build_document_query(subscription_id, resolved_job_path)
         .order_by(FinOpsBuildDocument.usage_date.desc())
         .limit(max(int(limit or 30), 1))
+        .all()
+    )
+
+
+def list_finops_build_documents_for_range(start_date, end_date, subscription_id=None, pipeline_job_path=None):
+    start_date = _normalize_date_input(start_date)
+    end_date = _normalize_date_input(end_date)
+    if start_date is None or end_date is None:
+        raise ValueError('start_date and end_date are required.')
+    if start_date > end_date:
+        raise ValueError('start_date must be before or equal to end_date.')
+
+    subscription_id = _resolve_subscription_id(subscription_id)
+    pipeline = _resolve_pipeline_context(pipeline_job_path)
+    resolved_job_path = pipeline['job_path']
+
+    return (
+        _build_document_query(subscription_id, resolved_job_path)
+        .filter(FinOpsBuildDocument.usage_date >= start_date)
+        .filter(FinOpsBuildDocument.usage_date <= end_date)
+        .order_by(FinOpsBuildDocument.usage_date.asc())
         .all()
     )
 

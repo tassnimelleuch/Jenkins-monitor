@@ -58,11 +58,11 @@ function hideSegTip() {
 }
 
 function fmtDate(ts) {
-  if (!ts) return '';
-  const d = new Date(ts);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
-         ' ' +
-         d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return formatUserDateTime(ts, {
+    includeYear: false,
+    includeSeconds: false,
+    fallback: ''
+  });
 }
 
 function currentUserCanManageBuilds() {
@@ -319,35 +319,40 @@ function buildDurationMs(build) {
   return build.duration_ms ?? build.duration ?? ((build.duration_seconds ?? 0) * 1000);
 }
 
-function startOfWeek(date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d;
+function buildGroupStartKey(timestamp, grouping) {
+  return grouping === 'month'
+    ? getUserMonthStartKey(timestamp)
+    : getUserWeekStartKey(timestamp);
 }
 
-function endOfWeek(start) {
-  const d = new Date(start);
-  d.setDate(d.getDate() + 6);
-  return d;
+function buildGroupEndKey(startKey, grouping) {
+  return grouping === 'month'
+    ? getUserMonthEndKey(startKey)
+    : getUserWeekEndKey(startKey);
 }
 
-function formatShortDate(date) {
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+function formatGroupLabel(startKey, grouping) {
+  if (!startKey) return '';
+  if (grouping === 'month') {
+    return formatUserMonthKeyLabel(startKey, 'short', { fallback: '' });
+  }
+  return formatUserDateKey(startKey, {
+    includeYear: false,
+    monthStyle: 'short',
+    fallback: ''
+  });
 }
 
-function formatMonthLabel(date) {
-  return date.toLocaleDateString([], { month: 'short', year: 'numeric' });
-}
-
-function buildGroupKey(date) {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('-');
+function formatGroupDetailLabel(startKey, grouping) {
+  if (!startKey) return '';
+  if (grouping === 'month') {
+    return formatUserMonthKeyLabel(startKey, 'long', { fallback: '' });
+  }
+  return formatUserDateKeyRange(
+    startKey,
+    buildGroupEndKey(startKey, grouping),
+    { monthStyle: 'short', fallback: '' }
+  );
 }
 
 function buildDurationGroups(builds, grouping) {
@@ -359,17 +364,12 @@ function buildDurationGroups(builds, grouping) {
   );
 
   finished.forEach(build => {
-    const buildDate = new Date(build.timestamp);
-    const start = grouping === 'month'
-      ? new Date(buildDate.getFullYear(), buildDate.getMonth(), 1)
-      : startOfWeek(buildDate);
-    start.setHours(0, 0, 0, 0);
-
-    const key = buildGroupKey(start);
+    const key = buildGroupStartKey(build.timestamp, grouping);
+    if (!key) return;
     if (!grouped.has(key)) {
       grouped.set(key, {
         key,
-        startMs: start.getTime(),
+        startMs: getUserDateKeySortValue(key),
         buildCount: 0,
         totalDurationMs: 0,
       });
@@ -383,19 +383,13 @@ function buildDurationGroups(builds, grouping) {
   const groups = Array.from(grouped.values())
     .sort((a, b) => a.startMs - b.startMs)
     .map(group => {
-      const start = new Date(group.startMs);
       const avgDurationMs = Math.round(group.totalDurationMs / group.buildCount);
-      const end = grouping === 'month'
-        ? new Date(start.getFullYear(), start.getMonth() + 1, 0)
-        : endOfWeek(start);
 
       return {
         ...group,
         avgDurationMs,
-        label: grouping === 'month' ? formatMonthLabel(start) : formatShortDate(start),
-        detailLabel: grouping === 'month'
-          ? formatMonthLabel(start)
-          : `${formatShortDate(start)} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`,
+        label: formatGroupLabel(group.key, grouping),
+        detailLabel: formatGroupDetailLabel(group.key, grouping),
       };
     });
 
@@ -605,17 +599,12 @@ function buildCoverageGroups(points, grouping) {
   );
 
   validPoints.forEach(point => {
-    const pointDate = new Date(point.timestamp);
-    const start = grouping === 'month'
-      ? new Date(pointDate.getFullYear(), pointDate.getMonth(), 1)
-      : startOfWeek(pointDate);
-    start.setHours(0, 0, 0, 0);
-
-    const key = buildGroupKey(start);
+    const key = buildGroupStartKey(point.timestamp, grouping);
+    if (!key) return;
     if (!grouped.has(key)) {
       grouped.set(key, {
         key,
-        startMs: start.getTime(),
+        startMs: getUserDateKeySortValue(key),
         sampleCount: 0,
         totalCoverage: 0,
       });
@@ -629,18 +618,11 @@ function buildCoverageGroups(points, grouping) {
   const groups = Array.from(grouped.values())
     .sort((a, b) => a.startMs - b.startMs)
     .map(group => {
-      const start = new Date(group.startMs);
-      const end = grouping === 'month'
-        ? new Date(start.getFullYear(), start.getMonth() + 1, 0)
-        : endOfWeek(start);
-
       return {
         ...group,
         avgCoverage: Number((group.totalCoverage / group.sampleCount).toFixed(1)),
-        label: grouping === 'month' ? formatMonthLabel(start) : formatShortDate(start),
-        detailLabel: grouping === 'month'
-          ? formatMonthLabel(start)
-          : `${formatShortDate(start)} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`,
+        label: formatGroupLabel(group.key, grouping),
+        detailLabel: formatGroupDetailLabel(group.key, grouping),
       };
     });
 
@@ -703,17 +685,12 @@ function buildTestsDurationGroups(points, grouping) {
   );
 
   validPoints.forEach(point => {
-    const pointDate = new Date(point.timestamp);
-    const start = grouping === 'month'
-      ? new Date(pointDate.getFullYear(), pointDate.getMonth(), 1)
-      : startOfWeek(pointDate);
-    start.setHours(0, 0, 0, 0);
-
-    const key = buildGroupKey(start);
+    const key = buildGroupStartKey(point.timestamp, grouping);
+    if (!key) return;
     if (!grouped.has(key)) {
       grouped.set(key, {
         key,
-        startMs: start.getTime(),
+        startMs: getUserDateKeySortValue(key),
         sampleCount: 0,
         totalDurationMs: 0,
       });
@@ -727,18 +704,11 @@ function buildTestsDurationGroups(points, grouping) {
   const groups = Array.from(grouped.values())
     .sort((a, b) => a.startMs - b.startMs)
     .map(group => {
-      const start = new Date(group.startMs);
-      const end = grouping === 'month'
-        ? new Date(start.getFullYear(), start.getMonth() + 1, 0)
-        : endOfWeek(start);
-
       return {
         ...group,
         avgDurationMs: Math.round(group.totalDurationMs / group.sampleCount),
-        label: grouping === 'month' ? formatMonthLabel(start) : formatShortDate(start),
-        detailLabel: grouping === 'month'
-          ? formatMonthLabel(start)
-          : `${formatShortDate(start)} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`,
+        label: formatGroupLabel(group.key, grouping),
+        detailLabel: formatGroupDetailLabel(group.key, grouping),
       };
     });
 

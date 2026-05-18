@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import re
+from calendar import monthrange
 from datetime import date
 
 import requests
 from flask import current_app
 
-from services.finops_build_documents_service import get_finops_build_document
+from services.finops_build_documents_service import (
+    get_finops_build_document,
+    list_finops_build_documents_for_range,
+)
 from services.finops_chroma_service import query_finops_chroma
 
 
@@ -68,6 +72,10 @@ MONTH_NAME_TO_NUMBER = {
     'dec': 12,
     'december': 12,
 }
+MONTH_PATTERN = (
+    r'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|'
+    r'aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
+)
 
 def _extract_error_message(response):
     try:
@@ -124,9 +132,8 @@ def _extract_dates_from_text(text):
             matches.append(parsed)
             seen.add(parsed.isoformat())
 
-    month_pattern = r'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
     for item in re.finditer(
-        rf'\b(\d{{1,2}})\s*(?:/|-|\s)\s*({month_pattern})(?:\s*(?:,|/|-|\s)\s*(\d{{2,4}}))?\b',
+        rf'\b(\d{{1,2}})\s*(?:/|-|\s)\s*({MONTH_PATTERN})(?:\s*(?:,|/|-|\s)\s*(\d{{2,4}}))?\b',
         content,
     ):
         month = MONTH_NAME_TO_NUMBER.get(item.group(2))
@@ -136,7 +143,7 @@ def _extract_dates_from_text(text):
             seen.add(parsed.isoformat())
 
     for item in re.finditer(
-        rf'\b({month_pattern})\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(\d{{2,4}}))?\b',
+        rf'\b({MONTH_PATTERN})\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(\d{{2,4}}))?\b',
         content,
     ):
         month = MONTH_NAME_TO_NUMBER.get(item.group(1))
@@ -144,6 +151,47 @@ def _extract_dates_from_text(text):
         if parsed and parsed.isoformat() not in seen:
             matches.append(parsed)
             seen.add(parsed.isoformat())
+
+    return matches
+
+
+def _extract_month_scopes_from_text(text):
+    content = str(text or '').strip().lower()
+    if not content:
+        return []
+
+    matches = []
+    seen = set()
+
+    for item in re.finditer(r'\b(\d{4})-(\d{1,2})(?!-\d)\b', content):
+        year = int(item.group(1))
+        month = int(item.group(2))
+        if not (1 <= month <= 12):
+            continue
+        key = (year, month)
+        if key not in seen:
+            matches.append(key)
+            seen.add(key)
+
+    for item in re.finditer(r'\b(\d{1,2})[/-](\d{4})\b', content):
+        month = int(item.group(1))
+        year = int(item.group(2))
+        if not (1 <= month <= 12):
+            continue
+        key = (year, month)
+        if key not in seen:
+            matches.append(key)
+            seen.add(key)
+
+    for item in re.finditer(rf'\b({MONTH_PATTERN})\s+(\d{{4}})\b', content):
+        month = MONTH_NAME_TO_NUMBER.get(item.group(1))
+        year = int(item.group(2))
+        if month is None:
+            continue
+        key = (year, month)
+        if key not in seen:
+            matches.append(key)
+            seen.add(key)
 
     return matches
 
@@ -191,6 +239,13 @@ def _extract_target_usage_date(query_text):
     return None
 
 
+def _extract_target_usage_month(query_text):
+    matches = _extract_month_scopes_from_text(query_text)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
 def _format_duration_ms(duration_ms):
     total_seconds = max(int(duration_ms or 0) // 1000, 0)
     minutes, seconds = divmod(total_seconds, 60)
@@ -208,6 +263,13 @@ def _format_number(value):
         return f'{float(value):.2f}'
     except (TypeError, ValueError):
         return '0.00'
+
+
+def _format_cost(value, currency_code='USD'):
+    try:
+        return f'{currency_code or "USD"} {float(value):.4f}'
+    except (TypeError, ValueError):
+        return f'{currency_code or "USD"} 0.0000'
 
 
 def _build_finops_document_system_message(row):
@@ -323,20 +385,156 @@ def _build_finops_rag_system_message(matches, *, usage_date=None):
     }
 
 
+def _month_bounds(year, month):
+    last_day = monthrange(year, month)[1]
+    return date(year, month, 1), date(year, month, last_day)
+
+
+def _build_finops_month_system_message(rows, *, year, month):
+    ordered_rows = sorted(
+        [row for row in (rows or []) if row.usage_date is not None],
+        key=lambda item: item.usage_date,
+    )
+    if not ordered_rows:
+        return None
+
+    total_days_in_month = monthrange(year, month)[1]
+    covered_days = len(ordered_rows)
+    missing_day_count = max(total_days_in_month - covered_days, 0)
+    covered_dates = [row.usage_date.isoformat() for row in ordered_rows]
+
+    total_cost = 0.0
+    cost_day_count = 0
+    highest_cost_value = None
+    highest_cost_date = None
+    total_build_count = 0
+    success_count = 0
+    failure_count = 0
+    aborted_count = 0
+    running_count = 0
+    total_duration_ms = 0
+    build_days = 0
+    no_build_days = 0
+    build_pressure_days = 0
+    cost_spike_days = 0
+    highest_build_count = 0
+    highest_build_date = None
+
+    for row in ordered_rows:
+        summary = row.summary or {}
+        cost_summary = summary.get('cost') or {}
+        build_summary = summary.get('builds') or {}
+        signal_summary = summary.get('signals') or {}
+
+        build_count = int(build_summary.get('build_count') or 0)
+        total_build_count += build_count
+        success_count += int(build_summary.get('success_count') or 0)
+        failure_count += int(build_summary.get('failure_count') or 0)
+        aborted_count += int(build_summary.get('aborted_count') or 0)
+        running_count += int(build_summary.get('running_count') or 0)
+        total_duration_ms += int(build_summary.get('total_duration_ms') or 0)
+
+        if build_count > 0:
+            build_days += 1
+        else:
+            no_build_days += 1
+
+        if build_count > highest_build_count:
+            highest_build_count = build_count
+            highest_build_date = row.usage_date.isoformat()
+
+        if signal_summary.get('build_pressure'):
+            build_pressure_days += 1
+        if signal_summary.get('cost_spike'):
+            cost_spike_days += 1
+
+        if cost_summary.get('available'):
+            total_cost += float(cost_summary.get('total_cost') or 0.0)
+            cost_day_count += 1
+            row_cost = float(cost_summary.get('total_cost') or 0.0)
+            if highest_cost_value is None or row_cost > highest_cost_value:
+                highest_cost_value = row_cost
+                highest_cost_date = row.usage_date.isoformat()
+
+    coverage_status = 'full_month' if covered_days == total_days_in_month else 'partial_month'
+    average_daily_cost = (total_cost / cost_day_count) if cost_day_count > 0 else 0.0
+    average_builds_per_covered_day = (
+        total_build_count / covered_days
+        if covered_days > 0 else 0.0
+    )
+
+    return {
+        'role': 'system',
+        'content': (
+            'You are the Jenkins Monitor FinOps assistant.\n'
+            'The user asked about a month-wide period, not a single day.\n'
+            'Answer only from the monthly stored evidence below.\n'
+            'Do not generalize beyond the covered stored dates.\n'
+            'If coverage is partial, explicitly say the answer applies only to the covered dates and not the full calendar month.\n'
+            'Do not say there were no Jenkins builds in the month unless total_build_count is 0 and coverage_status is full_month.\n'
+            'Use this response format exactly:\n'
+            'Facts:\n'
+            '- Cost evidence: ...\n'
+            '- Jenkins evidence: ...\n'
+            'Conclusion:\n'
+            '- ...\n'
+            'Limits:\n'
+            '- ...\n'
+            'Under Facts, the Jenkins evidence bullet must mention the total builds across covered dates.\n'
+            'Under Limits, you must mention whether month coverage is full or partial.\n'
+            '\nRetrieved monthly stored evidence:\n'
+            f'- target_month: {year:04d}-{month:02d}\n'
+            f'- coverage_status: {coverage_status}\n'
+            f'- stored_day_count: {covered_days} of {total_days_in_month}\n'
+            f'- covered_start_date: {covered_dates[0]}\n'
+            f'- covered_end_date: {covered_dates[-1]}\n'
+            f'- covered_dates: {", ".join(covered_dates)}\n'
+            f'- missing_day_count: {missing_day_count}\n'
+            f'- cost_day_count: {cost_day_count}\n'
+            f'- total_cost_across_covered_days: {_format_cost(total_cost)}\n'
+            f'- average_daily_cost_across_covered_days: {_format_cost(average_daily_cost)}\n'
+            f'- highest_cost_day: {highest_cost_date or "unknown"}\n'
+            f'- highest_cost_value: {_format_cost(highest_cost_value or 0.0)}\n'
+            f'- build_days: {build_days}\n'
+            f'- no_build_days: {no_build_days}\n'
+            f'- total_build_count: {total_build_count}\n'
+            f'- average_builds_per_covered_day: {average_builds_per_covered_day:.2f}\n'
+            f'- success_count: {success_count}\n'
+            f'- failure_count: {failure_count}\n'
+            f'- aborted_count: {aborted_count}\n'
+            f'- running_count: {running_count}\n'
+            f'- total_build_duration: {_format_duration_ms(total_duration_ms)}\n'
+            f'- build_pressure_days: {build_pressure_days}\n'
+            f'- cost_spike_days: {cost_spike_days}\n'
+            f'- busiest_build_day: {highest_build_date or "unknown"}\n'
+            f'- busiest_build_day_count: {highest_build_count}\n'
+        ).strip(),
+    }
+
+
 def _maybe_add_finops_rag_context(messages):
     query_text = _build_retrieval_query(messages)
     if not _looks_like_finops_query(query_text):
         return messages
 
     usage_date = _extract_target_usage_date(query_text)
-    if usage_date is not None:
+    usage_month = None if usage_date is not None else _extract_target_usage_month(query_text)
+
+    if usage_month is not None:
+        start_date, end_date = _month_bounds(*usage_month)
         try:
-            row = get_finops_build_document(usage_date)
+            month_rows = list_finops_build_documents_for_range(start_date, end_date)
         except Exception:
-            current_app.logger.exception('FinOps document retrieval failed.')
-            row = None
-        if row is not None:
-            return [_build_finops_document_system_message(row), *messages]
+            current_app.logger.exception('FinOps month document retrieval failed.')
+            month_rows = []
+        if month_rows:
+            month_message = _build_finops_month_system_message(
+                month_rows,
+                year=usage_month[0],
+                month=usage_month[1],
+            )
+            if month_message is not None:
+                return [month_message, *messages]
 
     try:
         matches = query_finops_chroma(
@@ -352,13 +550,22 @@ def _maybe_add_finops_rag_context(messages):
             )
     except Exception:
         current_app.logger.exception('FinOps Chroma retrieval failed.')
-        return messages
+        matches = []
 
-    if not matches:
-        return messages
+    if matches:
+        rag_message = _build_finops_rag_system_message(matches, usage_date=usage_date)
+        return [rag_message, *messages]
 
-    rag_message = _build_finops_rag_system_message(matches, usage_date=usage_date)
-    return [rag_message, *messages]
+    if usage_date is not None:
+        try:
+            row = get_finops_build_document(usage_date)
+        except Exception:
+            current_app.logger.exception('FinOps document retrieval failed.')
+            row = None
+        if row is not None:
+            return [_build_finops_document_system_message(row), *messages]
+
+    return messages
 
 
 def _get_chatbot_config():
