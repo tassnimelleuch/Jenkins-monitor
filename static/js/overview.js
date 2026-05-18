@@ -4,7 +4,11 @@ let _prevRunningNumbers = new Set();
 let _avgDurationMs      = 60000;
 const LAST_24_HOURS_MS  = 24 * 60 * 60 * 1000;
 const OVERVIEW_HISTORY_INITIAL_SHOW = 5;
+const LIVE_RUNNING_WATCH_POLL_MS = 2000;
 const LIVE_RUNNING_POLL_MS = 2000;
+const LIVE_RUNNING_IDLE_CONFIRM_POLLS = 2;
+const KPI_COMPLETION_BURST_MS = 12000;
+const KPI_COMPLETION_BURST_INTERVAL_MS = 1000;
 const OPTIMISTIC_ABORT_WINDOW_MS = 30000;
 
 const _overviewSegTip = document.getElementById('overviewSegTip');
@@ -13,8 +17,13 @@ let _overviewHistoryShowingAll = false;
 let _overviewHistoryTimers = {};
 let _testsDuration24hChart = null;
 let _overviewLoadInFlight = false;
+let _overviewKpiBurstHandle = null;
+let _overviewKpiBurstStopAt = 0;
+let _runningBuildsWatcherInFlight = false;
+let _runningBuildsWatcherHandle = null;
 let _runningStagesPollInFlight = false;
 let _runningStagesHandle = null;
+let _liveRunningEmptyPollStreak = 0;
 let _overviewStatsSignature = null;
 let _overviewActiveSignature = null;
 let _overviewFinishedSignature = null;
@@ -104,6 +113,75 @@ function resetOverviewRenderCache() {
     _overviewHistorySignature = null;
     _overviewTestsDurationSignature = null;
     _lastOverviewMetrics = null;
+}
+
+function stopOverviewKpiBurstRefresh() {
+    if (_overviewKpiBurstHandle) {
+        clearInterval(_overviewKpiBurstHandle);
+        _overviewKpiBurstHandle = null;
+    }
+    _overviewKpiBurstStopAt = 0;
+}
+
+function scheduleOverviewKpiBurstRefresh({
+    durationMs = KPI_COMPLETION_BURST_MS,
+    intervalMs = KPI_COMPLETION_BURST_INTERVAL_MS,
+    immediate = true,
+} = {}) {
+    const stopAt = Date.now() + durationMs;
+    _overviewKpiBurstStopAt = Math.max(_overviewKpiBurstStopAt, stopAt);
+
+    if (immediate) {
+        loadKPIs({ refresh: true });
+    }
+
+    if (_overviewKpiBurstHandle) return;
+
+    _overviewKpiBurstHandle = setInterval(() => {
+        if (Date.now() >= _overviewKpiBurstStopAt) {
+            stopOverviewKpiBurstRefresh();
+            return;
+        }
+        loadKPIs({ refresh: true });
+    }, intervalMs);
+}
+
+function stopRunningBuildsWatcher() {
+    if (_runningBuildsWatcherHandle) {
+        clearInterval(_runningBuildsWatcherHandle);
+        _runningBuildsWatcherHandle = null;
+    }
+    _runningBuildsWatcherInFlight = false;
+}
+
+function stopLiveRunningPoll({ restartWatcher = true } = {}) {
+    if (_runningStagesHandle) {
+        clearInterval(_runningStagesHandle);
+        _runningStagesHandle = null;
+    }
+    _runningStagesPollInFlight = false;
+    _liveRunningEmptyPollStreak = 0;
+    if (restartWatcher) {
+        startRunningBuildsWatcher({ eager: false });
+    }
+}
+
+function startLiveRunningPoll({ eager = true } = {}) {
+    if (!hasOverviewLiveBuildWidgets() || _runningStagesHandle) return;
+    stopRunningBuildsWatcher();
+    _liveRunningEmptyPollStreak = 0;
+    _runningStagesHandle = setInterval(pollRunningStages, LIVE_RUNNING_POLL_MS);
+    if (eager) {
+        pollRunningStages();
+    }
+}
+
+function startRunningBuildsWatcher({ eager = true } = {}) {
+    if (!hasOverviewLiveBuildWidgets() || _runningStagesHandle || _runningBuildsWatcherHandle) return;
+    _runningBuildsWatcherHandle = setInterval(checkForRunningBuilds, LIVE_RUNNING_WATCH_POLL_MS);
+    if (eager) {
+        checkForRunningBuilds();
+    }
 }
 
 function hasOverviewLiveBuildWidgets() {
@@ -256,10 +334,45 @@ function handleBuildAbortSuccess(buildNumber) {
     } else {
         updateActiveBuilds(_liveRunningBuilds.length, _liveRunningBuilds);
     }
+
+    scheduleOverviewKpiBurstRefresh();
 }
 
 function refreshRunningBuildsNow() {
     return pollRunningStages();
+}
+
+async function checkForRunningBuilds() {
+    if (_runningBuildsWatcherInFlight || _runningStagesHandle) return;
+    _runningBuildsWatcherInFlight = true;
+
+    try {
+        const data = await (await fetch('/api/running_builds')).json();
+        const runningBuilds = (Array.isArray(data) ? data : [])
+            .map(normalizeLiveRunningBuild)
+            .filter(build => !isBuildOptimisticallyAborted(build.number))
+            .sort((a, b) =>
+                (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0)
+            );
+
+        if (!runningBuilds.length) return;
+
+        _hasLiveRunningPollData = true;
+        _liveRunningBuilds = runningBuilds;
+
+        if (_lastOverviewPayload) {
+            renderOverviewPayload(_lastOverviewPayload, { eagerRunningStages: false });
+        } else {
+            updateActiveBuilds(_liveRunningBuilds.length, _liveRunningBuilds);
+        }
+
+        stopRunningBuildsWatcher();
+        startLiveRunningPoll({ eager: true });
+        loadKPIs({ refresh: true });
+    } catch (e) {
+    } finally {
+        _runningBuildsWatcherInFlight = false;
+    }
 }
 
 function fmtDate(ts) {
@@ -442,10 +555,8 @@ function clearOverviewHistory() {
     _overviewHistoryTimers = {};
     _overviewHistoryBuilds = [];
     _overviewHistoryShowingAll = false;
-    if (_runningStagesHandle) {
-        clearInterval(_runningStagesHandle);
-        _runningStagesHandle = null;
-    }
+    stopLiveRunningPoll({ restartWatcher: false });
+    stopRunningBuildsWatcher();
 
     const container = document.getElementById('overviewBuildTimeline');
     if (container) {
@@ -702,6 +813,9 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
         _prevRunningNumbers = new Set();
         Object.values(_activeTimers).forEach(clearInterval);
         _activeTimers = {};
+        stopOverviewKpiBurstRefresh();
+        stopLiveRunningPoll({ restartWatcher: false });
+        stopRunningBuildsWatcher();
         _lastOverviewPayload = null;
         _liveRunningBuilds = [];
         _hasLiveRunningPollData = false;
@@ -747,14 +861,15 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
         _overviewStatsSignature = statsSignature;
     }
 
-    if (hasOverviewLiveBuildWidgets() && !_runningStagesHandle) {
-        _runningStagesHandle = setInterval(pollRunningStages, LIVE_RUNNING_POLL_MS);
-        if (eagerRunningStages) {
-            pollRunningStages();
-        }
-    } else if (!hasOverviewLiveBuildWidgets() && _runningStagesHandle) {
-        clearInterval(_runningStagesHandle);
-        _runningStagesHandle = null;
+    const snapshotRunningBuilds = baseTrend.filter(build => build.result === null);
+    const snapshotShowsRunning = snapshotRunningBuilds.length > 0 || (metrics.running ?? 0) > 0;
+    if (!hasOverviewLiveBuildWidgets()) {
+        stopLiveRunningPoll({ restartWatcher: false });
+        stopRunningBuildsWatcher();
+    } else if (snapshotShowsRunning && !_runningStagesHandle) {
+        startLiveRunningPoll({ eager: eagerRunningStages });
+    } else if (!snapshotShowsRunning && !_runningStagesHandle) {
+        startRunningBuildsWatcher({ eager: !_runningBuildsWatcherHandle });
     }
 
     const activeBuilds = _hasLiveRunningPollData
@@ -837,12 +952,14 @@ function getInitialOverviewPayload() {
     }
 }
 
-async function loadKPIs() {
+async function loadKPIs({ refresh = false } = {}) {
     if (_overviewLoadInFlight) return;
     _overviewLoadInFlight = true;
 
     try {
-        const res = await fetch(document.body.dataset.kpisUrl);
+        const baseUrl = document.body.dataset.kpisUrl;
+        const url = refresh ? `${baseUrl}?refresh=1` : baseUrl;
+        const res = await fetch(url);
         const d   = await res.json();
         renderOverviewPayload(d);
     } catch (e) {
@@ -1096,6 +1213,7 @@ async function pollRunningStages() {
   _runningStagesPollInFlight = true;
 
   try {
+    const previousRunningNumbers = new Set((_liveRunningBuilds || []).map(build => build.number));
     const data = await (await fetch('/api/running_stages')).json();
     _hasLiveRunningPollData = true;
     _liveRunningBuilds = (Array.isArray(data) ? data : [])
@@ -1104,6 +1222,14 @@ async function pollRunningStages() {
       .sort((a, b) =>
         (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0)
       );
+    const currentRunningNumbers = new Set(_liveRunningBuilds.map(build => build.number));
+    const buildJustFinished = Array.from(previousRunningNumbers).some(number => !currentRunningNumbers.has(number));
+
+    if (_liveRunningBuilds.length > 0) {
+      _liveRunningEmptyPollStreak = 0;
+    } else {
+      _liveRunningEmptyPollStreak += 1;
+    }
 
     if (_lastOverviewPayload) {
       renderOverviewPayload(_lastOverviewPayload, { eagerRunningStages: false });
@@ -1124,6 +1250,18 @@ async function pollRunningStages() {
         updateOverviewStageSegmentDurations(strip, b.stages);
       }
     });
+
+    if (buildJustFinished) {
+      scheduleOverviewKpiBurstRefresh();
+    }
+
+    if (
+      _runningStagesHandle
+      && _liveRunningBuilds.length === 0
+      && _liveRunningEmptyPollStreak >= LIVE_RUNNING_IDLE_CONFIRM_POLLS
+    ) {
+      stopLiveRunningPoll();
+    }
   } catch (e) {
   } finally {
     _runningStagesPollInFlight = false;
@@ -1138,5 +1276,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         loadKPIs();
     }
+    startRunningBuildsWatcher({ eager: !initialPayload });
     startPolling(5000);
 });

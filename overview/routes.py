@@ -1,7 +1,7 @@
-from flask import session, jsonify, render_template
+from flask import session, jsonify, render_template, request
 from overview import overview_bp
 from services.access_service import role_required
-from services.jenkins_service import get_overview_kpis
+from services.jenkins_service import get_overview_kpis, request_pipeline_background_refresh
 from services.pipeline_storage_service import get_stored_overview_kpis
 from collectors.jenkins_collector import check_connection, get_console_log
 from services.azure_service import get_connection_status
@@ -20,6 +20,8 @@ def dashboard():
 @overview_bp.route('/api/pipeline/kpis')
 @role_required('admin', 'developer', 'tester')
 def kpis():
+    if request.args.get('refresh') == '1':
+        request_pipeline_background_refresh()
     return jsonify(get_overview_kpis())
 
 

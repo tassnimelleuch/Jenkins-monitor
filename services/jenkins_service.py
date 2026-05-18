@@ -57,9 +57,11 @@ def _call_in_app_context(app, func):
         return func()
 
 
-def _live_running_builds_cache_key():
+def _live_running_builds_cache_key(include_stages=True):
+    variant = 'stages' if include_stages else 'summary'
     return (
         f'pipeline_live_running:{LIVE_RUNNING_BUILDS_CACHE_VERSION}:'
+        f'{variant}:'
         f'{configured_pipeline_job_path(current_app.config, default_branch="main")}:'
         f'{configured_branch_name(current_app.config, default="main")}'
     )
@@ -221,7 +223,8 @@ def invalidate_pipeline_head_cache():
 
 
 def invalidate_live_running_builds_cache():
-    cache.delete(_live_running_builds_cache_key())
+    cache.delete(_live_running_builds_cache_key(include_stages=True))
+    cache.delete(_live_running_builds_cache_key(include_stages=False))
 
 
 def invalidate_pipeline_live_state():
@@ -245,8 +248,8 @@ def _cache_selected_branch_head(payload):
         }
 
 
-def get_live_running_builds():
-    cached = cache.get(_live_running_builds_cache_key())
+def get_live_running_builds(include_stages=True):
+    cached = cache.get(_live_running_builds_cache_key(include_stages=include_stages))
     if cached is not None:
         return cached
 
@@ -262,24 +265,26 @@ def get_live_running_builds():
     if not running_builds:
         payload = []
         cache.set(
-            _live_running_builds_cache_key(),
+            _live_running_builds_cache_key(include_stages=include_stages),
             payload,
             timeout=LIVE_RUNNING_BUILDS_CACHE_TIMEOUT_SECONDS,
         )
         return payload
 
-    app = current_app._get_current_object()
-    stage_tasks = {
-        build.get('number'): (
-            lambda n=build.get('number'): _call_in_app_context(app, lambda: get_stages(n))
+    stages_by_build = {}
+    if include_stages:
+        app = current_app._get_current_object()
+        stage_tasks = {
+            build.get('number'): (
+                lambda n=build.get('number'): _call_in_app_context(app, lambda: get_stages(n))
+            )
+            for build in running_builds
+        }
+        stages_by_build = (
+            parallel_execute(stage_tasks, max_workers=4, timeout=12)
+            if stage_tasks
+            else {}
         )
-        for build in running_builds
-    }
-    stages_by_build = (
-        parallel_execute(stage_tasks, max_workers=4, timeout=12)
-        if stage_tasks
-        else {}
-    )
 
     payload = sorted(
         [
@@ -298,7 +303,7 @@ def get_live_running_builds():
         reverse=True,
     )
     cache.set(
-        _live_running_builds_cache_key(),
+        _live_running_builds_cache_key(include_stages=include_stages),
         payload,
         timeout=LIVE_RUNNING_BUILDS_CACHE_TIMEOUT_SECONDS,
     )
@@ -343,6 +348,10 @@ def _start_background_pipeline_refresh(stored_payload=None):
     )
     thread.start()
     return True
+
+
+def request_pipeline_background_refresh(stored_payload=None):
+    return _start_background_pipeline_refresh(stored_payload=stored_payload)
 
 
 def _schedule_background_refresh_if_needed(stored_payload):
