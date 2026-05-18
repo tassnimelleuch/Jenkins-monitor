@@ -1,10 +1,55 @@
 from flask import session, jsonify, render_template, request
 from overview import overview_bp
 from services.access_service import role_required
+from services.dashboard_kpi_chroma_service import (
+    get_dashboard_kpi_chroma_status,
+    sync_dashboard_kpi_documents_to_chroma,
+)
+from services.dashboard_kpi_documents_service import (
+    get_dashboard_kpi_document,
+    get_dashboard_kpi_document_chunks,
+    list_dashboard_kpi_document_chunks,
+    list_dashboard_kpi_documents,
+    sync_dashboard_kpi_documents,
+)
 from services.jenkins_service import get_overview_kpis, request_pipeline_background_refresh
 from services.pipeline_storage_service import get_stored_overview_kpis
 from collectors.jenkins_collector import check_connection, get_console_log
 from services.azure_service import get_connection_status
+
+
+def _serialize_dashboard_kpi_document(row, include_content=True):
+    return {
+        'id': row.id,
+        'document_key': row.document_key,
+        'dashboard_page': row.dashboard_page,
+        'pipeline_name': row.pipeline_name,
+        'pipeline_job_path': row.pipeline_job_path,
+        'branch_name': row.branch_name,
+        'title': row.title,
+        'content': row.content if include_content else None,
+        'summary': row.summary or {},
+        'last_generated_at': row.last_generated_at.isoformat() if row.last_generated_at else None,
+    }
+
+
+def _serialize_dashboard_kpi_chunk(row, include_content=True):
+    return {
+        'id': row.id,
+        'document_id': row.document_id,
+        'document_key': row.document_key,
+        'dashboard_page': row.dashboard_page,
+        'pipeline_name': row.pipeline_name,
+        'pipeline_job_path': row.pipeline_job_path,
+        'branch_name': row.branch_name,
+        'chunk_index': row.chunk_index,
+        'chunk_count': row.chunk_count,
+        'title': row.title,
+        'content': row.content if include_content else None,
+        'summary': row.summary or {},
+        'last_generated_at': row.last_generated_at.isoformat() if row.last_generated_at else None,
+    }
+
 
 @overview_bp.route('/overview')
 @role_required('admin', 'developer', 'tester')
@@ -62,3 +107,97 @@ def azure_status():
     result = get_connection_status()
     status_code = 200 if result['connected'] else 503
     return jsonify(result), status_code
+
+
+@overview_bp.route('/api/dashboard/kpi-documents', methods=['GET'])
+@role_required('admin', 'developer', 'tester')
+def dashboard_kpi_documents():
+    document_key = request.args.get('key')
+    dashboard_page = request.args.get('page')
+    limit = request.args.get('limit', default=50, type=int)
+
+    if document_key:
+        row = get_dashboard_kpi_document(document_key)
+        if row is None:
+            return jsonify({'error': 'No stored dashboard KPI document was found for that key.'}), 404
+        return jsonify(_serialize_dashboard_kpi_document(row))
+
+    rows = list_dashboard_kpi_documents(limit=limit, dashboard_page=dashboard_page)
+    return jsonify({
+        'count': len(rows),
+        'documents': [
+            _serialize_dashboard_kpi_document(row)
+            for row in rows
+        ],
+    })
+
+
+@overview_bp.route('/api/dashboard/kpi-documents/refresh', methods=['POST'])
+@role_required('admin')
+def refresh_dashboard_kpi_documents():
+    try:
+        result = sync_dashboard_kpi_documents()
+    except Exception as exc:
+        return jsonify({
+            'error': f'Dashboard KPI document sync failed ({type(exc).__name__}): {exc}',
+        }), 500
+    return jsonify(result), 200
+
+
+@overview_bp.route('/api/dashboard/kpi-documents/chunks', methods=['GET'])
+@role_required('admin', 'developer', 'tester')
+def dashboard_kpi_document_chunks():
+    document_key = request.args.get('key')
+    dashboard_page = request.args.get('page')
+    limit = request.args.get('limit', default=200, type=int)
+
+    if document_key:
+        rows = get_dashboard_kpi_document_chunks(document_key)
+        if not rows:
+            return jsonify({'error': 'No stored dashboard KPI chunks were found for that key.'}), 404
+        return jsonify({
+            'count': len(rows),
+            'chunks': [
+                _serialize_dashboard_kpi_chunk(row)
+                for row in rows
+            ],
+        })
+
+    rows = list_dashboard_kpi_document_chunks(limit=limit, dashboard_page=dashboard_page)
+    return jsonify({
+        'count': len(rows),
+        'chunks': [
+            _serialize_dashboard_kpi_chunk(row)
+            for row in rows
+        ],
+    })
+
+
+@overview_bp.route('/api/dashboard/kpi-documents/chroma/status', methods=['GET'])
+@role_required('admin')
+def dashboard_kpi_documents_chroma_status():
+    status = get_dashboard_kpi_chroma_status()
+    status_code = 200 if status.get('chromadb_installed') else 503
+    return jsonify(status), status_code
+
+
+@overview_bp.route('/api/dashboard/kpi-documents/chroma/sync', methods=['POST'])
+@role_required('admin')
+def sync_dashboard_kpi_documents_chroma():
+    body = request.get_json(silent=True) or {}
+
+    try:
+        result = sync_dashboard_kpi_documents_to_chroma(
+            document_key=body.get('key'),
+            dashboard_page=body.get('page'),
+            rebuild=bool(body.get('rebuild', False)),
+            auto_generate=bool(body.get('auto_generate', False)),
+        )
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({
+            'error': f'Dashboard KPI Chroma sync failed ({type(exc).__name__}): {exc}',
+        }), 500
+
+    return jsonify(result), 200

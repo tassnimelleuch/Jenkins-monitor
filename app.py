@@ -32,6 +32,10 @@ app.secret_key = app.config['SECRET_KEY']
 
 from alerts_models import PersistentAlert
 from auth_models import UserAccount
+from dashboard_kpi_documents_models import (
+    DashboardKpiDocument,
+    DashboardKpiDocumentChunk,
+)
 from finops_models import (
     FinOpsBuildDocument,
     FinOpsDailyCost,

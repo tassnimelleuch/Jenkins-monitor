@@ -98,6 +98,12 @@ class Config:
     )
     FINOPS_CHUNK_SIZE = int(os.getenv('FINOPS_CHUNK_SIZE', '900'))
     FINOPS_CHUNK_OVERLAP = int(os.getenv('FINOPS_CHUNK_OVERLAP', '120'))
+    DASHBOARD_KPI_CHROMA_COLLECTION = os.getenv(
+        'DASHBOARD_KPI_CHROMA_COLLECTION',
+        'dashboard_kpi_documents',
+    )
+    DASHBOARD_KPI_CHUNK_SIZE = int(os.getenv('DASHBOARD_KPI_CHUNK_SIZE', '1100'))
+    DASHBOARD_KPI_CHUNK_OVERLAP = int(os.getenv('DASHBOARD_KPI_CHUNK_OVERLAP', '140'))
 
     CACHE_TYPE = "RedisCache"
     CACHE_REDIS_HOST = "127.0.0.1"

@@ -7,6 +7,8 @@ from datetime import date
 import requests
 from flask import current_app
 
+from services.dashboard_kpi_chroma_service import query_dashboard_kpi_chroma
+from services.dashboard_kpi_documents_service import query_dashboard_kpi_documents
 from services.finops_build_documents_service import (
     get_finops_build_document,
     list_finops_build_documents_for_range,
@@ -14,9 +16,51 @@ from services.finops_build_documents_service import (
 from services.finops_chroma_service import query_finops_chroma
 
 
+DASHBOARD_KPI_RAG_RESULT_LIMIT = 3
+DASHBOARD_KPI_METRIC_KEYWORDS = (
+    'health score',
+    'success rate',
+    'active builds',
+    'build trend',
+    'build history',
+    'latest build duration',
+    'latest builds duration',
+    'test stages duration',
+    'tests duration',
+    'test coverage',
+    'coverage trend',
+    'unit test results',
+    'junit',
+    'failure rate by stage',
+    'stage failure rate',
+    'top failing stages',
+)
+DASHBOARD_KPI_CONTEXT_KEYWORDS = (
+    'dashboard',
+    'kpi',
+    'kpis',
+    'overview',
+    'pipeline kpis',
+)
+DASHBOARD_KPI_EXPLANATION_KEYWORDS = (
+    'what is',
+    'what does',
+    'mean',
+    'means',
+    'explain',
+    'how is',
+    'how does',
+    'calculated',
+    'calculation',
+    'represent',
+    'represents',
+    'time window',
+    'grouped by week',
+    'grouped by month',
+)
 FINOPS_RAG_RESULT_LIMIT = 4
 FINOPS_RAG_HISTORY_USER_MESSAGES = 3
-FINOPS_RAG_PRIMARY_KEYWORDS = (
+FINOPS_RAG_STRONG_KEYWORDS = (
     'finops',
     'cost',
     'costs',
@@ -25,13 +69,17 @@ FINOPS_RAG_PRIMARY_KEYWORDS = (
     'vm',
     'vms',
     'aks',
-    'jenkins',
+    'azure',
+    'billing',
+    'allocation',
+    'allocations',
+)
+FINOPS_RAG_CONTEXT_KEYWORDS = (
     'pipeline',
     'pipelines',
     'build',
     'builds',
-    'allocation',
-    'allocations',
+    'jenkins',
 )
 FINOPS_RAG_SECONDARY_KEYWORDS = (
     'expensive',
@@ -219,17 +267,113 @@ def _build_retrieval_query(messages):
     return '\n'.join(_recent_user_messages(messages)).strip()
 
 
+def _build_dashboard_kpi_system_message(rows):
+    sections = []
+    for index, row in enumerate(rows, start=1):
+        if row is None:
+            continue
+
+        section_lines = [
+            f'Document {index}',
+            f"- key: {row.document_key or 'unknown'}",
+            f"- page: {row.dashboard_page or 'unknown'}",
+            f"- title: {row.title or 'unknown'}",
+        ]
+        section_lines.extend([
+            '',
+            str(row.content or '').strip(),
+        ])
+        sections.append('\n'.join(section_lines).strip())
+
+    evidence_text = '\n\n'.join(section for section in sections if section)
+    if not evidence_text:
+        return None
+
+    return {
+        'role': 'system',
+        'content': (
+            'You are the Jenkins Monitor KPI assistant.\n'
+            'Use the retrieved dashboard KPI documents below when answering questions about what a dashboard KPI means, how it is calculated, what time window it uses, or how a chart should be interpreted.\n'
+            'These documents are generic KPI definitions, not live pipeline value snapshots.\n'
+            'Prefer the stored KPI documentation over guesses.\n'
+            'If the documentation says a metric comes directly from Jenkins, make that clear instead of pretending the dashboard recalculates it.\n'
+            'Do not invent current KPI values from these documents.\n'
+            'If the documentation does not prove a detail, say that clearly.\n'
+            '\nRetrieved KPI documentation:\n'
+            f'{evidence_text}'
+        ).strip(),
+    }
+
+
+def _build_dashboard_kpi_rag_system_message(matches):
+    sections = []
+    for index, match in enumerate(matches, start=1):
+        metadata = match.get('metadata') or {}
+        chunk_text = str(match.get('document') or '').strip()
+        if not chunk_text:
+            continue
+
+        sections.append(
+            '\n'.join(
+                [
+                    f'Evidence {index}',
+                    f"- page: {metadata.get('dashboard_page') or 'unknown'}",
+                    f"- key: {metadata.get('document_key') or 'unknown'}",
+                    f"- time_window: {metadata.get('time_window') or 'unknown'}",
+                    f"- aggregation: {metadata.get('aggregation') or 'unknown'}",
+                    f"- tags: {metadata.get('tag_csv') or 'none'}",
+                    chunk_text,
+                ]
+            )
+        )
+
+    evidence_text = '\n\n'.join(section for section in sections if section)
+    if not evidence_text:
+        return None
+
+    return {
+        'role': 'system',
+        'content': (
+            'You are the Jenkins Monitor KPI assistant.\n'
+            'Use the retrieved dashboard KPI evidence below when answering KPI-related questions.\n'
+            'This KPI evidence is definition-oriented and explains meaning, formula, time window, and grouping, not current live values.\n'
+            'Explain what the KPI means, how the dashboard calculates or renders it, and what time window or grouping it uses.\n'
+            'Prefer the retrieved KPI evidence over guesses.\n'
+            'If the evidence says a metric comes directly from Jenkins, make that clear.\n'
+            'Do not invent current KPI values from this evidence.\n'
+            'If a detail is not supported by the retrieved evidence, say so clearly.\n'
+            '\nRetrieved KPI evidence:\n'
+            f'{evidence_text}'
+        ).strip(),
+    }
+
+
+def _looks_like_dashboard_kpi_query(query_text):
+    content = str(query_text or '').strip().lower()
+    if not content:
+        return False
+
+    if any(keyword in content for keyword in DASHBOARD_KPI_METRIC_KEYWORDS):
+        return True
+
+    has_context = any(keyword in content for keyword in DASHBOARD_KPI_CONTEXT_KEYWORDS)
+    has_explanation_intent = any(keyword in content for keyword in DASHBOARD_KPI_EXPLANATION_KEYWORDS)
+    return has_context and has_explanation_intent
+
+
 def _looks_like_finops_query(query_text):
     content = str(query_text or '').strip().lower()
     if not content:
         return False
 
-    has_primary_keyword = any(keyword in content for keyword in FINOPS_RAG_PRIMARY_KEYWORDS)
-    if has_primary_keyword:
+    has_strong_keyword = any(keyword in content for keyword in FINOPS_RAG_STRONG_KEYWORDS)
+    if has_strong_keyword:
         return True
 
     has_secondary_keyword = any(keyword in content for keyword in FINOPS_RAG_SECONDARY_KEYWORDS)
-    return bool(_extract_dates_from_text(content)) and has_secondary_keyword
+    has_context_keyword = any(keyword in content for keyword in FINOPS_RAG_CONTEXT_KEYWORDS)
+    has_date_scope = bool(_extract_dates_from_text(content)) or bool(_extract_month_scopes_from_text(content))
+    return has_context_keyword and has_secondary_keyword and has_date_scope
 
 
 def _extract_target_usage_date(query_text):
@@ -644,6 +788,44 @@ def _build_finops_month_system_message(rows, *, year, month):
     }
 
 
+def _maybe_add_dashboard_kpi_context(messages):
+    query_text = _build_retrieval_query(messages)
+    if not _looks_like_dashboard_kpi_query(query_text):
+        return messages
+
+    try:
+        matches = query_dashboard_kpi_chroma(
+            query_text,
+            limit=DASHBOARD_KPI_RAG_RESULT_LIMIT,
+        )
+    except Exception:
+        current_app.logger.exception('Dashboard KPI Chroma retrieval failed.')
+        matches = []
+
+    if matches:
+        system_message = _build_dashboard_kpi_rag_system_message(matches)
+        if system_message is not None:
+            return [system_message, *messages]
+
+    try:
+        rows = query_dashboard_kpi_documents(
+            query_text,
+            limit=DASHBOARD_KPI_RAG_RESULT_LIMIT,
+            auto_generate=True,
+        )
+    except Exception:
+        current_app.logger.exception('Dashboard KPI document retrieval failed.')
+        rows = []
+
+    if not rows:
+        return messages
+
+    system_message = _build_dashboard_kpi_system_message(rows)
+    if system_message is None:
+        return messages
+    return [system_message, *messages]
+
+
 def _maybe_add_finops_rag_context(messages):
     query_text = _build_retrieval_query(messages)
     if not _looks_like_finops_query(query_text):
@@ -759,7 +941,8 @@ def chat_with_ollama(messages):
     if not isinstance(messages, list) or not messages:
         raise ValueError('Please send a message before using the chatbot.')
 
-    augmented_messages = _maybe_add_finops_rag_context(messages)
+    augmented_messages = _maybe_add_dashboard_kpi_context(messages)
+    augmented_messages = _maybe_add_finops_rag_context(augmented_messages)
     base_url, chat_endpoint, model, timeout = _get_chatbot_config()
     chat_url = f'{base_url}{chat_endpoint}'
 
