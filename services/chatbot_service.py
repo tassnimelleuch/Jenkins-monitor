@@ -272,62 +272,195 @@ def _format_cost(value, currency_code='USD'):
         return f'{currency_code or "USD"} 0.0000'
 
 
-def _build_finops_document_system_message(row):
+def _to_int(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _to_float(value):
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_ratio(value, baseline):
+    baseline_value = _to_float(baseline)
+    if baseline_value <= 0:
+        return 'n/a'
+    return f'{_to_float(value) / baseline_value:.2f}x'
+
+
+def _build_activity_label(build_summary, signal_summary):
+    if _to_int(build_summary.get('build_count')) <= 0:
+        return 'no Jenkins builds were stored for this date'
+    if bool(signal_summary.get('build_pressure')):
+        return 'Jenkins build activity was above the normal active-day pattern'
+    return 'Jenkins build activity stayed near the normal active-day pattern'
+
+
+def _build_cost_correlation_read(cost_summary, build_summary, baseline_summary, signal_summary):
+    cost_available = bool(cost_summary.get('available'))
+    cost_spike = bool(signal_summary.get('cost_spike'))
+    build_pressure = bool(signal_summary.get('build_pressure'))
+    build_count = _to_int(build_summary.get('build_count'))
+
+    if not cost_available and build_count <= 0:
+        return 'No stored cost row and no stored builds exist for this date.'
+    if not cost_available:
+        return (
+            'There is no stored FinOps cost row for this date, so only Jenkins activity can be assessed.'
+        )
+    if cost_spike and build_pressure:
+        return (
+            'Cost was above the month average and build activity was also elevated, '
+            'so the spend is likely workload-driven Jenkins usage rather than idle Azure usage.'
+        )
+    if cost_spike and not build_pressure:
+        return (
+            'Cost was above the month average while build activity stayed near or below the normal pattern, '
+            'so the extra spend likely came from non-build Azure usage such as a VM or AKS workload staying on longer than needed.'
+        )
+    if not cost_spike and build_pressure:
+        return (
+            'Build activity was elevated, but cost was not above the month average, '
+            'so this looks like an active workday without an unusual Azure cost spike.'
+        )
+    if build_count <= 0:
+        return (
+            'No Jenkins builds were stored and cost was not above the month average, '
+            'so there is no strong workload signal for this date.'
+        )
+    return (
+        'Cost and Jenkins activity both stayed near the normal monthly pattern, '
+        'so this looks like a routine day rather than a cost anomaly.'
+    )
+
+
+def _build_day_snapshot(row):
     summary = row.summary or {}
     cost_summary = summary.get('cost') or {}
     build_summary = summary.get('builds') or {}
     baseline_summary = summary.get('month_build_baseline') or {}
     signal_summary = summary.get('signals') or {}
     tags = summary.get('tags') or []
-    build_activity_label = 'no Jenkins builds were stored for this date'
-    if (build_summary.get('build_count') or 0) > 0:
-        if signal_summary.get('build_pressure'):
-            build_activity_label = 'Jenkins build activity was above the normal active-day pattern'
-        else:
-            build_activity_label = 'Jenkins build activity stayed near the normal active-day pattern'
+
+    return {
+        'usage_date': row.usage_date.isoformat() if row.usage_date else 'unknown',
+        'pipeline_name': row.pipeline_name or 'unknown',
+        'pipeline_job_path': row.pipeline_job_path or '',
+        'currency_code': cost_summary.get('currency_code') or row.currency_code or 'USD',
+        'total_cost': _to_float(cost_summary.get('total_cost')),
+        'month_average_total_cost': _to_float(cost_summary.get('month_average_total_cost')),
+        'cost_ratio': _format_ratio(
+            cost_summary.get('total_cost'),
+            cost_summary.get('month_average_total_cost'),
+        ),
+        'month_rank': cost_summary.get('month_rank'),
+        'month_rank_day_count': cost_summary.get('month_rank_day_count'),
+        'build_count': _to_int(build_summary.get('build_count')),
+        'success_count': _to_int(build_summary.get('success_count')),
+        'failure_count': _to_int(build_summary.get('failure_count')),
+        'aborted_count': _to_int(build_summary.get('aborted_count')),
+        'running_count': _to_int(build_summary.get('running_count')),
+        'total_duration_ms': _to_int(build_summary.get('total_duration_ms')),
+        'avg_duration_ms': _to_int(build_summary.get('avg_duration_ms')),
+        'avg_build_count_active_day': _to_float(baseline_summary.get('avg_build_count_active_day')),
+        'avg_total_duration_ms_active_day': _to_int(
+            baseline_summary.get('avg_total_duration_ms_active_day')
+        ),
+        'build_count_ratio': _format_ratio(
+            build_summary.get('build_count'),
+            baseline_summary.get('avg_build_count_active_day'),
+        ),
+        'duration_ratio': _format_ratio(
+            build_summary.get('total_duration_ms'),
+            baseline_summary.get('avg_total_duration_ms_active_day'),
+        ),
+        'cost_spike': bool(signal_summary.get('cost_spike')),
+        'build_pressure': bool(signal_summary.get('build_pressure')),
+        'high_build_activity': bool(signal_summary.get('high_build_activity')),
+        'long_build_activity': bool(signal_summary.get('long_build_activity')),
+        'failure_pressure': bool(signal_summary.get('failure_pressure')),
+        'likely_driver': str(signal_summary.get('likely_driver') or 'unknown'),
+        'build_activity_label': _build_activity_label(build_summary, signal_summary),
+        'correlation_read': _build_cost_correlation_read(
+            cost_summary,
+            build_summary,
+            baseline_summary,
+            signal_summary,
+        ),
+        'tags': ', '.join(str(item) for item in tags) if tags else 'none',
+        'document_content': str(row.content or '').strip(),
+    }
+
+
+def _build_day_snapshot_lines(snapshot, *, heading=None):
+    lines = []
+    if heading:
+        lines.extend([heading,])
+
+    lines.extend([
+        f"- usage_date: {snapshot['usage_date']}",
+        f"- pipeline_name: {snapshot['pipeline_name']}",
+        f"- pipeline_job_path: {snapshot['pipeline_job_path'] or 'unknown'}",
+        f"- total_cost: {_format_cost(snapshot['total_cost'], snapshot['currency_code'])}",
+        f"- month_average_total_cost: {_format_cost(snapshot['month_average_total_cost'], snapshot['currency_code'])}",
+        f"- cost_vs_month_average_ratio: {snapshot['cost_ratio']}",
+        f"- cost_spike: {snapshot['cost_spike']}",
+        f"- month_cost_rank: {snapshot['month_rank'] if snapshot['month_rank'] is not None else 'unknown'}",
+        f"- month_cost_rank_day_count: {snapshot['month_rank_day_count'] if snapshot['month_rank_day_count'] is not None else 'unknown'}",
+        f"- build_count: {snapshot['build_count']}",
+        f"- success_count: {snapshot['success_count']}",
+        f"- failure_count: {snapshot['failure_count']}",
+        f"- aborted_count: {snapshot['aborted_count']}",
+        f"- running_count: {snapshot['running_count']}",
+        f"- total_build_duration: {_format_duration_ms(snapshot['total_duration_ms'])}",
+        f"- average_build_duration: {_format_duration_ms(snapshot['avg_duration_ms'])}",
+        f"- month_average_builds_per_active_day: {snapshot['avg_build_count_active_day']}",
+        f"- month_average_total_build_time_per_active_day: {_format_duration_ms(snapshot['avg_total_duration_ms_active_day'])}",
+        f"- build_count_vs_active_day_average_ratio: {snapshot['build_count_ratio']}",
+        f"- total_build_duration_vs_active_day_average_ratio: {snapshot['duration_ratio']}",
+        f"- build_pressure: {snapshot['build_pressure']}",
+        f"- high_build_activity: {snapshot['high_build_activity']}",
+        f"- long_build_activity: {snapshot['long_build_activity']}",
+        f"- failure_pressure: {snapshot['failure_pressure']}",
+        f"- likely_driver: {snapshot['likely_driver']}",
+        f"- build_activity_assessment: {snapshot['build_activity_label']}",
+        f"- correlation_read: {snapshot['correlation_read']}",
+        f"- tags: {snapshot['tags']}",
+    ])
+
+    if snapshot['document_content']:
+        lines.extend([
+            '',
+            'Stored daily document:',
+            snapshot['document_content'],
+        ])
+
+    return lines
+
+
+def _build_finops_document_system_message(row):
+    snapshot = _build_day_snapshot(row)
+    daily_evidence_text = '\n'.join(_build_day_snapshot_lines(snapshot))
 
     return {
         'role': 'system',
         'content': (
             'You are the Jenkins Monitor FinOps assistant.\n'
             'The user asked about a specific stored daily FinOps document.\n'
-            'Answer only from the retrieved document and metadata below.\n'
-            'Do not add causes that are not explicitly supported by the document.\n'
-            'If the document says build activity was near normal, do not describe it as high or unusually heavy.\n'
-            'Do not claim retries, repeated builds, unnecessary resources, or failures unless they are explicitly stated in the document.\n'
-            'Use this response format exactly:\n'
-            'Facts:\n'
-            '- Cost evidence: ...\n'
-            '- Jenkins evidence: ...\n'
-            'Conclusion:\n'
-            '- ...\n'
-            'Limits:\n'
-            '- ...\n'
-            'Under Facts, you must include at least one Cost evidence bullet and at least one Jenkins evidence bullet.\n'
-            'If Jenkins activity stayed near normal, say that explicitly in the Jenkins evidence bullet.\n'
-            '\nRetrieved daily document metadata:\n'
-            f"- usage_date: {row.usage_date.isoformat() if row.usage_date else 'unknown'}\n"
-            f"- pipeline_name: {row.pipeline_name or 'unknown'}\n"
-            f"- total_cost: {_format_number(cost_summary.get('total_cost'))} {cost_summary.get('currency_code') or row.currency_code or 'USD'}\n"
-            f"- month_average_total_cost: {_format_number(cost_summary.get('month_average_total_cost'))}\n"
-            f"- build_count: {build_summary.get('build_count') or 0}\n"
-            f"- success_count: {build_summary.get('success_count') or 0}\n"
-            f"- failure_count: {build_summary.get('failure_count') or 0}\n"
-            f"- aborted_count: {build_summary.get('aborted_count') or 0}\n"
-            f"- total_duration: {_format_duration_ms(build_summary.get('total_duration_ms') or 0)}\n"
-            f"- average_duration: {_format_duration_ms(build_summary.get('avg_duration_ms') or 0)}\n"
-            f"- month_average_builds_per_active_day: {baseline_summary.get('avg_build_count_active_day') or 0}\n"
-            f"- month_average_total_build_time_per_active_day: {_format_duration_ms(baseline_summary.get('avg_total_duration_ms_active_day') or 0)}\n"
-            f"- build_activity_assessment: {build_activity_label}\n"
-            f"- likely_driver: {signal_summary.get('likely_driver') or 'unknown'}\n"
-            f"- cost_spike: {bool(signal_summary.get('cost_spike'))}\n"
-            f"- build_pressure: {bool(signal_summary.get('build_pressure'))}\n"
-            f"- high_build_activity: {bool(signal_summary.get('high_build_activity'))}\n"
-            f"- long_build_activity: {bool(signal_summary.get('long_build_activity'))}\n"
-            f"- failure_pressure: {bool(signal_summary.get('failure_pressure'))}\n"
-            f"- tags: {', '.join(str(item) for item in tags) if tags else 'none'}\n"
-            '\nRetrieved daily document content:\n'
-            f'{row.content or ""}'
+            'Answer from the stored evidence below.\n'
+            'Use a natural response style instead of a fixed template.\n'
+            'When explaining cost, compare the cost level with Jenkins build count and total build duration versus the monthly active-day averages.\n'
+            'If cost is above average and build activity is also elevated, you may say the higher Azure cost was likely caused by real CI/CD work and does not look worrying.\n'
+            'If cost is above average while build count and build duration stay near or below the averages, you may say the spend likely came from Azure resources outside normal build activity, such as a VM or AKS workload staying on longer than needed.\n'
+            'Present that kind of cause as a likely explanation, not absolute billing proof.\n'
+            'Ground claims about failures, retries, or repeated work only when the stored evidence supports them.\n'
+            '\nRetrieved daily evidence:\n'
+            f'{daily_evidence_text}'
         ).strip(),
     }
 
@@ -366,18 +499,13 @@ def _build_finops_rag_system_message(matches, *, usage_date=None):
             'You are the Jenkins Monitor FinOps assistant.\n'
             'Use the retrieved dashboard evidence below when answering cost, VM, AKS, build, or pipeline questions.\n'
             'Ground factual claims in the evidence. If the evidence is incomplete, say so clearly.\n'
-            'For "why was this day high/expensive" questions, treat explanations as likely contributors based on correlation, not absolute billing proof.\n'
-            'Do not claim failures, retries, unused resources, or other causes unless the retrieved evidence explicitly supports them.\n'
+            'Use a natural response style instead of a fixed template.\n'
+            'For cost analysis, compare cost evidence with build count and total build duration against the monthly active-day pattern.\n'
+            'If cost is high and build activity is also high or long-running, you may explain that the spend was likely driven by real Jenkins work.\n'
+            'If cost is high while build activity stays near or below normal, you may explain that the spend likely came from non-build Azure usage, such as a VM or AKS workload staying on longer than needed.\n'
+            'Treat those as likely explanations based on correlation, not absolute billing proof.\n'
             'Do not invent numbers, dates, or causes that are not supported by the retrieved evidence.\n'
-            'Use this response format exactly:\n'
-            'Facts:\n'
-            '- Cost evidence: ...\n'
-            '- Jenkins evidence: ...\n'
-            'Conclusion:\n'
-            '- ...\n'
-            'Limits:\n'
-            '- ...\n'
-            'Under Facts, include both cost evidence and Jenkins evidence when the retrieved context contains both.\n'
+            'Only mention retries, repeated failures, or other operational details when the evidence supports them.\n'
             f'{target_date_line}'
             '\nRetrieved FinOps evidence:\n'
             f'{evidence_text}'
@@ -407,6 +535,7 @@ def _build_finops_month_system_message(rows, *, year, month):
     cost_day_count = 0
     highest_cost_value = None
     highest_cost_date = None
+    highest_cost_row = None
     total_build_count = 0
     success_count = 0
     failure_count = 0
@@ -455,6 +584,7 @@ def _build_finops_month_system_message(rows, *, year, month):
             if highest_cost_value is None or row_cost > highest_cost_value:
                 highest_cost_value = row_cost
                 highest_cost_date = row.usage_date.isoformat()
+                highest_cost_row = row
 
     coverage_status = 'full_month' if covered_days == total_days_in_month else 'partial_month'
     average_daily_cost = (total_cost / cost_day_count) if cost_day_count > 0 else 0.0
@@ -462,26 +592,26 @@ def _build_finops_month_system_message(rows, *, year, month):
         total_build_count / covered_days
         if covered_days > 0 else 0.0
     )
+    highest_cost_snapshot = _build_day_snapshot(highest_cost_row) if highest_cost_row is not None else None
+    highest_cost_lines = (
+        '\n'.join(_build_day_snapshot_lines(highest_cost_snapshot, heading='Highest-cost day evidence:'))
+        if highest_cost_snapshot is not None
+        else 'Highest-cost day evidence is unavailable.'
+    )
 
     return {
         'role': 'system',
         'content': (
             'You are the Jenkins Monitor FinOps assistant.\n'
             'The user asked about a month-wide period, not a single day.\n'
-            'Answer only from the monthly stored evidence below.\n'
+            'Answer from the stored monthly evidence below.\n'
+            'Use a natural response style instead of a fixed template.\n'
             'Do not generalize beyond the covered stored dates.\n'
-            'If coverage is partial, explicitly say the answer applies only to the covered dates and not the full calendar month.\n'
-            'Do not say there were no Jenkins builds in the month unless total_build_count is 0 and coverage_status is full_month.\n'
-            'Use this response format exactly:\n'
-            'Facts:\n'
-            '- Cost evidence: ...\n'
-            '- Jenkins evidence: ...\n'
-            'Conclusion:\n'
-            '- ...\n'
-            'Limits:\n'
-            '- ...\n'
-            'Under Facts, the Jenkins evidence bullet must mention the total builds across covered dates.\n'
-            'Under Limits, you must mention whether month coverage is full or partial.\n'
+            'If coverage is partial, make that clear.\n'
+            'When the user asks why a costly day was high, focus on the highest-cost day evidence and compare its build count and total build duration against the monthly active-day averages.\n'
+            'If the costly day also had elevated build activity, you may explain that the spend was likely driven by real work.\n'
+            'If the costly day had normal or low build activity, you may explain that the spend likely came from Azure resources outside normal build activity, such as a VM or AKS workload staying on longer than needed.\n'
+            'Treat that as a likely explanation based on correlation, not absolute billing proof.\n'
             '\nRetrieved monthly stored evidence:\n'
             f'- target_month: {year:04d}-{month:02d}\n'
             f'- coverage_status: {coverage_status}\n'
@@ -508,6 +638,8 @@ def _build_finops_month_system_message(rows, *, year, month):
             f'- cost_spike_days: {cost_spike_days}\n'
             f'- busiest_build_day: {highest_build_date or "unknown"}\n'
             f'- busiest_build_day_count: {highest_build_count}\n'
+            '\n'
+            f'{highest_cost_lines}\n'
         ).strip(),
     }
 
