@@ -13,7 +13,7 @@ from pipeline_identity import (
 from sqlalchemy.orm import selectinload
 
 from extensions import db
-from finops_models import FinOpsBuildDocument, FinOpsDailyCost
+from finops_models import FinOpsBuildDocument, FinOpsBuildDocumentChunk, FinOpsDailyCost
 from pipeline_storage_models import PipelineBranch, PipelineMainBuild
 from services.pipeline_storage_service import build_tests_duration_points
 
@@ -178,6 +178,52 @@ def _format_duration(duration_ms):
     if minutes > 0:
         return f'{minutes}m {seconds}s'
     return f'{seconds}s'
+
+
+def _get_chunking_config():
+    raw_chunk_size = int(current_app.config.get('FINOPS_CHUNK_SIZE', 900))
+    chunk_size = max(raw_chunk_size, 200)
+    raw_chunk_overlap = int(current_app.config.get('FINOPS_CHUNK_OVERLAP', 120))
+    chunk_overlap = max(min(raw_chunk_overlap, chunk_size // 2), 0)
+    return {
+        'chunk_size': chunk_size,
+        'chunk_overlap': chunk_overlap,
+    }
+
+
+def _split_text_into_chunks(text, chunk_size, overlap):
+    content = str(text or '').strip()
+    if not content:
+        return []
+
+    chunks = []
+    start = 0
+    text_length = len(content)
+
+    while start < text_length:
+        end = min(start + chunk_size, text_length)
+        if end < text_length:
+            preferred_boundary = max(start + int(chunk_size * 0.55), start)
+            boundary = content.rfind('\n\n', preferred_boundary, end)
+            if boundary == -1:
+                boundary = content.rfind('\n', preferred_boundary, end)
+            if boundary == -1:
+                boundary = content.rfind('. ', preferred_boundary, end)
+                if boundary != -1:
+                    boundary += 1
+            if boundary > start:
+                end = boundary
+
+        chunk = content[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+
+        if end >= text_length:
+            break
+
+        start = max(end - overlap, start + 1)
+
+    return chunks
 
 
 def _build_branch_breakdown(build_rows):
@@ -435,6 +481,73 @@ def _document_title(target_date, pipeline_name):
     return f'{pipeline_name} FinOps analysis for {target_date.isoformat()}'
 
 
+def _document_text_for_chunking(row):
+    return '\n'.join(
+        item
+        for item in [
+            row.title or '',
+            f'Document date: {row.usage_date.isoformat()}' if row.usage_date else '',
+            row.content or '',
+        ]
+        if item
+    ).strip()
+
+
+def _build_chunk_summary(row, chunk_index, chunk_count):
+    summary = row.summary or {}
+    cost_summary = summary.get('cost') or {}
+    build_summary = summary.get('builds') or {}
+    signal_summary = summary.get('signals') or {}
+    tag_list = summary.get('tags') or []
+
+    return {
+        'source_document_id': row.id,
+        'usage_date': row.usage_date.isoformat() if row.usage_date else None,
+        'pipeline_name': row.pipeline_name or '',
+        'pipeline_job_path': row.pipeline_job_path or '',
+        'currency_code': row.currency_code or 'USD',
+        'chunk_index': int(chunk_index),
+        'chunk_count': int(chunk_count),
+        'tag_csv': ','.join(str(item) for item in tag_list),
+        'tags': [str(item) for item in tag_list],
+        'likely_driver': str(signal_summary.get('likely_driver') or ''),
+        'cost_spike': bool(signal_summary.get('cost_spike')),
+        'high_build_activity': bool(signal_summary.get('high_build_activity')),
+        'long_build_activity': bool(signal_summary.get('long_build_activity')),
+        'build_pressure': bool(signal_summary.get('build_pressure')),
+        'failure_pressure': bool(signal_summary.get('failure_pressure')),
+        'build_count': int(build_summary.get('build_count') or 0),
+        'success_count': int(build_summary.get('success_count') or 0),
+        'failure_count': int(build_summary.get('failure_count') or 0),
+        'aborted_count': int(build_summary.get('aborted_count') or 0),
+        'running_count': int(build_summary.get('running_count') or 0),
+        'total_duration_ms': int(build_summary.get('total_duration_ms') or 0),
+        'avg_duration_ms': int(build_summary.get('avg_duration_ms') or 0),
+        'total_cost': float(cost_summary.get('total_cost') or 0.0),
+        'month_average_total_cost': float(cost_summary.get('month_average_total_cost') or 0.0),
+    }
+
+
+def _build_chunk_records_for_document(row, chunk_config):
+    chunk_bodies = _split_text_into_chunks(
+        _document_text_for_chunking(row),
+        chunk_config['chunk_size'],
+        chunk_config['chunk_overlap'],
+    )
+    chunk_count = len(chunk_bodies)
+
+    records = []
+    for index, chunk_text in enumerate(chunk_bodies):
+        records.append({
+            'chunk_index': index,
+            'chunk_count': chunk_count,
+            'title': row.title or '',
+            'content': chunk_text,
+            'summary': _build_chunk_summary(row, index, chunk_count),
+        })
+    return records
+
+
 def _render_document(target_date, pipeline_name, pipeline_job_path, cost_row, month_cost_rows, day_build_rows, month_build_rows):
     currency_code = _currency_code(cost_row)
     build_metrics = _build_daily_build_metrics(day_build_rows)
@@ -535,8 +648,87 @@ def _render_document(target_date, pipeline_name, pipeline_job_path, cost_row, mo
     }
 
 
+def _sync_document_chunks(document_rows, chunk_config, now):
+    document_ids = [row.id for row in document_rows if row.id is not None]
+    if not document_ids:
+        return {
+            'generated': 0,
+            'created': 0,
+            'updated': 0,
+            'deleted': 0,
+        }
+
+    existing_rows = (
+        FinOpsBuildDocumentChunk.query
+        .filter(FinOpsBuildDocumentChunk.document_id.in_(document_ids))
+        .all()
+    )
+    existing_by_key = {
+        (row.document_id, row.chunk_index): row
+        for row in existing_rows
+    }
+
+    created = 0
+    updated = 0
+    deleted = 0
+    generated = 0
+
+    for document_row in document_rows:
+        chunk_records = _build_chunk_records_for_document(document_row, chunk_config)
+        keep_indexes = {record['chunk_index'] for record in chunk_records}
+
+        for record in chunk_records:
+            key = (document_row.id, record['chunk_index'])
+            row = existing_by_key.get(key)
+            if row is None:
+                row = FinOpsBuildDocumentChunk(
+                    document_id=document_row.id,
+                    chunk_index=record['chunk_index'],
+                )
+                db.session.add(row)
+                existing_by_key[key] = row
+                created += 1
+            else:
+                updated += 1
+
+            row.subscription_id = document_row.subscription_id
+            row.usage_date = document_row.usage_date
+            row.pipeline_job_path = document_row.pipeline_job_path
+            row.pipeline_name = document_row.pipeline_name
+            row.currency_code = document_row.currency_code
+            row.chunk_count = record['chunk_count']
+            row.title = record['title']
+            row.content = record['content']
+            row.summary = record['summary']
+            row.source_system = 'finops_builds_rag'
+            row.last_generated_at = now
+            generated += 1
+
+        for row in existing_rows:
+            if row.document_id != document_row.id:
+                continue
+            if row.chunk_index in keep_indexes:
+                continue
+            db.session.delete(row)
+            deleted += 1
+
+    return {
+        'generated': generated,
+        'created': created,
+        'updated': updated,
+        'deleted': deleted,
+    }
+
+
 def _build_document_query(subscription_id, pipeline_job_path):
     return FinOpsBuildDocument.query.filter_by(
+        subscription_id=subscription_id,
+        pipeline_job_path=pipeline_job_path,
+    )
+
+
+def _build_document_chunk_query(subscription_id, pipeline_job_path):
+    return FinOpsBuildDocumentChunk.query.filter_by(
         subscription_id=subscription_id,
         pipeline_job_path=pipeline_job_path,
     )
@@ -564,6 +756,41 @@ def list_finops_build_documents(subscription_id=None, pipeline_job_path=None, li
         _build_document_query(subscription_id, resolved_job_path)
         .order_by(FinOpsBuildDocument.usage_date.desc())
         .limit(max(int(limit or 30), 1))
+        .all()
+    )
+
+
+def get_finops_build_document_chunks(target_date, subscription_id=None, pipeline_job_path=None):
+    target_date = _normalize_date_input(target_date)
+    subscription_id = _resolve_subscription_id(subscription_id)
+    pipeline = _resolve_pipeline_context(pipeline_job_path)
+    resolved_job_path = pipeline['job_path']
+
+    return (
+        _build_document_chunk_query(subscription_id, resolved_job_path)
+        .filter_by(usage_date=target_date)
+        .order_by(
+            FinOpsBuildDocumentChunk.document_id.asc(),
+            FinOpsBuildDocumentChunk.chunk_index.asc(),
+            FinOpsBuildDocumentChunk.id.asc(),
+        )
+        .all()
+    )
+
+
+def list_finops_build_document_chunks(subscription_id=None, pipeline_job_path=None, limit=120):
+    subscription_id = _resolve_subscription_id(subscription_id)
+    pipeline = _resolve_pipeline_context(pipeline_job_path)
+    resolved_job_path = pipeline['job_path']
+
+    return (
+        _build_document_chunk_query(subscription_id, resolved_job_path)
+        .order_by(
+            FinOpsBuildDocumentChunk.usage_date.desc(),
+            FinOpsBuildDocumentChunk.document_id.asc(),
+            FinOpsBuildDocumentChunk.chunk_index.asc(),
+        )
+        .limit(max(int(limit or 120), 1))
         .all()
     )
 
@@ -630,7 +857,9 @@ def sync_finops_build_documents(*, subscription_id=None, pipeline_job_path=None,
     updated = 0
     deleted = 0
     processed_dates = []
+    processed_rows = []
     now = _utcnow()
+    chunk_config = _get_chunking_config()
 
     for (year, month), month_dates in sorted(grouped_dates.items()):
         month_cost_rows = _load_month_cost_rows(subscription_id, year, month)
@@ -669,14 +898,31 @@ def sync_finops_build_documents(*, subscription_id=None, pipeline_job_path=None,
             row.source_system = 'finops_builds_rag'
             row.last_generated_at = now
             processed_dates.append(usage_date.isoformat())
+            processed_rows.append(row)
 
     keep_dates = set(candidate_dates)
+    stale_document_ids = [
+        row.id
+        for usage_date, row in existing_rows.items()
+        if usage_date not in keep_dates and row.id is not None
+    ]
+    stale_chunk_delete_count = 0
+    if stale_document_ids:
+        stale_chunk_delete_count = (
+            FinOpsBuildDocumentChunk.query
+            .filter(FinOpsBuildDocumentChunk.document_id.in_(stale_document_ids))
+            .count()
+        )
+
     for usage_date, row in existing_rows.items():
         if usage_date in keep_dates:
             continue
         db.session.delete(row)
         deleted += 1
 
+    db.session.flush()
+    chunk_stats = _sync_document_chunks(processed_rows, chunk_config, now)
+    chunk_stats['deleted'] += stale_chunk_delete_count
     db.session.commit()
 
     return {
@@ -690,4 +936,10 @@ def sync_finops_build_documents(*, subscription_id=None, pipeline_job_path=None,
         'deleted': deleted,
         'skipped_noise_dates': skipped_noise_dates,
         'dates': processed_dates,
+        'chunks_generated': chunk_stats['generated'],
+        'chunks_created': chunk_stats['created'],
+        'chunks_updated': chunk_stats['updated'],
+        'chunks_deleted': chunk_stats['deleted'],
+        'chunk_size': chunk_config['chunk_size'],
+        'chunk_overlap': chunk_config['chunk_overlap'],
     }

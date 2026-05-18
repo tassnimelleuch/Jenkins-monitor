@@ -126,6 +126,68 @@ class FinOpsBuildDocument(db.Model):
         default=_utcnow,
         onupdate=_utcnow,
     )
+    chunks = db.relationship(
+        'FinOpsBuildDocumentChunk',
+        back_populates='document',
+        cascade='all, delete-orphan',
+        lazy=True,
+        order_by=lambda: (
+            FinOpsBuildDocumentChunk.chunk_index.asc(),
+            FinOpsBuildDocumentChunk.id.asc(),
+        ),
+    )
+
+
+class FinOpsBuildDocumentChunk(db.Model):
+    __tablename__ = 'finops_builds_document_chunks'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'document_id',
+            'chunk_index',
+            name='uq_finops_build_document_chunk_order',
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(
+        db.Integer,
+        db.ForeignKey('finops_builds_documents.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    subscription_id = db.Column(db.String(64), nullable=False, default='', index=True)
+    usage_date = db.Column(db.Date, nullable=False, index=True)
+    pipeline_job_path = db.Column(db.String(512), nullable=False, default='', index=True)
+    pipeline_name = db.Column(db.String(255), nullable=False, default='Jenkins Pipeline')
+    currency_code = db.Column(db.String(16), nullable=False, default='USD')
+    chunk_index = db.Column(db.Integer, nullable=False)
+    chunk_count = db.Column(db.Integer, nullable=False, default=0)
+    title = db.Column(db.String(255), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    summary = db.Column(db.JSON, nullable=False, default=dict)
+    source_system = db.Column(
+        db.String(32),
+        nullable=False,
+        default='finops_builds_rag',
+    )
+    last_generated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        index=True,
+    )
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+    )
+
+    document = db.relationship(
+        'FinOpsBuildDocument',
+        back_populates='chunks',
+    )
 
 
 EXPECTED_FINOPS_DAILY_COLUMNS = {
@@ -259,4 +321,5 @@ def ensure_finops_storage_schema():
 
     FinOpsSyncState.__table__.create(bind=db.engine, checkfirst=True)
     FinOpsBuildDocument.__table__.create(bind=db.engine, checkfirst=True)
+    FinOpsBuildDocumentChunk.__table__.create(bind=db.engine, checkfirst=True)
     return changed

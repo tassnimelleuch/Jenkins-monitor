@@ -14,7 +14,9 @@ from services.finops_storage_service import (
 )
 from services.finops_build_documents_service import (
     get_finops_build_document,
+    get_finops_build_document_chunks,
     list_finops_build_documents,
+    list_finops_build_document_chunks,
     sync_finops_build_documents,
 )
 from services.finops_chroma_service import (
@@ -250,6 +252,64 @@ def finops_build_documents():
                     "currency_code": row.currency_code,
                     "title": row.title,
                     "tags": (row.summary or {}).get("tags", []),
+                    "summary": row.summary or {},
+                    "last_generated_at": row.last_generated_at.isoformat() if row.last_generated_at else None,
+                }
+                for row in rows
+            ],
+        })
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@finops_bp.route("/api/finops/build-documents/chunks", methods=["GET"])
+@role_required("admin")
+def finops_build_document_chunks():
+    document_date = request.args.get("date")
+    limit = request.args.get("limit", default=120, type=int)
+
+    try:
+        if document_date:
+            target_date = _parse_iso_date(document_date, "date")
+            rows = get_finops_build_document_chunks(target_date)
+            if not rows:
+                return jsonify({"error": "No stored FinOps analysis chunks were found for that date."}), 404
+
+            return jsonify({
+                "count": len(rows),
+                "chunks": [
+                    {
+                        "id": row.id,
+                        "document_id": row.document_id,
+                        "usage_date": row.usage_date.isoformat(),
+                        "pipeline_name": row.pipeline_name,
+                        "pipeline_job_path": row.pipeline_job_path,
+                        "currency_code": row.currency_code,
+                        "chunk_index": row.chunk_index,
+                        "chunk_count": row.chunk_count,
+                        "title": row.title,
+                        "content": row.content,
+                        "summary": row.summary or {},
+                        "last_generated_at": row.last_generated_at.isoformat() if row.last_generated_at else None,
+                    }
+                    for row in rows
+                ],
+            })
+
+        rows = list_finops_build_document_chunks(limit=limit)
+        return jsonify({
+            "count": len(rows),
+            "chunks": [
+                {
+                    "id": row.id,
+                    "document_id": row.document_id,
+                    "usage_date": row.usage_date.isoformat(),
+                    "pipeline_name": row.pipeline_name,
+                    "pipeline_job_path": row.pipeline_job_path,
+                    "currency_code": row.currency_code,
+                    "chunk_index": row.chunk_index,
+                    "chunk_count": row.chunk_count,
+                    "title": row.title,
                     "summary": row.summary or {},
                     "last_generated_at": row.last_generated_at.isoformat() if row.last_generated_at else None,
                 }
