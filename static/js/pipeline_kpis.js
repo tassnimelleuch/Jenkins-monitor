@@ -16,6 +16,8 @@ let _coverageGrouping = 'week';
 let _coverageSourcePoints = [];
 let _testsDurationGrouping = 'week';
 let _testsDurationSourcePoints = [];
+let _junitGrouping = 'week';
+let _junitSourcePoints = [];
 let _pipelineKpisLoadInFlight = false;
 let _pipelineGroupedDurationRenderSignature = null;
 let _pipelineStageFailureRenderSignature = null;
@@ -313,6 +315,11 @@ function getSelectedBranchPayload(data) {
 
 function formatPeriodDuration(ms) {
   return fmtDur(ms || 0);
+}
+
+function formatAverageCount(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '0';
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function buildDurationMs(build) {
@@ -676,6 +683,100 @@ function setCoverageGrouping(grouping) {
   renderCoverageTrend(_coverageSourcePoints);
 }
 
+function buildJunitGroups(points, grouping) {
+  const grouped = new Map();
+  const validPoints = (points || []).filter(point =>
+    typeof point.total === 'number' &&
+    point.timestamp
+  );
+
+  validPoints.forEach(point => {
+    const key = buildGroupStartKey(point.timestamp, grouping);
+    if (!key) return;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        startMs: getUserDateKeySortValue(key),
+        sampleCount: 0,
+        totalPassed: 0,
+        totalFailed: 0,
+        totalSkipped: 0,
+        totalTests: 0,
+      });
+    }
+
+    const group = grouped.get(key);
+    group.sampleCount += 1;
+    group.totalPassed += Number(point.passed || 0);
+    group.totalFailed += Number(point.failed || 0);
+    group.totalSkipped += Number(point.skipped || 0);
+    group.totalTests += Number(point.total || 0);
+  });
+
+  const groups = Array.from(grouped.values())
+    .sort((a, b) => a.startMs - b.startMs)
+    .map(group => {
+      return {
+        ...group,
+        avgPassed: Number((group.totalPassed / group.sampleCount).toFixed(1)),
+        avgFailed: Number((group.totalFailed / group.sampleCount).toFixed(1)),
+        avgSkipped: Number((group.totalSkipped / group.sampleCount).toFixed(1)),
+        avgTotal: Number((group.totalTests / group.sampleCount).toFixed(1)),
+        label: formatGroupLabel(group.key, grouping),
+        detailLabel: formatGroupDetailLabel(group.key, grouping),
+      };
+    });
+
+  const overallAvgTotal = validPoints.length
+    ? Number((validPoints.reduce((sum, point) => sum + Number(point.total || 0), 0) / validPoints.length).toFixed(1))
+    : null;
+
+  return {
+    groups,
+    sampleCount: validPoints.length,
+    overallAvgTotal,
+  };
+}
+
+function clearJunitTrendChart(message = 'No JUnit data available') {
+  const canvas = document.getElementById('junitTrendChart');
+  const badge = document.getElementById('junitAvgBadge');
+  const summary = document.getElementById('junitTrendSummary');
+  if (!canvas) return;
+
+  _pipelineJunitRenderSignature = null;
+
+  if (window._junitChart) {
+    window._junitChart.destroy();
+    window._junitChart = null;
+  }
+
+  canvas.style.display = 'none';
+  const container = canvas.parentElement;
+  if (!container.querySelector('.chart-empty')) {
+    const empty = document.createElement('div');
+    empty.className = 'chart-empty';
+    empty.textContent = message;
+    container.appendChild(empty);
+  }
+
+  if (summary) summary.innerHTML = '';
+  if (badge) badge.textContent = 'Avg —';
+}
+
+function updateJunitGroupingButtons() {
+  document.querySelectorAll('.pipeline-junit-btn').forEach(button => {
+    button.classList.toggle('active', button.dataset.junitGroup === _junitGrouping);
+  });
+}
+
+function setJunitGrouping(grouping) {
+  if (grouping !== 'week' && grouping !== 'month') return;
+  _junitGrouping = grouping;
+  updateJunitGroupingButtons();
+  renderJUnitTrend(_junitSourcePoints);
+}
+
 function buildTestsDurationGroups(points, grouping) {
   const grouped = new Map();
   const validPoints = (points || []).filter(point =>
@@ -762,6 +863,23 @@ function setTestsDurationGrouping(grouping) {
   renderTestsDurationTrend(_testsDurationSourcePoints);
 }
 
+function attachBuildTimestamps(points, builds) {
+  const timestampByBuild = new Map(
+    (Array.isArray(builds) ? builds : [])
+      .filter(build => build?.number != null)
+      .map(build => [
+        build.number,
+        build.timestamp ?? build.timestamp_ms ?? 0,
+      ])
+  );
+
+  return (Array.isArray(points) ? points : []).map(point => {
+    if (point?.timestamp) return point;
+    const fallbackTimestamp = timestampByBuild.get(point?.number);
+    return fallbackTimestamp ? { ...point, timestamp: fallbackTimestamp } : point;
+  });
+}
+
 function renderCharts(branchData) {
   const summary = branchData.summary || {};
   const stages = branchData.stages || {};
@@ -796,7 +914,9 @@ function renderCharts(branchData) {
   }
 
   if (Array.isArray(trends.junit)) {
-    renderJUnitTrend(trends.junit);
+    renderJUnitTrend(attachBuildTimestamps(trends.junit, branchData.builds || trends.builds || []));
+  } else {
+    clearJunitTrendChart();
   }
 
   if (Array.isArray(trends.tests_duration)) {
@@ -1041,49 +1161,40 @@ function renderJUnitTrend(junitTrend) {
   const canvas = document.getElementById('junitTrendChart');
   if (!canvas) return;
   const container = canvas.parentElement;
+  const subtitle = document.getElementById('junitTrendSub');
+  const badge = document.getElementById('junitAvgBadge');
+  const summary = document.getElementById('junitTrendSummary');
+  const periodLabel = _junitGrouping === 'month' ? 'month' : 'week';
+  const periodLabelPlural = _junitGrouping === 'month' ? 'months' : 'weeks';
 
-  const points = junitTrend
-    .filter(p => typeof p.total === 'number')
-    .map(p => ({
-      label: `#${p.number}`,
-      passed: p.passed || 0,
-      failed: p.failed || 0,
-      skipped: p.skipped || 0
-    }));
+  _junitSourcePoints = Array.isArray(junitTrend) ? junitTrend : [];
+  const { groups, sampleCount, overallAvgTotal } = buildJunitGroups(_junitSourcePoints, _junitGrouping);
   const renderSignature = buildPipelineRenderSignature('junit', {
-    items: points,
-    fields: ['label', 'passed', 'failed', 'skipped'],
+    grouping: _junitGrouping,
+    items: _junitSourcePoints,
+    fields: ['number', 'timestamp', 'total', 'passed', 'failed', 'skipped'],
   });
 
-  if (!points.length) {
+  if (!groups.length) {
     const emptySignature = `empty::${renderSignature}`;
     if (_pipelineJunitRenderSignature === emptySignature) return;
-    if (window._junitChart) {
-      window._junitChart.destroy();
-      window._junitChart = null;
+    if (subtitle) {
+      subtitle.textContent = `Average passed, failed, and skipped grouped by ${periodLabel}`;
     }
-    canvas.style.display = 'none';
-    if (!container.querySelector('.chart-empty')) {
-      const empty = document.createElement('div');
-      empty.className = 'chart-empty';
-      empty.textContent = 'No JUnit data available';
-      container.appendChild(empty);
-    }
-    const totalBadge = document.getElementById('junitTotalBadge');
-    if (totalBadge) totalBadge.textContent = 'Total —';
+    clearJunitTrendChart(`No unit test data available for ${periodLabel} grouping`);
     _pipelineJunitRenderSignature = emptySignature;
     return;
   }
 
   if (_pipelineJunitRenderSignature === renderSignature) return;
 
+  if (subtitle) {
+    subtitle.textContent = `Average passed, failed, and skipped grouped by ${periodLabel}`;
+  }
+
   canvas.style.display = 'block';
   const existingEmpty = container.querySelector('.chart-empty');
   if (existingEmpty) existingEmpty.remove();
-
-  const total = points.reduce((sum, p) => sum + p.passed + p.failed + p.skipped, 0);
-  const totalBadge = document.getElementById('junitTotalBadge');
-  if (totalBadge) totalBadge.textContent = `Total ${total}`;
 
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -1094,28 +1205,38 @@ function renderJUnitTrend(junitTrend) {
     window._junitChart = null;
   }
 
+  if (summary) {
+    summary.innerHTML =
+      `<span class="pipeline-duration-pill"><strong>${groups.length}</strong> ${periodLabelPlural}</span>` +
+      `<span class="pipeline-duration-pill"><strong>${sampleCount}</strong> builds with JUnit</span>` +
+      `<span class="pipeline-duration-pill"><strong>${formatAverageCount(groups[groups.length - 1].avgTotal)}</strong> tests latest ${periodLabel} avg</span>`;
+  }
+  if (badge) {
+    badge.textContent = overallAvgTotal === null ? 'Avg —' : `Avg ${formatAverageCount(overallAvgTotal)} tests`;
+  }
+
   window._junitChart = new Chart(canvas, {
     type: 'bar',
     data: {
-      labels: points.map(p => p.label),
+      labels: groups.map(group => group.label),
       datasets: [
         {
           label: 'Passed',
-          data: points.map(p => p.passed),
+          data: groups.map(group => group.avgPassed),
           backgroundColor: 'rgba(0,219,160,0.75)',
           borderRadius: 4,
           borderSkipped: false
         },
         {
           label: 'Failed',
-          data: points.map(p => p.failed),
+          data: groups.map(group => group.avgFailed),
           backgroundColor: 'rgba(255,69,96,0.8)',
           borderRadius: 4,
           borderSkipped: false
         },
         {
           label: 'Skipped',
-          data: points.map(p => p.skipped),
+          data: groups.map(group => group.avgSkipped),
           backgroundColor: 'rgba(255,140,66,0.7)',
           borderRadius: 4,
           borderSkipped: false
@@ -1132,7 +1253,15 @@ function renderJUnitTrend(junitTrend) {
         },
         tooltip: {
           callbacks: {
-            label: ctx => ` ${ctx.dataset.label}: ${ctx.raw}`
+            title(items) {
+              const group = groups[items[0].dataIndex];
+              return group.detailLabel;
+            },
+            label: ctx => ` Avg ${ctx.dataset.label}: ${formatAverageCount(ctx.raw)}`,
+            afterLabel(ctx) {
+              const group = groups[ctx.dataIndex];
+              return ` Builds: ${group.sampleCount}`;
+            }
           },
           backgroundColor: isDark ? '#2c2c2a' : '#fff',
           titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
@@ -1154,7 +1283,11 @@ function renderJUnitTrend(junitTrend) {
           stacked: true,
           grid: { color: gridColor, drawTicks: false },
           border: { display: false },
-          ticks: { color: textColor, font: { size: 10 } }
+          ticks: {
+            color: textColor,
+            font: { size: 10 },
+            callback: value => formatAverageCount(Number(value)),
+          }
         }
       },
       animation: { duration: 600, easing: 'easeOutQuart' }
@@ -1607,6 +1740,11 @@ document.addEventListener('DOMContentLoaded', () => {
     button.addEventListener('click', () => setCoverageGrouping(button.dataset.coverageGroup));
   });
   updateCoverageGroupingButtons();
+
+  document.querySelectorAll('.pipeline-junit-btn').forEach(button => {
+    button.addEventListener('click', () => setJunitGrouping(button.dataset.junitGroup));
+  });
+  updateJunitGroupingButtons();
 
   document.querySelectorAll('.pipeline-tests-duration-btn').forEach(button => {
     button.addEventListener('click', () => setTestsDurationGrouping(button.dataset.testsGroup));

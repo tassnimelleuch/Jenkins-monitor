@@ -314,11 +314,28 @@ body[data-page="pipeline-kpis"] .kpi-row {
   cursor:pointer;
   transition:background .15s,color .15s,transform .15s;
 }
+.pipeline-junit-btn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  color:var(--text2);
+  font-size:11px;
+  font-weight:700;
+  font-family:'Plus Jakarta Sans',sans-serif;
+  padding:7px 12px;
+  border-radius:8px;
+  cursor:pointer;
+  transition:background .15s,color .15s,transform .15s;
+}
 .pipeline-duration-btn:hover{
   color:var(--text);
   transform:translateY(-1px);
 }
 .pipeline-coverage-btn:hover{
+  color:var(--text);
+  transform:translateY(-1px);
+}
+.pipeline-junit-btn:hover{
   color:var(--text);
   transform:translateY(-1px);
 }
@@ -348,6 +365,11 @@ body[data-page="pipeline-kpis"] .kpi-row {
   background:linear-gradient(135deg,var(--green),rgba(58,184,248,.92));
   color:#fff;
   box-shadow:0 6px 18px rgba(58,184,248,.18);
+}
+.pipeline-junit-btn.active{
+  background:linear-gradient(135deg,var(--green),rgba(255,140,66,.92));
+  color:#fff;
+  box-shadow:0 6px 18px rgba(255,140,66,.18);
 }
 .pipeline-tests-duration-btn.active{
   background:linear-gradient(135deg,var(--blue),rgba(124,111,255,.92));

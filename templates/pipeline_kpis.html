@@ -127,9 +127,17 @@
     <div class="chart-hdr">
       <div>
         <div class="chart-title">Unit Test Results</div>
-        <div class="chart-sub">Passed vs failed per build</div>
+        <div class="chart-sub" id="junitTrendSub">Average passed, failed, and skipped grouped by week</div>
+      </div>
+      <div class="pipeline-duration-toolbar">
+        <div class="pipeline-duration-toggle" role="tablist" aria-label="Choose unit test results grouping">
+          <button type="button" class="pipeline-junit-btn active" data-junit-group="week">Week</button>
+          <button type="button" class="pipeline-junit-btn" data-junit-group="month">Month</button>
+        </div>
+        <div class="cbadge" id="junitAvgBadge">Avg —</div>
       </div>
     </div>
+    <div class="pipeline-duration-summary" id="junitTrendSummary"></div>
     <div class="chart-area pipeline-chart-area">
       <canvas id="junitTrendChart"></canvas>
     </div>

@@ -15,10 +15,9 @@ from pipeline_storage_models import (
 )
 
 
-PIPELINE_SNAPSHOT_CACHE_VERSION = 'v4'
+PIPELINE_SNAPSHOT_CACHE_VERSION = 'v5'
 PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS = 86400
 PIPELINE_COVERAGE_TREND_HISTORY_LIMIT = 120
-PIPELINE_JUNIT_TREND_HISTORY_LIMIT = 20
 DEPLOY_STAGE_NAME = 'Deploy to AKS'
 ROLLOUT_STAGE_NAME = 'Wait for AKS Rollout'
 
@@ -493,7 +492,7 @@ def _selected_branch_payload(branch_row, selected_branch, build_rows):
 
     finished_rows = [row for row in build_rows if row.result is not None]
     coverage_rows = list(reversed(finished_rows[:PIPELINE_COVERAGE_TREND_HISTORY_LIMIT]))
-    junit_rows = list(reversed(finished_rows[:PIPELINE_JUNIT_TREND_HISTORY_LIMIT]))
+    junit_rows = list(reversed(finished_rows))
 
     return {
         'name': branch_row.name,
@@ -543,6 +542,7 @@ def _selected_branch_payload(branch_row, selected_branch, build_rows):
                 {
                     'branch': branch_row.name,
                     'number': row.build_number,
+                    'timestamp': row.timestamp_ms or 0,
                     'total': row.junit_total,
                     'passed': row.junit_passed,
                     'failed': row.junit_failed,

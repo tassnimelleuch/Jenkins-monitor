@@ -35,6 +35,7 @@ LIVE_RUNNING_BUILDS_CACHE_VERSION = 'v1'
 LIVE_RUNNING_BUILDS_CACHE_TIMEOUT_SECONDS = 1
 PIPELINE_COVERAGE_TREND_HISTORY_LIMIT = 120
 PIPELINE_JUNIT_TREND_HISTORY_LIMIT = 20
+PIPELINE_JUNIT_TREND_LOOKBACK_DAYS = 28
 
 _pipeline_head_cache = {
     'checked_at': None,
@@ -55,6 +56,19 @@ def _map_stage_statuses(stages):
 def _call_in_app_context(app, func):
     with app.app_context():
         return func()
+
+
+def _select_recent_junit_builds(finished_builds):
+    cutoff_ms = int(
+        (datetime.now(timezone.utc) - timedelta(days=PIPELINE_JUNIT_TREND_LOOKBACK_DAYS)).timestamp() * 1000
+    )
+    recent_builds = [
+        build for build in (finished_builds or [])
+        if (build.get('timestamp', 0) or 0) >= cutoff_ms
+    ]
+    if recent_builds:
+        return list(reversed(recent_builds))
+    return list(reversed((finished_builds or [])[:PIPELINE_JUNIT_TREND_HISTORY_LIMIT]))
 
 
 def _live_running_builds_cache_key(include_stages=True):
@@ -605,7 +619,7 @@ def _fetch_pipeline_kpis_from_jenkins():
         failure_rate_by_stage[stage_name] = round((failures / count * 100), 1) if count > 0 else 0
 
     coverage_builds = list(reversed(finished[:PIPELINE_COVERAGE_TREND_HISTORY_LIMIT]))
-    junit_builds = list(reversed(finished[:PIPELINE_JUNIT_TREND_HISTORY_LIMIT]))
+    junit_builds = _select_recent_junit_builds(finished)
 
     coverage_tasks = {
         b.get('number'): (
@@ -655,12 +669,14 @@ def _fetch_pipeline_kpis_from_jenkins():
             junit_trend.append({
                 'branch': selected_branch,
                 'number': num,
+                'timestamp': b.get('timestamp', 0),
                 **report,
             })
         else:
             junit_trend.append({
                 'branch': selected_branch,
                 'number': num,
+                'timestamp': b.get('timestamp', 0),
                 'total': None,
                 'passed': None,
                 'failed': None,
