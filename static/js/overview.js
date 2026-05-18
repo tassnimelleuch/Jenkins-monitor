@@ -4,6 +4,8 @@ let _prevRunningNumbers = new Set();
 let _avgDurationMs      = 60000;
 const LAST_24_HOURS_MS  = 24 * 60 * 60 * 1000;
 const OVERVIEW_HISTORY_INITIAL_SHOW = 5;
+const LIVE_RUNNING_POLL_MS = 2000;
+const OPTIMISTIC_ABORT_WINDOW_MS = 30000;
 
 const _overviewSegTip = document.getElementById('overviewSegTip');
 let _overviewHistoryBuilds = [];
@@ -12,12 +14,17 @@ let _overviewHistoryTimers = {};
 let _testsDuration24hChart = null;
 let _overviewLoadInFlight = false;
 let _runningStagesPollInFlight = false;
+let _runningStagesHandle = null;
 let _overviewStatsSignature = null;
 let _overviewActiveSignature = null;
 let _overviewFinishedSignature = null;
 let _overviewHistorySignature = null;
 let _overviewTestsDurationSignature = null;
 let _lastOverviewMetrics = null;
+let _lastOverviewPayload = null;
+let _liveRunningBuilds = [];
+let _hasLiveRunningPollData = false;
+let _optimisticallyAbortedBuilds = new Map();
 
 function _isWithinLast24Hours(build, now = Date.now()) {
     const ts = Number(build?.timestamp || 0);
@@ -97,6 +104,162 @@ function resetOverviewRenderCache() {
     _overviewHistorySignature = null;
     _overviewTestsDurationSignature = null;
     _lastOverviewMetrics = null;
+}
+
+function hasOverviewLiveBuildWidgets() {
+    return Boolean(
+        document.getElementById('activeBuildLines') ||
+        document.getElementById('overviewBuildTimeline')
+    );
+}
+
+function pruneOptimisticAbortedBuilds(now = Date.now()) {
+    _optimisticallyAbortedBuilds.forEach((entry, buildNumber) => {
+        if (!entry || entry.expiresAt <= now) {
+            _optimisticallyAbortedBuilds.delete(buildNumber);
+        }
+    });
+}
+
+function normalizeOverviewBuild(build) {
+    if (!build) return null;
+    return {
+        ...build,
+        duration: build.duration ?? build.duration_ms ?? ((build.duration_seconds ?? 0) * 1000),
+        stages: Array.isArray(build.stages) ? build.stages : [],
+    };
+}
+
+function findCurrentOverviewBuild(buildNumber) {
+    const liveBuild = (_liveRunningBuilds || []).find(build => build.number === buildNumber);
+    if (liveBuild) return normalizeOverviewBuild(liveBuild);
+
+    const payloadBuild = (_lastOverviewPayload?.build_trend || []).find(build => build?.number === buildNumber);
+    if (payloadBuild) return normalizeOverviewBuild(payloadBuild);
+
+    return null;
+}
+
+function markBuildOptimisticallyAborted(buildNumber, buildSnapshot = null) {
+    const normalizedSnapshot = normalizeOverviewBuild(buildSnapshot) || normalizeOverviewBuild(findCurrentOverviewBuild(buildNumber)) || {
+        number: buildNumber,
+        result: 'ABORTED',
+        duration: 0,
+        duration_ms: 0,
+        duration_seconds: 0,
+        timestamp: 0,
+        stages: [],
+    };
+
+    _optimisticallyAbortedBuilds.set(
+        buildNumber,
+        {
+            expiresAt: Date.now() + OPTIMISTIC_ABORT_WINDOW_MS,
+            build: {
+                ...normalizedSnapshot,
+                result: 'ABORTED',
+            },
+        }
+    );
+}
+
+function clearOptimisticBuildAbort(buildNumber) {
+    _optimisticallyAbortedBuilds.delete(buildNumber);
+}
+
+function isBuildOptimisticallyAborted(buildNumber) {
+    pruneOptimisticAbortedBuilds();
+    return _optimisticallyAbortedBuilds.has(buildNumber);
+}
+
+function getOptimisticAbortedBuild(buildNumber) {
+    pruneOptimisticAbortedBuilds();
+    return _optimisticallyAbortedBuilds.get(buildNumber)?.build || null;
+}
+
+function normalizeLiveRunningBuild(build) {
+    return {
+        ...normalizeOverviewBuild(build),
+        result: null,
+    };
+}
+
+function mergeOverviewTrendWithLiveRunningBuilds(builds) {
+    pruneOptimisticAbortedBuilds();
+
+    const liveMap = new Map(
+        (_liveRunningBuilds || []).map(build => [build.number, build])
+    );
+    const merged = [];
+    const seenNumbers = new Set();
+
+    (Array.isArray(builds) ? builds : []).forEach(build => {
+        if (build?.number !== undefined && build?.number !== null) {
+            seenNumbers.add(build.number);
+        }
+
+        const liveBuild = liveMap.get(build.number);
+        if (liveBuild) {
+            merged.push({
+                ...build,
+                ...liveBuild,
+                stages: Array.isArray(liveBuild.stages) ? liveBuild.stages : [],
+                result: null,
+            });
+            return;
+        }
+
+        const optimisticBuild = getOptimisticAbortedBuild(build.number);
+        if (build.result === null && optimisticBuild) {
+            merged.push({
+                ...build,
+                ...optimisticBuild,
+                result: 'ABORTED',
+                stages: Array.isArray(optimisticBuild.stages) ? optimisticBuild.stages : [],
+            });
+            return;
+        }
+
+        if (build.result !== null) {
+            clearOptimisticBuildAbort(build.number);
+        }
+
+        merged.push(build);
+    });
+
+    (_liveRunningBuilds || []).forEach(build => {
+        if (seenNumbers.has(build.number)) return;
+        merged.push(build);
+    });
+
+    _optimisticallyAbortedBuilds.forEach((entry, buildNumber) => {
+        if (!entry?.build || seenNumbers.has(buildNumber)) return;
+        merged.push({
+            ...entry.build,
+            result: 'ABORTED',
+        });
+    });
+
+    return merged.sort((a, b) =>
+        (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0)
+    );
+}
+
+function handleBuildAbortSuccess(buildNumber) {
+    const buildSnapshot = findCurrentOverviewBuild(buildNumber);
+    markBuildOptimisticallyAborted(buildNumber, buildSnapshot);
+    _liveRunningBuilds = (_liveRunningBuilds || []).filter(build => build.number !== buildNumber);
+    _prevRunningNumbers.delete(buildNumber);
+
+    if (_lastOverviewPayload) {
+        renderOverviewPayload(_lastOverviewPayload, { eagerRunningStages: false });
+    } else {
+        updateActiveBuilds(_liveRunningBuilds.length, _liveRunningBuilds);
+    }
+}
+
+function refreshRunningBuildsNow() {
+    return pollRunningStages();
 }
 
 function fmtDate(ts) {
@@ -539,17 +702,24 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
         _prevRunningNumbers = new Set();
         Object.values(_activeTimers).forEach(clearInterval);
         _activeTimers = {};
+        _lastOverviewPayload = null;
+        _liveRunningBuilds = [];
+        _hasLiveRunningPollData = false;
+        _optimisticallyAbortedBuilds.clear();
         clearDashboard();
         clearOverviewHistory();
         clearOverviewTestsDuration24hChart('No tests duration data available');
         return;
     }
 
-    const trend = (d.build_trend || []).map(build => ({
+    _lastOverviewPayload = d;
+
+    const baseTrend = (d.build_trend || []).map(build => ({
         ...build,
         duration: build.duration ?? build.duration_ms ?? ((build.duration_seconds ?? 0) * 1000),
         stages: Array.isArray(build.stages) ? build.stages : [],
     }));
+    const trend = mergeOverviewTrendWithLiveRunningBuilds(baseTrend);
     const metrics = _cacheOverviewMetrics(d);
     const latestBuildTag = document.getElementById('latestBuildTag');
 
@@ -577,28 +747,27 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
         _overviewStatsSignature = statsSignature;
     }
 
-    const nowRunning = new Set(trend.filter(b => b.result === null).map(b => b.number));
-    trend.filter(b => b.result !== null && _prevRunningNumbers.has(b.number))
-         .forEach(notifyBuildFinished);
-    _prevRunningNumbers = nowRunning;
-
-    const hasRunning = trend.some(build => build.result === null);
-    if (hasRunning && !_runningStagesHandle) {
-        if (hasOverviewHistoryTimeline()) {
-            _runningStagesHandle = setInterval(pollRunningStages, 2000);
-            if (eagerRunningStages) {
-                pollRunningStages();
-            }
+    if (hasOverviewLiveBuildWidgets() && !_runningStagesHandle) {
+        _runningStagesHandle = setInterval(pollRunningStages, LIVE_RUNNING_POLL_MS);
+        if (eagerRunningStages) {
+            pollRunningStages();
         }
-    } else if (!hasRunning && _runningStagesHandle) {
+    } else if (!hasOverviewLiveBuildWidgets() && _runningStagesHandle) {
         clearInterval(_runningStagesHandle);
         _runningStagesHandle = null;
     }
 
-    const activeBuilds = trend.filter(build => build.result === null);
+    const activeBuilds = _hasLiveRunningPollData
+        ? [..._liveRunningBuilds]
+        : trend.filter(build => build.result === null);
+    const nowRunning = new Set(activeBuilds.map(b => b.number));
+    trend.filter(b => b.result !== null && _prevRunningNumbers.has(b.number))
+         .forEach(notifyBuildFinished);
+    _prevRunningNumbers = nowRunning;
+
     const activeSignature = _buildListSignature(activeBuilds, { includeDuration: false });
     if (_overviewActiveSignature !== activeSignature || metrics.running !== activeBuilds.length) {
-        updateActiveBuilds(activeBuilds.length, trend);
+        updateActiveBuilds(activeBuilds.length, activeBuilds);
         _overviewActiveSignature = activeSignature;
     }
 
@@ -606,7 +775,7 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
     const historyLast24h = trend
         .filter(build => _isWithinLast24Hours(build, now))
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0));
-    const finishedLast24h = trend.filter(
+    const finishedLast24h = baseTrend.filter(
         b => b.result !== null && _isWithinLast24Hours(b, now)
     );
     const finishedSignature = _buildListSignature(finishedLast24h);
@@ -928,7 +1097,21 @@ async function pollRunningStages() {
 
   try {
     const data = await (await fetch('/api/running_stages')).json();
-    data.forEach(b => {
+    _hasLiveRunningPollData = true;
+    _liveRunningBuilds = (Array.isArray(data) ? data : [])
+      .map(normalizeLiveRunningBuild)
+      .filter(build => !isBuildOptimisticallyAborted(build.number))
+      .sort((a, b) =>
+        (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0)
+      );
+
+    if (_lastOverviewPayload) {
+      renderOverviewPayload(_lastOverviewPayload, { eagerRunningStages: false });
+    } else {
+      updateActiveBuilds(_liveRunningBuilds.length, _liveRunningBuilds);
+    }
+
+    _liveRunningBuilds.forEach(b => {
       const strip = document.querySelector('#brow-' + b.number + ' .stage-strip');
       if (!strip || !Array.isArray(b.stages) || !b.stages.length) return;
       const nextSignature = _buildStageStripSignature(b.stages);
@@ -946,8 +1129,6 @@ async function pollRunningStages() {
     _runningStagesPollInFlight = false;
   }
 }
-
-let _runningStagesHandle = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     requestNotificationPermission();

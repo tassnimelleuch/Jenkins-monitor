@@ -11,7 +11,12 @@ from collectors.jenkins_collector import (
     get_test_report,
 )
 from flask import current_app
-from pipeline_identity import configured_branch_name, pipeline_name
+from extensions import cache
+from pipeline_identity import (
+    configured_branch_name,
+    configured_pipeline_job_path,
+    pipeline_name,
+)
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import (
     backfill_branch_test_results,
@@ -26,6 +31,8 @@ from services.pipeline_storage_service import (
 DEPLOY_STAGE = 'Deploy to AKS'
 ROLLOUT_STAGE = 'Wait for AKS Rollout'
 PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS = 2
+LIVE_RUNNING_BUILDS_CACHE_VERSION = 'v1'
+LIVE_RUNNING_BUILDS_CACHE_TIMEOUT_SECONDS = 1
 PIPELINE_COVERAGE_TREND_HISTORY_LIMIT = 120
 PIPELINE_JUNIT_TREND_HISTORY_LIMIT = 20
 
@@ -48,6 +55,14 @@ def _map_stage_statuses(stages):
 def _call_in_app_context(app, func):
     with app.app_context():
         return func()
+
+
+def _live_running_builds_cache_key():
+    return (
+        f'pipeline_live_running:{LIVE_RUNNING_BUILDS_CACHE_VERSION}:'
+        f'{configured_pipeline_job_path(current_app.config, default_branch="main")}:'
+        f'{configured_branch_name(current_app.config, default="main")}'
+    )
 
 
 def _snapshot_is_stale(timestamp, max_age_seconds=PIPELINE_HEAD_CACHE_MAX_AGE_SECONDS, now=None):
@@ -199,6 +214,21 @@ def _get_cached_selected_branch_head():
     return live_head
 
 
+def invalidate_pipeline_head_cache():
+    with _pipeline_head_cache_lock:
+        _pipeline_head_cache['checked_at'] = None
+        _pipeline_head_cache['head'] = None
+
+
+def invalidate_live_running_builds_cache():
+    cache.delete(_live_running_builds_cache_key())
+
+
+def invalidate_pipeline_live_state():
+    invalidate_live_running_builds_cache()
+    invalidate_pipeline_head_cache()
+
+
 def _cache_selected_branch_head(payload):
     selected_branch, branch_payload = _get_selected_branch_snapshot(payload)
     if not selected_branch or not branch_payload:
@@ -213,6 +243,66 @@ def _cache_selected_branch_head(payload):
             'last_build': branch_payload.get('last_build'),
             'last_completed_build': branch_payload.get('last_completed_build'),
         }
+
+
+def get_live_running_builds():
+    cached = cache.get(_live_running_builds_cache_key())
+    if cached is not None:
+        return cached
+
+    all_builds = get_all_builds()
+    if all_builds is None:
+        return []
+
+    running_builds = [
+        build
+        for build in all_builds
+        if build.get('number') is not None and build.get('result') is None
+    ]
+    if not running_builds:
+        payload = []
+        cache.set(
+            _live_running_builds_cache_key(),
+            payload,
+            timeout=LIVE_RUNNING_BUILDS_CACHE_TIMEOUT_SECONDS,
+        )
+        return payload
+
+    app = current_app._get_current_object()
+    stage_tasks = {
+        build.get('number'): (
+            lambda n=build.get('number'): _call_in_app_context(app, lambda: get_stages(n))
+        )
+        for build in running_builds
+    }
+    stages_by_build = (
+        parallel_execute(stage_tasks, max_workers=4, timeout=12)
+        if stage_tasks
+        else {}
+    )
+
+    payload = sorted(
+        [
+            {
+                'number': build.get('number'),
+                'status': build.get('status'),
+                'result': None,
+                'timestamp': build.get('timestamp', 0),
+                'duration_ms': build.get('duration', 0) or 0,
+                'duration_seconds': int((build.get('duration', 0) or 0) / 1000),
+                'stages': stages_by_build.get(build.get('number'), []),
+            }
+            for build in running_builds
+        ],
+        key=lambda item: (item.get('timestamp', 0), item.get('number', 0)),
+        reverse=True,
+    )
+    cache.set(
+        _live_running_builds_cache_key(),
+        payload,
+        timeout=LIVE_RUNNING_BUILDS_CACHE_TIMEOUT_SECONDS,
+    )
+    return payload
 
 
 def _refresh_pipeline_storage_in_background(app, stored_payload=None):

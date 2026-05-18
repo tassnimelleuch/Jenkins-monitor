@@ -851,6 +851,19 @@ function openConsole(num) {
   window.open('/console/' + num, '_blank');
 }
 
+function refreshBuildViewsAfterMutation({ liveDelayMs = 200, fullDelayMs = 1500 } = {}) {
+  if (typeof refreshRunningBuildsNow === 'function') {
+    setTimeout(() => refreshRunningBuildsNow(), liveDelayMs);
+    setTimeout(() => refreshRunningBuildsNow(), fullDelayMs);
+  }
+  if (typeof loadKPIs === 'function') {
+    setTimeout(() => loadKPIs(), fullDelayMs);
+  }
+  if (typeof loadPipelineKPIs === 'function') {
+    setTimeout(() => loadPipelineKPIs(), fullDelayMs);
+  }
+}
+
 function _renderBuildBars(builds) {
   const wrap   = document.getElementById('barsWrap');
   const sumRow = document.getElementById('buildSummaryRow');
@@ -1042,7 +1055,11 @@ function confirmAbort(buildNumber) {
             delete _activeTimers[buildNumber];
           }
 
-          setTimeout(loadPipelineKPIs, 2000);
+          if (typeof handleBuildAbortSuccess === 'function') {
+            handleBuildAbortSuccess(buildNumber);
+          }
+
+          refreshBuildViewsAfterMutation();
         } else {
           showToast('Failed to abort: ' + (data.error || 'unknown'), 'abort-toast');
         }
