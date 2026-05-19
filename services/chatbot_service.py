@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from calendar import monthrange
 from datetime import date
@@ -8,7 +9,6 @@ import requests
 from flask import current_app
 
 from services.dashboard_kpi_chroma_service import query_dashboard_kpi_chroma
-from services.dashboard_kpi_documents_service import query_dashboard_kpi_documents
 from services.finops_build_documents_service import (
     get_finops_build_document,
     list_finops_build_documents_for_range,
@@ -181,7 +181,7 @@ def _extract_dates_from_text(text):
             seen.add(parsed.isoformat())
 
     for item in re.finditer(
-        rf'\b(\d{{1,2}})\s*(?:/|-|\s)\s*({MONTH_PATTERN})(?:\s*(?:,|/|-|\s)\s*(\d{{2,4}}))?\b',
+        rf'\b(\d{{1,2}})(?:st|nd|rd|th)?\s*(?:/|-|\s)\s*({MONTH_PATTERN})(?:\s*(?:,|/|-|\s)\s*(\d{{2,4}}))?\b',
         content,
     ):
         month = MONTH_NAME_TO_NUMBER.get(item.group(2))
@@ -241,6 +241,29 @@ def _extract_month_scopes_from_text(text):
             matches.append(key)
             seen.add(key)
 
+    for item in re.finditer(
+        rf'\b(?:in|for|during|throughout|across|within|through)\s+(?:the\s+month\s+of\s+)?({MONTH_PATTERN})(?:\s+(\d{{2,4}}))?\b',
+        content,
+    ):
+        month = MONTH_NAME_TO_NUMBER.get(item.group(1))
+        year = _coerce_year(item.group(2))
+        if month is None:
+            continue
+        key = (year, month)
+        if key not in seen:
+            matches.append(key)
+            seen.add(key)
+
+    for item in re.finditer(rf'\bmonth\s+of\s+({MONTH_PATTERN})(?:\s+(\d{{2,4}}))?\b', content):
+        month = MONTH_NAME_TO_NUMBER.get(item.group(1))
+        year = _coerce_year(item.group(2))
+        if month is None:
+            continue
+        key = (year, month)
+        if key not in seen:
+            matches.append(key)
+            seen.add(key)
+
     return matches
 
 
@@ -265,6 +288,21 @@ def _recent_user_messages(messages, *, limit=FINOPS_RAG_HISTORY_USER_MESSAGES):
 
 def _build_retrieval_query(messages):
     return '\n'.join(_recent_user_messages(messages)).strip()
+
+
+def _latest_user_message(messages):
+    for message in reversed(messages or []):
+        if not isinstance(message, dict):
+            continue
+        if message.get('role') != 'user':
+            continue
+        content = message.get('content')
+        if not isinstance(content, str):
+            continue
+        content = content.strip()
+        if content:
+            return content
+    return ''
 
 
 def _build_dashboard_kpi_system_message(rows):
@@ -348,6 +386,18 @@ def _build_dashboard_kpi_rag_system_message(matches):
     }
 
 
+def _build_missing_dashboard_kpi_evidence_message():
+    return {
+        'role': 'system',
+        'content': (
+            'You are the Jenkins Monitor KPI assistant.\n'
+            'No relevant dashboard KPI evidence was retrieved from Chroma for this request.\n'
+            'Do not answer with guessed KPI definitions, formulas, time windows, or UI behavior.\n'
+            'Tell the user clearly that the KPI evidence could not be retrieved from the indexed knowledge base.'
+        ).strip(),
+    }
+
+
 def _looks_like_dashboard_kpi_query(query_text):
     content = str(query_text or '').strip().lower()
     if not content:
@@ -388,6 +438,25 @@ def _extract_target_usage_month(query_text):
     if len(matches) == 1:
         return matches[0]
     return None
+
+
+def _resolve_target_usage_date(messages):
+    latest_message = _latest_user_message(messages)
+    latest_match = _extract_target_usage_date(latest_message)
+    if latest_match is not None:
+        return latest_match
+    return _extract_target_usage_date(_build_retrieval_query(messages))
+
+
+def _resolve_target_usage_month(messages, *, usage_date=None):
+    if usage_date is not None:
+        return None
+
+    latest_message = _latest_user_message(messages)
+    latest_match = _extract_target_usage_month(latest_message)
+    if latest_match is not None:
+        return latest_match
+    return _extract_target_usage_month(_build_retrieval_query(messages))
 
 
 def _format_duration_ms(duration_ms):
@@ -437,50 +506,11 @@ def _format_ratio(value, baseline):
     return f'{_to_float(value) / baseline_value:.2f}x'
 
 
-def _build_activity_label(build_summary, signal_summary):
-    if _to_int(build_summary.get('build_count')) <= 0:
-        return 'no Jenkins builds were stored for this date'
-    if bool(signal_summary.get('build_pressure')):
-        return 'Jenkins build activity was above the normal active-day pattern'
-    return 'Jenkins build activity stayed near the normal active-day pattern'
-
-
-def _build_cost_correlation_read(cost_summary, build_summary, baseline_summary, signal_summary):
-    cost_available = bool(cost_summary.get('available'))
-    cost_spike = bool(signal_summary.get('cost_spike'))
-    build_pressure = bool(signal_summary.get('build_pressure'))
-    build_count = _to_int(build_summary.get('build_count'))
-
-    if not cost_available and build_count <= 0:
-        return 'No stored cost row and no stored builds exist for this date.'
-    if not cost_available:
-        return (
-            'There is no stored FinOps cost row for this date, so only Jenkins activity can be assessed.'
-        )
-    if cost_spike and build_pressure:
-        return (
-            'Cost was above the month average and build activity was also elevated, '
-            'so the spend is likely workload-driven Jenkins usage rather than idle Azure usage.'
-        )
-    if cost_spike and not build_pressure:
-        return (
-            'Cost was above the month average while build activity stayed near or below the normal pattern, '
-            'so the extra spend likely came from non-build Azure usage such as a VM or AKS workload staying on longer than needed.'
-        )
-    if not cost_spike and build_pressure:
-        return (
-            'Build activity was elevated, but cost was not above the month average, '
-            'so this looks like an active workday without an unusual Azure cost spike.'
-        )
-    if build_count <= 0:
-        return (
-            'No Jenkins builds were stored and cost was not above the month average, '
-            'so there is no strong workload signal for this date.'
-        )
-    return (
-        'Cost and Jenkins activity both stayed near the normal monthly pattern, '
-        'so this looks like a routine day rather than a cost anomaly.'
-    )
+def _render_json(value):
+    try:
+        return json.dumps(value or {}, indent=2, sort_keys=True)
+    except (TypeError, ValueError):
+        return '{}'
 
 
 def _build_day_snapshot(row):
@@ -529,14 +559,8 @@ def _build_day_snapshot(row):
         'long_build_activity': bool(signal_summary.get('long_build_activity')),
         'failure_pressure': bool(signal_summary.get('failure_pressure')),
         'likely_driver': str(signal_summary.get('likely_driver') or 'unknown'),
-        'build_activity_label': _build_activity_label(build_summary, signal_summary),
-        'correlation_read': _build_cost_correlation_read(
-            cost_summary,
-            build_summary,
-            baseline_summary,
-            signal_summary,
-        ),
         'tags': ', '.join(str(item) for item in tags) if tags else 'none',
+        'structured_summary_json': _render_json(summary),
         'document_content': str(row.content or '').strip(),
     }
 
@@ -572,19 +596,41 @@ def _build_day_snapshot_lines(snapshot, *, heading=None):
         f"- long_build_activity: {snapshot['long_build_activity']}",
         f"- failure_pressure: {snapshot['failure_pressure']}",
         f"- likely_driver: {snapshot['likely_driver']}",
-        f"- build_activity_assessment: {snapshot['build_activity_label']}",
-        f"- correlation_read: {snapshot['correlation_read']}",
         f"- tags: {snapshot['tags']}",
     ])
+
+    if snapshot['structured_summary_json']:
+        lines.extend([
+            '',
+            'Structured daily summary JSON:',
+            snapshot['structured_summary_json'],
+        ])
 
     if snapshot['document_content']:
         lines.extend([
             '',
-            'Stored daily document:',
+            'Stored daily document text:',
             snapshot['document_content'],
         ])
 
     return lines
+
+
+def _build_month_snapshot_line(row):
+    snapshot = _build_day_snapshot(row)
+    return (
+        f"- {snapshot['usage_date']} | total_cost={_format_cost(snapshot['total_cost'], snapshot['currency_code'])} "
+        f"| month_average_total_cost={_format_cost(snapshot['month_average_total_cost'], snapshot['currency_code'])} "
+        f"| cost_vs_month_average_ratio={snapshot['cost_ratio']} | build_count={snapshot['build_count']} "
+        f"| success_count={snapshot['success_count']} | failure_count={snapshot['failure_count']} "
+        f"| aborted_count={snapshot['aborted_count']} | total_build_duration={_format_duration_ms(snapshot['total_duration_ms'])} "
+        f"| average_build_duration={_format_duration_ms(snapshot['avg_duration_ms'])} "
+        f"| build_count_vs_active_day_average_ratio={snapshot['build_count_ratio']} "
+        f"| total_build_duration_vs_active_day_average_ratio={snapshot['duration_ratio']} "
+        f"| cost_spike={snapshot['cost_spike']} | build_pressure={snapshot['build_pressure']} "
+        f"| high_build_activity={snapshot['high_build_activity']} | long_build_activity={snapshot['long_build_activity']} "
+        f"| failure_pressure={snapshot['failure_pressure']} | likely_driver={snapshot['likely_driver']}"
+    )
 
 
 def _build_finops_document_system_message(row):
@@ -596,13 +642,10 @@ def _build_finops_document_system_message(row):
         'content': (
             'You are the Jenkins Monitor FinOps assistant.\n'
             'The user asked about a specific stored daily FinOps document.\n'
-            'Answer from the stored evidence below.\n'
-            'Use a natural response style instead of a fixed template.\n'
-            'When explaining cost, compare the cost level with Jenkins build count and total build duration versus the monthly active-day averages.\n'
-            'If cost is above average and build activity is also elevated, you may say the higher Azure cost was likely caused by real CI/CD work and does not look worrying.\n'
-            'If cost is above average while build count and build duration stay near or below the averages, you may say the spend likely came from Azure resources outside normal build activity, such as a VM or AKS workload staying on longer than needed.\n'
-            'Present that kind of cause as a likely explanation, not absolute billing proof.\n'
-            'Ground claims about failures, retries, or repeated work only when the stored evidence supports them.\n'
+            'Answer only from the retrieved evidence below.\n'
+            'Reason from the stored cost values, build activity, monthly baseline, structured signals, and the stored daily document text.\n'
+            'Treat any cause or driver as a likely explanation unless the evidence proves it directly.\n'
+            'Do not invent dates, costs, build counts, failures, or Azure causes that are not supported by the evidence.\n'
             '\nRetrieved daily evidence:\n'
             f'{daily_evidence_text}'
         ).strip(),
@@ -641,15 +684,12 @@ def _build_finops_rag_system_message(matches, *, usage_date=None):
         'role': 'system',
         'content': (
             'You are the Jenkins Monitor FinOps assistant.\n'
-            'Use the retrieved dashboard evidence below when answering cost, VM, AKS, build, or pipeline questions.\n'
-            'Ground factual claims in the evidence. If the evidence is incomplete, say so clearly.\n'
-            'Use a natural response style instead of a fixed template.\n'
-            'For cost analysis, compare cost evidence with build count and total build duration against the monthly active-day pattern.\n'
-            'If cost is high and build activity is also high or long-running, you may explain that the spend was likely driven by real Jenkins work.\n'
-            'If cost is high while build activity stays near or below normal, you may explain that the spend likely came from non-build Azure usage, such as a VM or AKS workload staying on longer than needed.\n'
-            'Treat those as likely explanations based on correlation, not absolute billing proof.\n'
-            'Do not invent numbers, dates, or causes that are not supported by the retrieved evidence.\n'
-            'Only mention retries, repeated failures, or other operational details when the evidence supports them.\n'
+            'Use the retrieved FinOps evidence below when answering cost, VM, AKS, build, or pipeline questions.\n'
+            'Ground every factual claim in the retrieved evidence.\n'
+            'Reason from the dates, costs, build counts, build durations, stored signals, and chunk text itself.\n'
+            'Treat stored signals such as likely_driver, cost_spike, and build_pressure as hints from the stored analysis, not absolute proof.\n'
+            'If the evidence is incomplete, spans multiple dates, or cannot prove a cause, say that clearly.\n'
+            'Do not invent numbers, dates, costs, failures, or Azure causes.\n'
             f'{target_date_line}'
             '\nRetrieved FinOps evidence:\n'
             f'{evidence_text}'
@@ -677,9 +717,6 @@ def _build_finops_month_system_message(rows, *, year, month):
 
     total_cost = 0.0
     cost_day_count = 0
-    highest_cost_value = None
-    highest_cost_date = None
-    highest_cost_row = None
     total_build_count = 0
     success_count = 0
     failure_count = 0
@@ -724,11 +761,6 @@ def _build_finops_month_system_message(rows, *, year, month):
         if cost_summary.get('available'):
             total_cost += float(cost_summary.get('total_cost') or 0.0)
             cost_day_count += 1
-            row_cost = float(cost_summary.get('total_cost') or 0.0)
-            if highest_cost_value is None or row_cost > highest_cost_value:
-                highest_cost_value = row_cost
-                highest_cost_date = row.usage_date.isoformat()
-                highest_cost_row = row
 
     coverage_status = 'full_month' if covered_days == total_days_in_month else 'partial_month'
     average_daily_cost = (total_cost / cost_day_count) if cost_day_count > 0 else 0.0
@@ -736,12 +768,7 @@ def _build_finops_month_system_message(rows, *, year, month):
         total_build_count / covered_days
         if covered_days > 0 else 0.0
     )
-    highest_cost_snapshot = _build_day_snapshot(highest_cost_row) if highest_cost_row is not None else None
-    highest_cost_lines = (
-        '\n'.join(_build_day_snapshot_lines(highest_cost_snapshot, heading='Highest-cost day evidence:'))
-        if highest_cost_snapshot is not None
-        else 'Highest-cost day evidence is unavailable.'
-    )
+    daily_evidence_lines = '\n'.join(_build_month_snapshot_line(row) for row in ordered_rows)
 
     return {
         'role': 'system',
@@ -749,13 +776,11 @@ def _build_finops_month_system_message(rows, *, year, month):
             'You are the Jenkins Monitor FinOps assistant.\n'
             'The user asked about a month-wide period, not a single day.\n'
             'Answer from the stored monthly evidence below.\n'
-            'Use a natural response style instead of a fixed template.\n'
-            'Do not generalize beyond the covered stored dates.\n'
-            'If coverage is partial, make that clear.\n'
-            'When the user asks why a costly day was high, focus on the highest-cost day evidence and compare its build count and total build duration against the monthly active-day averages.\n'
-            'If the costly day also had elevated build activity, you may explain that the spend was likely driven by real work.\n'
-            'If the costly day had normal or low build activity, you may explain that the spend likely came from Azure resources outside normal build activity, such as a VM or AKS workload staying on longer than needed.\n'
-            'Treat that as a likely explanation based on correlation, not absolute billing proof.\n'
+            'Reason directly from the stored facts.\n'
+            'Use the daily ledger to compare dates, costs, build activity, and ratios.\n'
+            'If the user asks which day was highest, infer that from the daily total_cost values below.\n'
+            'If the user asks why a day was costly, compare that day\'s cost and build activity against the monthly baseline and treat any cause as a likely explanation unless the evidence proves it directly.\n'
+            'Do not generalize beyond the covered stored dates, and say clearly when coverage is partial.\n'
             '\nRetrieved monthly stored evidence:\n'
             f'- target_month: {year:04d}-{month:02d}\n'
             f'- coverage_status: {coverage_status}\n'
@@ -767,8 +792,6 @@ def _build_finops_month_system_message(rows, *, year, month):
             f'- cost_day_count: {cost_day_count}\n'
             f'- total_cost_across_covered_days: {_format_cost(total_cost)}\n'
             f'- average_daily_cost_across_covered_days: {_format_cost(average_daily_cost)}\n'
-            f'- highest_cost_day: {highest_cost_date or "unknown"}\n'
-            f'- highest_cost_value: {_format_cost(highest_cost_value or 0.0)}\n'
             f'- build_days: {build_days}\n'
             f'- no_build_days: {no_build_days}\n'
             f'- total_build_count: {total_build_count}\n'
@@ -783,7 +806,8 @@ def _build_finops_month_system_message(rows, *, year, month):
             f'- busiest_build_day: {highest_build_date or "unknown"}\n'
             f'- busiest_build_day_count: {highest_build_count}\n'
             '\n'
-            f'{highest_cost_lines}\n'
+            'Daily evidence ledger:\n'
+            f'{daily_evidence_lines}\n'
         ).strip(),
     }
 
@@ -807,23 +831,7 @@ def _maybe_add_dashboard_kpi_context(messages):
         if system_message is not None:
             return [system_message, *messages]
 
-    try:
-        rows = query_dashboard_kpi_documents(
-            query_text,
-            limit=DASHBOARD_KPI_RAG_RESULT_LIMIT,
-            auto_generate=True,
-        )
-    except Exception:
-        current_app.logger.exception('Dashboard KPI document retrieval failed.')
-        rows = []
-
-    if not rows:
-        return messages
-
-    system_message = _build_dashboard_kpi_system_message(rows)
-    if system_message is None:
-        return messages
-    return [system_message, *messages]
+    return [_build_missing_dashboard_kpi_evidence_message(), *messages]
 
 
 def _maybe_add_finops_rag_context(messages):
@@ -831,8 +839,17 @@ def _maybe_add_finops_rag_context(messages):
     if not _looks_like_finops_query(query_text):
         return messages
 
-    usage_date = _extract_target_usage_date(query_text)
-    usage_month = None if usage_date is not None else _extract_target_usage_month(query_text)
+    usage_date = _resolve_target_usage_date(messages)
+    usage_month = _resolve_target_usage_month(messages, usage_date=usage_date)
+
+    if usage_date is not None:
+        try:
+            row = get_finops_build_document(usage_date)
+        except Exception:
+            current_app.logger.exception('FinOps document retrieval failed.')
+            row = None
+        if row is not None:
+            return [_build_finops_document_system_message(row), *messages]
 
     if usage_month is not None:
         start_date, end_date = _month_bounds(*usage_month)
@@ -869,15 +886,6 @@ def _maybe_add_finops_rag_context(messages):
     if matches:
         rag_message = _build_finops_rag_system_message(matches, usage_date=usage_date)
         return [rag_message, *messages]
-
-    if usage_date is not None:
-        try:
-            row = get_finops_build_document(usage_date)
-        except Exception:
-            current_app.logger.exception('FinOps document retrieval failed.')
-            row = None
-        if row is not None:
-            return [_build_finops_document_system_message(row), *messages]
 
     return messages
 

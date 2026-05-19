@@ -12,3 +12,4 @@ flask-caching
 psycopg2-binary
 
 chromadb 
+sentence-transformers

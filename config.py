@@ -85,9 +85,17 @@ class Config:
     OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')
     OLLAMA_CHAT_ENDPOINT = os.getenv('OLLAMA_CHAT_ENDPOINT', '/api/chat')
     OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen')
-    OLLAMA_EMBED_ENDPOINT = os.getenv('OLLAMA_EMBED_ENDPOINT', '/api/embed')
-    OLLAMA_EMBED_MODEL = os.getenv('OLLAMA_EMBED_MODEL') or OLLAMA_MODEL
     OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', '60'))
+    EMBEDDING_MODEL = os.getenv(
+        'EMBEDDING_MODEL',
+        'sentence-transformers/all-MiniLM-L6-v2',
+    )
+    EMBEDDING_DEVICE = os.getenv('EMBEDDING_DEVICE', 'cpu')
+    EMBEDDING_BATCH_SIZE = int(os.getenv('EMBEDDING_BATCH_SIZE', '32'))
+    EMBEDDING_NORMALIZE = os.getenv(
+        'EMBEDDING_NORMALIZE',
+        'true',
+    ).strip().lower() in ('1', 'true', 'yes', 'on')
     CHROMA_PERSIST_DIR = os.getenv(
         'CHROMA_PERSIST_DIR',
         os.path.join(os.getcwd(), '.chroma'),

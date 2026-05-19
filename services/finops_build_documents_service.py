@@ -16,6 +16,10 @@ from extensions import db
 from finops_models import FinOpsBuildDocument, FinOpsBuildDocumentChunk, FinOpsDailyCost
 from pipeline_storage_models import PipelineBranch, PipelineMainBuild
 from services.pipeline_storage_service import build_tests_duration_points
+from services.rag_base_service import (
+    get_chunking_config as build_chunking_config,
+    split_text_into_chunks,
+)
 
 
 def _utcnow():
@@ -181,49 +185,13 @@ def _format_duration(duration_ms):
 
 
 def _get_chunking_config():
-    raw_chunk_size = int(current_app.config.get('FINOPS_CHUNK_SIZE', 900))
-    chunk_size = max(raw_chunk_size, 200)
-    raw_chunk_overlap = int(current_app.config.get('FINOPS_CHUNK_OVERLAP', 120))
-    chunk_overlap = max(min(raw_chunk_overlap, chunk_size // 2), 0)
-    return {
-        'chunk_size': chunk_size,
-        'chunk_overlap': chunk_overlap,
-    }
-
-
-def _split_text_into_chunks(text, chunk_size, overlap):
-    content = str(text or '').strip()
-    if not content:
-        return []
-
-    chunks = []
-    start = 0
-    text_length = len(content)
-
-    while start < text_length:
-        end = min(start + chunk_size, text_length)
-        if end < text_length:
-            preferred_boundary = max(start + int(chunk_size * 0.55), start)
-            boundary = content.rfind('\n\n', preferred_boundary, end)
-            if boundary == -1:
-                boundary = content.rfind('\n', preferred_boundary, end)
-            if boundary == -1:
-                boundary = content.rfind('. ', preferred_boundary, end)
-                if boundary != -1:
-                    boundary += 1
-            if boundary > start:
-                end = boundary
-
-        chunk = content[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-
-        if end >= text_length:
-            break
-
-        start = max(end - overlap, start + 1)
-
-    return chunks
+    return build_chunking_config(
+        chunk_size_key='FINOPS_CHUNK_SIZE',
+        chunk_overlap_key='FINOPS_CHUNK_OVERLAP',
+        default_chunk_size=900,
+        default_chunk_overlap=120,
+        min_chunk_size=200,
+    )
 
 
 def _build_branch_breakdown(build_rows):
@@ -529,7 +497,7 @@ def _build_chunk_summary(row, chunk_index, chunk_count):
 
 
 def _build_chunk_records_for_document(row, chunk_config):
-    chunk_bodies = _split_text_into_chunks(
+    chunk_bodies = split_text_into_chunks(
         _document_text_for_chunking(row),
         chunk_config['chunk_size'],
         chunk_config['chunk_overlap'],

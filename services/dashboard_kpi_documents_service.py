@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 
 from flask import current_app
@@ -17,18 +16,16 @@ from pipeline_identity import (
     normalize_job_path,
     pipeline_name,
 )
+from services.rag_base_service import (
+    get_chunking_config as build_chunking_config,
+    normalize_text as _normalize_text,
+    split_text_into_chunks,
+    tokenize as _tokenize,
+)
 
 
 def _utcnow():
     return datetime.now(timezone.utc)
-
-
-def _normalize_text(value):
-    return re.sub(r'[^a-z0-9]+', ' ', str(value or '').lower()).strip()
-
-
-def _tokenize(value):
-    return [token for token in _normalize_text(value).split() if token]
 
 
 def _coerce_int(value, default=0):
@@ -55,48 +52,13 @@ def _render_content(*, intro, represents=None, calculation=None, notes=None):
 
 
 def _get_chunking_config():
-    raw_chunk_size = int(current_app.config.get('DASHBOARD_KPI_CHUNK_SIZE', 1100))
-    chunk_size = max(raw_chunk_size, 250)
-    raw_chunk_overlap = int(current_app.config.get('DASHBOARD_KPI_CHUNK_OVERLAP', 140))
-    chunk_overlap = max(min(raw_chunk_overlap, chunk_size // 2), 0)
-    return {
-        'chunk_size': chunk_size,
-        'chunk_overlap': chunk_overlap,
-    }
-
-
-def _split_text_into_chunks(text, chunk_size, overlap):
-    content = str(text or '').strip()
-    if not content:
-        return []
-
-    chunks = []
-    start = 0
-    text_length = len(content)
-
-    while start < text_length:
-        end = min(start + chunk_size, text_length)
-        if end < text_length:
-            preferred_boundary = max(start + int(chunk_size * 0.55), start)
-            boundary = content.rfind('\n\n', preferred_boundary, end)
-            if boundary == -1:
-                boundary = content.rfind('\n', preferred_boundary, end)
-            if boundary == -1:
-                boundary = content.rfind('. ', preferred_boundary, end)
-                if boundary != -1:
-                    boundary += 1
-            if boundary > start:
-                end = boundary
-
-        chunk = content[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-
-        if end >= text_length:
-            break
-        start = max(end - overlap, start + 1)
-
-    return chunks
+    return build_chunking_config(
+        chunk_size_key='DASHBOARD_KPI_CHUNK_SIZE',
+        chunk_overlap_key='DASHBOARD_KPI_CHUNK_OVERLAP',
+        default_chunk_size=1100,
+        default_chunk_overlap=140,
+        min_chunk_size=250,
+    )
 
 
 def _resolve_context():
@@ -756,7 +718,7 @@ def _chunk_summary(document_row, *, chunk_index, chunk_count):
 
 
 def _build_chunk_records_for_document(document_row, chunk_config):
-    chunks = _split_text_into_chunks(
+    chunks = split_text_into_chunks(
         document_row.content,
         chunk_config['chunk_size'],
         chunk_config['chunk_overlap'],
