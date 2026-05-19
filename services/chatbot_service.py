@@ -346,8 +346,7 @@ def _build_dashboard_kpi_system_message(rows):
 def _build_dashboard_kpi_rag_system_message(matches):
     sections = []
     for index, match in enumerate(matches, start=1):
-        metadata = match.get('metadata') or {}
-        chunk_text = str(match.get('document') or '').strip()
+        chunk_text = _clean_dashboard_kpi_chroma_text(match.get('document') or '')
         if not chunk_text:
             continue
 
@@ -355,11 +354,6 @@ def _build_dashboard_kpi_rag_system_message(matches):
             '\n'.join(
                 [
                     f'Evidence {index}',
-                    f"- page: {metadata.get('dashboard_page') or 'unknown'}",
-                    f"- key: {metadata.get('document_key') or 'unknown'}",
-                    f"- time_window: {metadata.get('time_window') or 'unknown'}",
-                    f"- aggregation: {metadata.get('aggregation') or 'unknown'}",
-                    f"- tags: {metadata.get('tag_csv') or 'none'}",
                     chunk_text,
                 ]
             )
@@ -373,13 +367,9 @@ def _build_dashboard_kpi_rag_system_message(matches):
         'role': 'system',
         'content': (
             'You are the Jenkins Monitor KPI assistant.\n'
-            'Use the retrieved dashboard KPI evidence below when answering KPI-related questions.\n'
-            'This KPI evidence is definition-oriented and explains meaning, formula, time window, and grouping, not current live values.\n'
-            'Explain what the KPI means, how the dashboard calculates or renders it, and what time window or grouping it uses.\n'
-            'Prefer the retrieved KPI evidence over guesses.\n'
-            'If the evidence says a metric comes directly from Jenkins, make that clear.\n'
-            'Do not invent current KPI values from this evidence.\n'
-            'If a detail is not supported by the retrieved evidence, say so clearly.\n'
+            'Answer only from the retrieved dashboard KPI evidence below.\n'
+            'Reason from the evidence itself and answer naturally.\n'
+            'If the evidence is insufficient, say so clearly.\n'
             '\nRetrieved KPI evidence:\n'
             f'{evidence_text}'
         ).strip(),
@@ -396,6 +386,34 @@ def _build_missing_dashboard_kpi_evidence_message():
             'Tell the user clearly that the KPI evidence could not be retrieved from the indexed knowledge base.'
         ).strip(),
     }
+
+
+def _clean_dashboard_kpi_chroma_text(value):
+    lines = []
+    for raw_line in str(value or '').splitlines():
+        line = raw_line.strip()
+        if not line:
+            lines.append('')
+            continue
+
+        lowered = line.lower()
+        if lowered in ('dashboard kpi explanation', 'chunk content:'):
+            continue
+        if lowered.startswith('value mode:'):
+            continue
+        if lowered.startswith('dashboard page:'):
+            continue
+        if lowered.startswith('document key:'):
+            continue
+        if lowered.startswith('tags:'):
+            continue
+        if lowered.startswith('aliases:'):
+            continue
+
+        lines.append(line)
+
+    cleaned = '\n'.join(lines).strip()
+    return re.sub(r'\n{3,}', '\n\n', cleaned)
 
 
 def _looks_like_dashboard_kpi_query(query_text):
