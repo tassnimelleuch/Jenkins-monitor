@@ -34,6 +34,68 @@ DASHBOARD_KPI_METRIC_KEYWORDS = (
     'failure rate by stage',
     'stage failure rate',
     'top failing stages',
+    'cpu by namespace',
+    'memory by namespace',
+    'network by namespace',
+    'disk by namespace',
+    'namespace cpu',
+    'namespace ram',
+    'namespace memory',
+    'namespace network',
+    'namespace disk',
+    'pods by namespace',
+    'replicasets by namespace',
+    'pvcs by namespace',
+    'pods by phase',
+    'deployment frequency',
+    'pods total',
+    'replicasets total',
+    'pvcs total',
+    'latest image artifact',
+    'docker image',
+    'docker hub image',
+    'image artifact',
+    'github repo page',
+    'github page',
+    'github repository',
+    'latest branch commits',
+    'open pull requests',
+    'merged pull requests',
+    'recently merged',
+    'last failed main pipeline commit',
+    'fix for latest main failure',
+    'time to fix',
+    'most changed files',
+    'code churn',
+    'failed pipeline commit',
+    'failed by',
+    'daily total cost',
+    'average / day',
+    'highest day',
+    'vs previous month',
+    'finops total cost',
+    'finops average',
+    'finops highest day',
+    'finops month change',
+    'daily cost chart',
+    'ecoops',
+    'ecoops page',
+    'aks co2',
+    'vm co2',
+    'combined last hour',
+    'co2 emission rate',
+    'wall power',
+    'sonarcloud',
+    'sonarqube',
+    'quality gate',
+    'quality gate conditions',
+    'sonar bugs',
+    'sonar vulnerabilities',
+    'code smells',
+    'security hotspots',
+    'duplications',
+    'duplicated lines density',
+    'ncloc',
 )
 DASHBOARD_KPI_CONTEXT_KEYWORDS = (
     'dashboard',
@@ -41,6 +103,18 @@ DASHBOARD_KPI_CONTEXT_KEYWORDS = (
     'kpis',
     'overview',
     'pipeline kpis',
+    'deployment kpis',
+    'github',
+    'github repo',
+    'github page',
+    'repo page',
+    'finops',
+    'finops page',
+    'ecoops',
+    'ecoops page',
+    'sonarcloud',
+    'sonarqube',
+    'sonarcloud page',
 )
 DASHBOARD_KPI_EXPLANATION_KEYWORDS = (
     'what is',
@@ -57,6 +131,18 @@ DASHBOARD_KPI_EXPLANATION_KEYWORDS = (
     'time window',
     'grouped by week',
     'grouped by month',
+)
+FINOPS_DASHBOARD_KPI_KEYWORDS = (
+    'finops page',
+    'daily total cost',
+    'average / day',
+    'highest day',
+    'vs previous month',
+    'daily cost chart',
+    'finops total cost',
+    'finops average',
+    'finops highest day',
+    'finops month change',
 )
 FINOPS_RAG_RESULT_LIMIT = 4
 FINOPS_RAG_HISTORY_USER_MESSAGES = 3
@@ -432,6 +518,12 @@ def _looks_like_dashboard_kpi_query(query_text):
 def _looks_like_finops_query(query_text):
     content = str(query_text or '').strip().lower()
     if not content:
+        return False
+
+    if (
+        _looks_like_dashboard_kpi_query(content)
+        and any(keyword in content for keyword in FINOPS_DASHBOARD_KPI_KEYWORDS)
+    ):
         return False
 
     has_strong_keyword = any(keyword in content for keyword in FINOPS_RAG_STRONG_KEYWORDS)
