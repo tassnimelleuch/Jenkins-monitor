@@ -42,6 +42,12 @@ from finops_models import (
     FinOpsSyncState,
     ensure_finops_storage_schema,
 )
+from github_storage_models import (
+    GitHubCommit,
+    GitHubCommitFile,
+    GitHubRepoSyncState,
+    ensure_github_storage_schema,
+)
 from pipeline_storage_models import (
     PipelineBranch,
     PipelineMainBuild,
@@ -51,6 +57,7 @@ from pipeline_storage_models import (
 with app.app_context():
     db.create_all()
     ensure_finops_storage_schema()
+    ensure_github_storage_schema()
     ensure_pipeline_storage_schema()
     ensure_user_preference_columns()
     ensure_admin_account()

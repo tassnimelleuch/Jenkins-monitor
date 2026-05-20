@@ -953,8 +953,10 @@ async function loadLatestBuild() {
 }
 
 async function loadGitHubBadge() {
+  const badge = document.getElementById('ghBadge');
+  if (!badge) return;
   try {
-    const res = await fetch('/api/github');
+    const res = await fetch('/api/github/badge');
     if (!res.ok) throw new Error();
     const data = await res.json();
     if (!data.connected) return;
@@ -972,8 +974,6 @@ async function loadGitHubBadge() {
       }
     }
 
-    const badge = document.getElementById('ghBadge');
-    if (!badge) return;
     if (newCount > 0) {
       badge.textContent = String(newCount);
       badge.style.display = 'flex';

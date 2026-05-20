@@ -23,6 +23,10 @@ from services.rag_base_service import (
     tokenize as _tokenize,
 )
 
+BLOCKED_SOURCE_FILE_NAMES = frozenset({
+    'pylint-report.json',
+})
+
 
 def _utcnow():
     return datetime.now(timezone.utc)
@@ -75,6 +79,42 @@ def _resolve_context():
     }
 
 
+def _normalize_source_file_name(value):
+    text = str(value or '').strip().replace('\\', '/')
+    if not text:
+        return ''
+    return text.rsplit('/', 1)[-1].lower()
+
+
+def _sanitize_source_files(source_files):
+    cleaned = []
+    seen = set()
+    for item in (source_files or []):
+        text = str(item or '').strip()
+        if not text:
+            continue
+        if _normalize_source_file_name(text) in BLOCKED_SOURCE_FILE_NAMES:
+            continue
+        if text in seen:
+            continue
+        seen.add(text)
+        cleaned.append(text)
+    return cleaned
+
+
+def sanitize_dashboard_kpi_text(value):
+    text = str(value or '')
+    for blocked_name in BLOCKED_SOURCE_FILE_NAMES:
+        text = text.replace(blocked_name, '')
+    return text
+
+
+def sanitize_dashboard_kpi_summary(summary):
+    summary_dict = dict(summary or {})
+    summary_dict['source_files'] = _sanitize_source_files(summary_dict.get('source_files'))
+    return summary_dict
+
+
 def _document(
     *,
     context,
@@ -93,7 +133,7 @@ def _document(
         'document_key': document_key,
         'dashboard_page': dashboard_page,
         'title': title,
-        'content': content,
+        'content': sanitize_dashboard_kpi_text(content),
         'summary': {
             'kind': 'dashboard_kpi_explanation',
             'value_mode': 'definition_only',
@@ -102,7 +142,7 @@ def _document(
             'time_window': time_window,
             'aggregation': aggregation,
             'source_endpoints': list(source_endpoints or []),
-            'source_files': list(source_files or []),
+            'source_files': _sanitize_source_files(source_files),
         },
     }
 
@@ -699,7 +739,7 @@ def get_dashboard_kpi_document(document_key):
 
 
 def _chunk_summary(document_row, *, chunk_index, chunk_count):
-    document_summary = document_row.summary or {}
+    document_summary = sanitize_dashboard_kpi_summary(document_row.summary)
     tags = [str(item).strip() for item in (document_summary.get('tags') or []) if item]
     aliases = [str(item).strip() for item in (document_summary.get('aliases') or []) if item]
 
@@ -956,7 +996,7 @@ def _score_document(row, normalized_query, query_tokens):
     if not normalized_query or not query_tokens:
         return 0
 
-    summary = row.summary or {}
+    summary = sanitize_dashboard_kpi_summary(row.summary)
     aliases = [str(item).strip().lower() for item in (summary.get('aliases') or []) if item]
     tags = [str(item).strip().lower() for item in (summary.get('tags') or []) if item]
     page = str(row.dashboard_page or '').strip().lower()

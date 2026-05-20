@@ -28,60 +28,6 @@ function renderAnalyticsNotice(data) {
   el.textContent = message;
 }
 
-let _ghAnalyticsPayload = null;
-let _ghAnalyticsGrouping = '24h';
-
-function analyticsLimitedMessage(data) {
-  if (data?.analytics_mode !== 'branch_heads') return null;
-  return data.analytics_message || 'Analytics are limited to the latest commit on each branch.';
-}
-
-function formatMonthKey(key, format = 'short') {
-  if (!key || typeof key !== 'string') return key || '--';
-  const [year, month] = key.split('-');
-  const parsed = new Date(Number(year), Number(month) - 1, 1);
-  if (Number.isNaN(parsed.getTime())) return key;
-  return parsed.toLocaleDateString('en-US', {
-    month: format === 'long' ? 'long' : 'short',
-    year: format === 'long' ? 'numeric' : '2-digit'
-  });
-}
-
-function analyticsUnitLabel() {
-  if (_ghAnalyticsGrouping === '24h') return 'day';
-  return _ghAnalyticsGrouping === 'week' ? 'week' : 'month';
-}
-
-function analyticsWindowCount(data) {
-  const windowData = data?.analytics_window || {};
-  if (_ghAnalyticsGrouping === '24h') return 1;
-  return _ghAnalyticsGrouping === 'week' ? (windowData.weeks || 0) : (windowData.months || 0);
-}
-
-function updateGitHubAnalyticsButtons() {
-  document.querySelectorAll('.gh-analytics-btn').forEach((button) => {
-    button.classList.toggle('active', button.dataset.ghGroup === _ghAnalyticsGrouping);
-  });
-}
-
-function normalizeLegacyMonthChurn(data) {
-  if (!Array.isArray(data?.code_churn)) return [];
-  return data.code_churn.map((item) => ({
-    period_key: item.month,
-    label: formatMonthKey(item.month, 'short'),
-    detail_label: formatMonthKey(item.month, 'long'),
-    start_date: `${item.month}-01`,
-    additions: item.additions || 0,
-    deletions: item.deletions || 0,
-    commits: 0,
-    changed_files: 0,
-    files_added: 0,
-    files_modified: 0,
-    files_removed: 0,
-    files_renamed: 0
-  }));
-}
-
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -89,6 +35,26 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function safeUrl(value) {
+  if (!value) return '';
+  try {
+    const parsed = new URL(String(value), window.location.origin);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    return parsed.href;
+  } catch {
+    return '';
+  }
+}
+
+function firstLine(value, fallback = '') {
+  const text = String(value ?? fallback);
+  return text.split('\n')[0];
+}
+
+function hasNumber(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 }
 
 function fileLineChanges(file) {
@@ -135,6 +101,8 @@ function getCodeChurnDataset(data) {
 }
 
 function getFileChangeDataset(data) {
+  const direct = data?.file_changes_24h;
+  if (direct && Array.isArray(direct.items)) return direct;
   const grouped = data?.file_changes_by_period || {};
   const dataset = grouped['24h'];
   if (dataset && Array.isArray(dataset.items)) return dataset;
@@ -146,16 +114,6 @@ function getFileChangeDataset(data) {
     commit_count: 0,
     total_files: Array.isArray(data?.file_changes) ? data.file_changes.length : 0
   };
-}
-
-function setGitHubAnalyticsGrouping(grouping) {
-  if (grouping !== 'week' && grouping !== 'month' && grouping !== '24h') return;
-  _ghAnalyticsGrouping = grouping;
-  updateGitHubAnalyticsButtons();
-  if (_ghAnalyticsPayload) {
-    renderMostChanged(_ghAnalyticsPayload);
-    renderCodeChurn(_ghAnalyticsPayload);
-  }
 }
 
 // Tag modal functions
@@ -270,22 +228,45 @@ function renderCommits(container, commits) {
   }
   container.innerHTML = '';
   commits.forEach(c => {
-    const branchPill = c.branch_name
-      ? `<span class="gh-branch-pill">${c.branch_name}</span>`
+    const branchName = c.branch_name || '';
+    const branchPill = branchName
+      ? `<span class="gh-branch-pill">${escapeHtml(branchName)}</span>`
       : '';
+    const message = escapeHtml(firstLine(c.message, 'No commit message'));
+    const authorName = escapeHtml(c.author_name || 'Unknown');
+    const commitDate = escapeHtml(fmtDate(c.date));
+    const commitUrl = safeUrl(c.html_url);
     const div = document.createElement('div');
     div.className = 'gh-commit';
     div.innerHTML = `
-      <div class="gh-commit-sha">${c.short_sha || '--'}</div>
+      <div class="gh-commit-sha">${escapeHtml(c.short_sha || '--')}</div>
       <div class="gh-commit-body">
-        <div class="gh-commit-msg">${(c.message || '').split('\\n')[0]}</div>
-        <div class="gh-commit-meta">${c.author_name || 'Unknown'} · ${fmtDate(c.date)} ${branchPill}</div>
-        <div class="gh-commit-actions">
-          ${c.html_url ? `<a class="gh-commit-link" href="${c.html_url}" target="_blank" rel="noopener">View commit</a>` : ''}
-          ${c.tagging_allowed ? `<button class="gh-tag-btn" onclick="openTagModal('${c.sha}', '${c.short_sha}', decodeURIComponent('${encodeURIComponent(c.branch_name || '')}'))">Tag</button>` : ''}
-        </div>
+        <div class="gh-commit-msg">${message}</div>
+        <div class="gh-commit-meta">${authorName} · ${commitDate}${branchPill ? ` ${branchPill}` : ''}</div>
+        <div class="gh-commit-actions"></div>
       </div>
     `;
+    const actions = div.querySelector('.gh-commit-actions');
+    if (actions && commitUrl) {
+      const link = document.createElement('a');
+      link.className = 'gh-commit-link';
+      link.href = commitUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'View commit';
+      actions.appendChild(link);
+    }
+    if (actions && c.tagging_allowed) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'gh-tag-btn';
+      button.textContent = 'Tag';
+      button.addEventListener('click', () => openTagModal(c.sha, c.short_sha, branchName));
+      actions.appendChild(button);
+    }
+    if (actions && actions.childNodes.length === 0) {
+      actions.remove();
+    }
     container.appendChild(div);
   });
 }
@@ -332,15 +313,14 @@ async function loadGitHub() {
     setText('ghUpdated', fmtDate(repo.updated_at));
 
     const link = document.getElementById('ghRepoLink');
-    if (link && repo.html_url) link.href = repo.html_url;
+    const repoUrl = safeUrl(repo.html_url);
+    if (link && repoUrl) link.href = repoUrl;
     setText('ghCommitScope', data.commit_scope_label || 'Most recent commit on each branch');
 
     renderCommits(document.getElementById('ghCommits'), data.commits || []);
     renderPullRequests(document.getElementById('ghOpenPRs'), data.pull_requests_open || [], 'open');
     renderPullRequests(document.getElementById('ghMergedPRs'), data.pull_requests_merged || [], 'merged');
     try {
-      _ghAnalyticsPayload = data;
-      updateGitHubAnalyticsButtons();
       renderAnalyticsNotice(data);
       renderFailingCommit(data);
       renderFixCommit(data);
@@ -362,6 +342,43 @@ async function loadGitHub() {
     renderCommits(document.getElementById('ghCommits'), []);
   }
 }
+
+function buildUserCard({ avatarUrl, profileUrl, userName, userLogin, extraClasses = '' }) {
+  const safeProfileUrl = safeUrl(profileUrl);
+  const safeAvatarUrl = safeUrl(avatarUrl);
+  const safeUserName = escapeHtml(userName || 'Unknown');
+  const safeUserLogin = userLogin ? escapeHtml(userLogin) : '';
+  const cardClass = extraClasses ? `gh-user-card ${extraClasses}` : 'gh-user-card';
+  const plainCardClass = extraClasses ? `gh-user-card-plain ${extraClasses}` : 'gh-user-card-plain';
+  const avatarHtml = safeAvatarUrl
+    ? `<img src="${escapeHtml(safeAvatarUrl)}" alt="${safeUserName}" class="gh-user-avatar">`
+    : '';
+  const loginHtml = safeUserLogin
+    ? `<div class="gh-user-login">@${safeUserLogin}</div>`
+    : '';
+  const infoHtml = `
+    ${avatarHtml}
+    <div class="gh-user-info">
+      <div class="gh-user-name">${safeUserName}</div>
+      ${loginHtml}
+    </div>
+  `;
+
+  if (safeProfileUrl) {
+    return `
+      <a href="${escapeHtml(safeProfileUrl)}" target="_blank" rel="noopener" class="${cardClass}">
+        ${infoHtml}
+      </a>
+    `;
+  }
+
+  return `
+    <div class="${plainCardClass}">
+      ${infoHtml}
+    </div>
+  `;
+}
+
 function renderFailingCommit(data) {
   const container = document.getElementById('ghFailingCommit');
   if (!container) return;
@@ -379,42 +396,28 @@ function renderFailingCommit(data) {
     c.committer_login ||
     (c.author_name ? c.author_name.replace(/\s+/g, '') : null);
 
-  const displayMsg = (c.message || 'No commit message').split('\n')[0];
-  
-  const avatarUrl = c.author_avatar || c.committer_avatar;
-  const profileUrl = c.author_profile_url || c.committer_profile_url;
+  const displayMsg = escapeHtml(firstLine(c.message, 'No commit message'));
+  const commitUrl = safeUrl(c.html_url);
+  const buildUrl = safeUrl(fc.build_url);
   const userName = c.author_name || c.committer_name || ghUser || 'Unknown';
-
-  let userCardHTML = '';
-  if (profileUrl) {
-    userCardHTML = `
-      <a href="${profileUrl}" target="_blank" rel="noopener" class="gh-user-card">
-        ${avatarUrl ? `<img src="${avatarUrl}" alt="${userName}" class="gh-user-avatar">` : ''}
-        <div class="gh-user-info">
-          <div class="gh-user-name">${userName}</div>
-          ${ghUser ? `<div class="gh-user-login">@${ghUser}</div>` : ''}
-        </div>
-      </a>
-    `;
-  } else {
-    userCardHTML = `
-      <div class="gh-user-card-plain">
-        ${avatarUrl ? `<img src="${avatarUrl}" alt="${userName}" class="gh-user-avatar">` : ''}
-        <div class="gh-user-info">
-          <div class="gh-user-name">${userName}</div>
-          ${ghUser ? `<div class="gh-user-login">@${ghUser}</div>` : ''}
-        </div>
-      </div>
-    `;
-  }
+  const userCardHTML = buildUserCard({
+    avatarUrl: c.author_avatar || c.committer_avatar,
+    profileUrl: c.author_profile_url || c.committer_profile_url,
+    userName,
+    userLogin: ghUser
+  });
+  const committedAt = fmtDate(c.date);
+  const commitBadge = commitUrl
+    ? `<a href="${escapeHtml(commitUrl)}" target="_blank" rel="noopener" class="gh-commit-sha-badge">${escapeHtml(c.short_sha || '--')}</a>`
+    : `<span class="gh-commit-sha-badge">${escapeHtml(c.short_sha || '--')}</span>`;
 
   container.innerHTML = `
     <div class="gh-commit gh-commit-failing">
       <div class="gh-commit-header">
         <div class="gh-commit-title-row">
           <div>
-            <a href="${c.html_url}" target="_blank" rel="noopener" class="gh-commit-sha-badge">${c.short_sha || '--'}</a>
-            <span class="gh-build-badge">Build #${fc.build_number}</span>
+            ${commitBadge}
+            <span class="gh-build-badge">Build #${escapeHtml(fc.build_number ?? '--')}</span>
           </div>
         </div>
         <div class="gh-commit-msg">${displayMsg}</div>
@@ -426,8 +429,8 @@ function renderFailingCommit(data) {
       </div>
       
       <div class="gh-commit-footer">
-        ${fmtDate(c.date) !== '--' ? `<div class="gh-meta">Committed ${fmtDate(c.date)}</div>` : ''}
-        ${fc.build_url ? `<a href="${fc.build_url}" target="_blank" rel="noopener" class="gh-build-link">View Jenkins build →</a>` : ''}
+        ${committedAt !== '--' ? `<div class="gh-meta">Committed ${escapeHtml(committedAt)}</div>` : ''}
+        ${buildUrl ? `<a href="${escapeHtml(buildUrl)}" target="_blank" rel="noopener" class="gh-build-link">View Jenkins build →</a>` : ''}
       </div>
     </div>
   `;
@@ -450,46 +453,33 @@ function renderFixCommit(data) {
     c.committer_login ||
     (c.author_name ? c.author_name.replace(/\s+/g, '') : null);
 
-  const displayMsg = (c.message || 'No commit message').split('\n')[0];
-  
-  const avatarUrl = c.author_avatar || c.committer_avatar;
-  const profileUrl = c.author_profile_url || c.committer_profile_url;
+  const displayMsg = escapeHtml(firstLine(c.message, 'No commit message'));
+  const commitUrl = safeUrl(c.html_url);
+  const buildUrl = safeUrl(fc.fix_build_url);
   const userName = c.author_name || c.committer_name || ghUser || 'Unknown';
-  const buildBadge = fc.fix_build_number ? `<span class="gh-build-badge gh-build-badge-success">Build #${fc.fix_build_number}</span>` : '';
+  const buildBadge = fc.fix_build_number ? `<span class="gh-build-badge gh-build-badge-success">Build #${escapeHtml(fc.fix_build_number)}</span>` : '';
   const label = fc.fix_same_sha ? 'Recovered in' : 'Fixed by';
   const detailNote = fc.fix_same_sha
     ? '<div class="gh-meta">The same commit later passed on a successful Jenkins build.</div>'
     : '';
-
-  let userCardHTML = '';
-  if (profileUrl) {
-    userCardHTML = `
-      <a href="${profileUrl}" target="_blank" rel="noopener" class="gh-user-card gh-user-card-success">
-        ${avatarUrl ? `<img src="${avatarUrl}" alt="${userName}" class="gh-user-avatar">` : ''}
-        <div class="gh-user-info">
-          <div class="gh-user-name">${userName}</div>
-          ${ghUser ? `<div class="gh-user-login">@${ghUser}</div>` : ''}
-        </div>
-      </a>
-    `;
-  } else {
-    userCardHTML = `
-      <div class="gh-user-card-plain gh-user-card-success">
-        ${avatarUrl ? `<img src="${avatarUrl}" alt="${userName}" class="gh-user-avatar">` : ''}
-        <div class="gh-user-info">
-          <div class="gh-user-name">${userName}</div>
-          ${ghUser ? `<div class="gh-user-login">@${ghUser}</div>` : ''}
-        </div>
-      </div>
-    `;
-  }
+  const userCardHTML = buildUserCard({
+    avatarUrl: c.author_avatar || c.committer_avatar,
+    profileUrl: c.author_profile_url || c.committer_profile_url,
+    userName,
+    userLogin: ghUser,
+    extraClasses: 'gh-user-card-success'
+  });
+  const committedAt = fmtDate(c.date);
+  const commitBadge = commitUrl
+    ? `<a href="${escapeHtml(commitUrl)}" target="_blank" rel="noopener" class="gh-commit-sha-badge gh-commit-sha-badge-success">${escapeHtml(c.short_sha || '--')}</a>`
+    : `<span class="gh-commit-sha-badge gh-commit-sha-badge-success">${escapeHtml(c.short_sha || '--')}</span>`;
 
   container.innerHTML = `
     <div class="gh-commit gh-commit-fixed">
       <div class="gh-commit-header">
         <div class="gh-commit-title-row">
           <div>
-            <a href="${c.html_url}" target="_blank" rel="noopener" class="gh-commit-sha-badge gh-commit-sha-badge-success">${c.short_sha || '--'}</a>
+            ${commitBadge}
             ${buildBadge}
           </div>
         </div>
@@ -503,10 +493,10 @@ function renderFixCommit(data) {
       </div>
       
       <div class="gh-commit-footer">
-        ${fmtDate(c.date) !== '--' ? `<div class="gh-meta">Committed ${fmtDate(c.date)}</div>` : ''}
+        ${committedAt !== '--' ? `<div class="gh-meta">Committed ${escapeHtml(committedAt)}</div>` : ''}
         <div class="gh-commit-actions">
-          ${fc.fix_build_url ? `<a href="${fc.fix_build_url}" target="_blank" rel="noopener" class="gh-build-link gh-build-link-success">View Jenkins build →</a>` : ''}
-          ${c.html_url ? `<a href="${c.html_url}" target="_blank" rel="noopener" class="gh-build-link gh-build-link-success">View commit →</a>` : ''}
+          ${buildUrl ? `<a href="${escapeHtml(buildUrl)}" target="_blank" rel="noopener" class="gh-build-link gh-build-link-success">View Jenkins build →</a>` : ''}
+          ${commitUrl ? `<a href="${escapeHtml(commitUrl)}" target="_blank" rel="noopener" class="gh-build-link gh-build-link-success">View commit →</a>` : ''}
         </div>
       </div>
     </div>
@@ -575,14 +565,6 @@ function renderMostChanged(data) {
   const summary = document.getElementById('ghMostChangedSummary');
   if (!container) return;
 
-  const limitedMessage = analyticsLimitedMessage(data);
-  if (limitedMessage) {
-    if (subtitle) subtitle.textContent = 'Reduced to branch heads';
-    if (summary) summary.innerHTML = '';
-    container.innerHTML = `<div class="gh-empty">${limitedMessage}</div>`;
-    return;
-  }
-
   const dataset = getFileChangeDataset(data);
   const files = (dataset.items || []).slice(0, 5);
   if (subtitle) subtitle.textContent = dataset.scope_label || 'Top 5 most changed files in the last 24 hours';
@@ -591,7 +573,7 @@ function renderMostChanged(data) {
     if (summary) summary.innerHTML = '';
     const emptyMessage = Number(dataset.commit_count || 0) === 0
       ? 'No files were changed on main in the last 24 hours.'
-      : 'The last 24 hours returned commits, but no per-file details were available.';
+      : 'Recent commits are cached, and file-level analytics are still being backfilled.';
     container.innerHTML = `<div class="gh-empty">${emptyMessage}</div>`;
     return;
   }
@@ -603,15 +585,16 @@ function renderMostChanged(data) {
   const totalLinesDeleted = Number(dataset.total_deletions ?? files.reduce((sum, file) => sum + (file.deletions || 0), 0));
   const totalCommits = Number(dataset.commit_count || 0);
   const detailedCommits = Number(dataset.detail_commit_count ?? totalCommits);
+  const filesAdded = Number(dataset.files_added || 0);
+  const filesRemoved = Number(dataset.files_removed || 0);
+  const filesModified = Number(dataset.files_modified || 0);
+  const filesRenamed = Number(dataset.files_renamed || 0);
   if (summary) {
     summary.innerHTML = `
       <span class="gh-summary-pill"><strong>${fmtNum(totalChangedFiles)}</strong> changed files</span>
       <span class="gh-summary-pill"><strong>${fmtNum(totalCommits)}</strong> commits in 24h</span>
       ${detailedCommits > 0 && detailedCommits !== totalCommits ? `<span class="gh-summary-pill"><strong>${fmtNum(detailedCommits)}</strong> commits with file details</span>` : ''}
       <span class="gh-summary-pill"><strong>${fmtNum(totalLineChanges)}</strong> lines changed</span>
-      <span class="gh-summary-pill"><strong>${fmtNum(totalTouches)}</strong> touches</span>
-      <span class="gh-summary-pill"><strong>+${fmtNum(totalLinesAdded)}</strong> / <strong>-${fmtNum(totalLinesDeleted)}</strong></span>
-      ${dataset.ranking_label ? `<span class="gh-summary-pill"><strong>${escapeHtml(dataset.ranking_label)}</strong></span>` : ''}
     `;
   }
 
@@ -633,7 +616,6 @@ function renderMostChanged(data) {
           <span>-${fmtNum(file.deletions || 0)}</span>
         </div>
         <div class="gh-file-card-footer">
-          <span>${fmtNum(touches)} ${touches === 1 ? 'touch' : 'touches'}</span>
           <span>${escapeHtml(fileStatusSummary(file))}</span>
         </div>
       </article>
@@ -651,14 +633,6 @@ function renderCodeChurn(data) {
   const summary = document.getElementById('ghCodeChurnSummary');
   if (!container) return;
 
-  const limitedMessage = analyticsLimitedMessage(data);
-  if (limitedMessage) {
-    if (subtitle) subtitle.textContent = 'Reduced to branch heads';
-    if (summary) summary.innerHTML = '';
-    container.innerHTML = `<div class="gh-empty">${limitedMessage}</div>`;
-    return;
-  }
-
   const churnData = getCodeChurnDataset(data);
   if (subtitle) {
     subtitle.textContent = churnData.scope_label || 'Lines added and deleted in the last 24 hours';
@@ -674,21 +648,21 @@ function renderCodeChurn(data) {
   }
   if (commitCount > 0 && detailedCommitCount === 0) {
     if (summary) summary.innerHTML = '';
-    container.innerHTML = '<div class="gh-empty">GitHub returned recent commits, but file details were unavailable to calculate 24-hour churn.</div>';
+    container.innerHTML = '<div class="gh-empty">Recent commits are cached, and file-level analytics are still being backfilled.</div>';
     return;
   }
 
   const changedFiles = Number(churnData.changed_files || 0);
   const totalLinesChanged = Number(churnData.total_lines_changed ?? (additions + deletions));
   const netChange = Number(churnData.net_change ?? (additions - deletions));
+  const filesAdded = Number(churnData.files_added || 0);
+  const filesRemoved = Number(churnData.files_removed || 0);
+  const filesModified = Number(churnData.files_modified || 0);
+  const filesRenamed = Number(churnData.files_renamed || 0);
 
   if (summary) {
     summary.innerHTML = `
-      <span class="gh-summary-pill"><strong>${fmtNum(commitCount)}</strong> commits in 24h</span>
-      ${detailedCommitCount > 0 && detailedCommitCount !== commitCount ? `<span class="gh-summary-pill"><strong>${fmtNum(detailedCommitCount)}</strong> commits with file details</span>` : ''}
-      <span class="gh-summary-pill"><strong>${fmtNum(changedFiles)}</strong> changed files</span>
-      <span class="gh-summary-pill"><strong>${fmtNum(totalLinesChanged)}</strong> lines changed</span>
-      <span class="gh-summary-pill"><strong>${netChange >= 0 ? '+' : ''}${fmtNum(netChange)}</strong> net</span>
+
     `;
   }
 
@@ -717,7 +691,6 @@ function renderCodeChurn(data) {
         </div>
       </div>
       <div class="gh-churn-foot">
-        <span>Total 24h churn: ${fmtNum(totalLinesChanged)} lines</span>
       </div>
     </div>
   `;
@@ -736,39 +709,51 @@ function renderPullRequests(container, prs, type) {
   prs.slice(0, 10).forEach(pr => {
     const div = document.createElement('div');
     div.className = 'gh-pr';
-    if (pr.state === 'merged' || type === 'merged') {
+    const isMerged = type === 'merged' || Boolean(pr.merged_at);
+    const isOpen = pr.state === 'open' && !isMerged;
+    if (isMerged) {
       div.classList.add('gh-pr-merged');
-    } else if (pr.state === 'closed') {
+    } else if (!isOpen) {
       div.classList.add('gh-pr-closed');
     } else {
       div.classList.add('gh-pr-open');
     }
     
-    const statusLabel = pr.state === 'merged' || type === 'merged' ? '✓ Merged' : 
-                       pr.state === 'open' ? '◯ Open' : '✕ Closed';
-    const statusClass = pr.state === 'merged' || type === 'merged' ? 'gh-pr-status-merged' :
-                       pr.state === 'open' ? 'gh-pr-status-open' : 'gh-pr-status-closed';
-    
-    const avatar = pr.author_avatar ? `<img src="${pr.author_avatar}" alt="${pr.author_login}" class="gh-pr-avatar">` : '';
+    const statusLabel = isMerged ? '✓ Merged' : isOpen ? '◯ Open' : '✕ Closed';
+    const statusClass = isMerged ? 'gh-pr-status-merged' : isOpen ? 'gh-pr-status-open' : 'gh-pr-status-closed';
+
+    const prUrl = safeUrl(pr.url);
+    const authorProfileUrl = safeUrl(pr.author_profile_url);
+    const authorAvatarUrl = safeUrl(pr.author_avatar);
     const author = pr.author_login || pr.author_name || 'Unknown';
-    const authorLink = pr.author_profile_url ? 
-      `<a href="${pr.author_profile_url}" target="_blank" rel="noopener" class="gh-pr-author">${author}</a>` :
-      `<span class="gh-pr-author">${author}</span>`;
-    
-    const stats = `<span class="gh-pr-stat">+${pr.additions}</span><span class="gh-pr-stat">-${pr.deletions}</span>`;
+    const safeAuthor = escapeHtml(author);
+    const avatar = authorAvatarUrl ? `<img src="${escapeHtml(authorAvatarUrl)}" alt="${safeAuthor}" class="gh-pr-avatar">` : '';
+    const authorLink = authorProfileUrl ?
+      `<a href="${escapeHtml(authorProfileUrl)}" target="_blank" rel="noopener" class="gh-pr-author">${safeAuthor}</a>` :
+      `<span class="gh-pr-author">${safeAuthor}</span>`;
+    const filesBadge = hasNumber(pr.changed_files)
+      ? `<span class="gh-pr-files">${fmtNum(pr.changed_files)} files</span>`
+      : '';
+    const stats = [
+      hasNumber(pr.additions) ? `<span class="gh-pr-stat">+${fmtNum(pr.additions)}</span>` : '',
+      hasNumber(pr.deletions) ? `<span class="gh-pr-stat">-${fmtNum(pr.deletions)}</span>` : ''
+    ].join('');
     const dateStr = pr.merged_at ? fmtDate(pr.merged_at) : fmtDate(pr.updated_at);
+    const titleHtml = prUrl
+      ? `<a href="${escapeHtml(prUrl)}" target="_blank" rel="noopener" class="gh-pr-title">${escapeHtml(pr.title || 'Untitled PR')}</a>`
+      : `<span class="gh-pr-title">${escapeHtml(pr.title || 'Untitled PR')}</span>`;
     
     div.innerHTML = `
       <div class="gh-pr-header">
-        <span class="gh-pr-number">#${pr.number}</span>
-        <a href="${pr.url}" target="_blank" rel="noopener" class="gh-pr-title">${pr.title}</a>
-        <span class="${statusClass}">${statusLabel}</span>
+        <span class="gh-pr-number">#${escapeHtml(pr.number ?? '--')}</span>
+        ${titleHtml}
+        <span class="${statusClass}">${escapeHtml(statusLabel)}</span>
       </div>
       <div class="gh-pr-meta">
         ${avatar}
         ${authorLink}
-        <span class="gh-pr-date">${dateStr}</span>
-        <span class="gh-pr-files">${pr.changed_files} files</span>
+        <span class="gh-pr-date">${escapeHtml(dateStr)}</span>
+        ${filesBadge}
         ${stats}
       </div>
     `;
@@ -777,9 +762,5 @@ function renderPullRequests(container, prs, type) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.gh-analytics-btn').forEach((button) => {
-      button.addEventListener('click', () => setGitHubAnalyticsGrouping(button.dataset.ghGroup));
-    });
-    updateGitHubAnalyticsButtons();
-    loadGitHub();
+  loadGitHub();
 });

@@ -1,7 +1,7 @@
 from flask import jsonify, render_template, session, request
 from github import github_bp
 from services.access_service import role_required
-from services.github_service import get_github_summary, is_tag_branch_allowed
+from services.github_service import get_github_badge_summary, get_github_summary, is_tag_branch_allowed
 from collectors.github_collector import create_tag, get_branches
 from flask import current_app
 import logging
@@ -23,6 +23,12 @@ def dashboard():
 @role_required('admin', 'developer')
 def github_api():
     return jsonify(get_github_summary())
+
+
+@github_bp.route('/api/github/badge')
+@role_required('admin', 'developer')
+def github_badge_api():
+    return jsonify(get_github_badge_summary())
 
 
 @github_bp.route('/api/github/tag', methods=['POST'])

@@ -30,6 +30,7 @@ desktop.ini
 *.log
 *.sqlite3
 *.db
+pylint-report.json
 .chroma/
 
 # Environment variables

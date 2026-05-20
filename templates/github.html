@@ -21,6 +21,21 @@
   <div class="gh-card">
     <div class="gh-card-title">Repository</div>
     <div class="gh-meta" id="ghRepoDesc">—</div>
+
+    <div class="gh-stats">
+      <div class="gh-stat">
+        <div class="gh-stat-label">Stars</div>
+        <div class="gh-stat-val" id="ghStars">—</div>
+      </div>
+      <div class="gh-stat">
+        <div class="gh-stat-label">Forks</div>
+        <div class="gh-stat-val" id="ghForks">—</div>
+      </div>
+      <div class="gh-stat">
+        <div class="gh-stat-label">Open Issues</div>
+        <div class="gh-stat-val" id="ghIssues">—</div>
+      </div>
+    </div>
  
     <div class="gh-row">
       <span>Default Branch</span>
@@ -71,6 +86,27 @@
     <div id="ghTimeToFix">
       <div class="gh-empty">Calculating time to fix...</div>
     </div>
+    
+    <div class="gh-divider"></div>
+    <div class="gh-card-title">GitHub Activity </div>
+    <div class="gh-analytics-notice" id="ghAnalyticsNotice" hidden></div>
+
+    <div class="gh-card-title">Most Changed Files in the last 24 hours</div>
+    <div class="gh-sub" id="ghMostChangedSub">Top 5 most changed files </div>
+    <div class="gh-analytics-summary" id="ghMostChangedSummary"></div>
+    <div class="gh-most-changed-container" id="ghMostChanged">
+      <div class="gh-empty">Loading file activity...</div>
+    </div>
+
+    <div class="gh-divider"></div>
+    <div class="gh-card-title">Code Churn in the last 24 hours</div>
+    <div class="gh-sub" >Total lines added, removed, and modified across commits</div>
+    <div class="gh-analytics-summary" id="ghCodeChurnSummary"></div>
+    <div class="gh-churn-container" id="ghCodeChurn">
+      <div class="gh-empty">Loading code churn...</div>
+    </div>
+  </div>
+</div>
 
 <!-- Tag Modal -->
 <div id="ghTagModal" class="gh-tag-modal">

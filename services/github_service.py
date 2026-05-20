@@ -6,11 +6,9 @@ from services.parallel_executor import parallel_execute
 from collectors.github_collector import (
     get_branches,
     get_commit,
-    get_commits_for_branch,
     get_latest_commit_for_branch,
     get_pull_requests,
     get_repo,
-    enrich_commits_with_files,
 )
 from collectors.jenkins_collector import (
     get_all_builds,
@@ -20,13 +18,12 @@ from collectors.jenkins_collector import (
     extract_build_commits,
     extract_build_culprits,
 )
+from services.github_storage_service import get_cached_github_24h_commit_details
 
 logger = logging.getLogger(__name__)
 MAIN_PIPELINE_BRANCH = 'main'
 BRANCH_HEAD_COMMIT_LIMIT = 12
 UNAUTHENTICATED_BRANCH_HEAD_COMMIT_LIMIT = 6
-AUTHENTICATED_24H_DETAIL_LIMIT = 40
-UNAUTHENTICATED_24H_DETAIL_LIMIT = 12
 
 
 def is_tag_branch_allowed(branch_name):
@@ -110,14 +107,6 @@ def _branch_head_commit_limit():
         BRANCH_HEAD_COMMIT_LIMIT
         if _github_token_configured()
         else UNAUTHENTICATED_BRANCH_HEAD_COMMIT_LIMIT
-    )
-
-
-def _detail_commit_limit_last_24h():
-    return (
-        AUTHENTICATED_24H_DETAIL_LIMIT
-        if _github_token_configured()
-        else UNAUTHENTICATED_24H_DETAIL_LIMIT
     )
 
 
@@ -306,7 +295,14 @@ def _count_commits_with_file_details(commits_raw):
     return sum(
         1
         for commit in (commits_raw or [])
-        if (commit.get('files') or commit.get('stats'))
+        if (
+            commit.get('files_detail_available') is True
+            or commit.get('files')
+            or (
+                isinstance(commit.get('stats'), dict)
+                and bool(commit.get('stats'))
+            )
+        )
     )
 
 
@@ -327,11 +323,11 @@ def _pr_item(pr):
         'closed_at': pr.get('closed_at'),
         'merged_at': pr.get('merged_at'),
         'draft': pr.get('draft', False),
-        'additions': pr.get('additions', 0),
-        'deletions': pr.get('deletions', 0),
-        'changed_files': pr.get('changed_files', 0),
-        'comments': pr.get('comments', 0),
-        'review_comments': pr.get('review_comments', 0),
+        'additions': pr.get('additions'),
+        'deletions': pr.get('deletions'),
+        'changed_files': pr.get('changed_files'),
+        'comments': pr.get('comments'),
+        'review_comments': pr.get('review_comments'),
     }
 
 
@@ -372,6 +368,10 @@ def _empty_last_24h_file_change_dataset():
         'total_additions': 0,
         'total_deletions': 0,
         'total_touches': 0,
+        'files_added': 0,
+        'files_modified': 0,
+        'files_removed': 0,
+        'files_renamed': 0,
     }
 
 
@@ -385,6 +385,10 @@ def _empty_last_24h_code_churn_dataset():
         'deletions': 0,
         'total_lines_changed': 0,
         'net_change': 0,
+        'files_added': 0,
+        'files_modified': 0,
+        'files_removed': 0,
+        'files_renamed': 0,
     }
 
 
@@ -395,7 +399,7 @@ def _build_last_24h_scope_label(base_label, detailed_commit_count, total_commit_
             f'(based on the latest {detailed_commit_count} of {total_commit_count} main commits with file details)'
         )
     if total_commit_count > 0 and detailed_commit_count == 0:
-        return f'{base_label} (GitHub did not return file-level commit details)'
+        return f'{base_label} (file-level backfill is still in progress)'
     return base_label
 
 
@@ -419,6 +423,10 @@ def _build_last_24h_file_change_dataset(commits_raw, total_commit_count=None):
     dataset['total_additions'] = sum(item['additions'] for item in all_items)
     dataset['total_deletions'] = sum(item['deletions'] for item in all_items)
     dataset['total_touches'] = sum(item['touches'] for item in all_items)
+    dataset['files_added'] = sum(1 for item in all_items if item.get('added'))
+    dataset['files_modified'] = sum(1 for item in all_items if item.get('modified'))
+    dataset['files_removed'] = sum(1 for item in all_items if item.get('removed'))
+    dataset['files_renamed'] = sum(1 for item in all_items if item.get('renamed'))
     dataset['items'] = all_items[:5]
     return dataset
 
@@ -449,7 +457,51 @@ def _build_last_24h_code_churn_dataset(commits_raw, file_change_dataset=None, to
     dataset['deletions'] = deletions
     dataset['total_lines_changed'] = additions + deletions
     dataset['net_change'] = additions - deletions
+    dataset['files_added'] = int((file_change_dataset or {}).get('files_added', 0) or 0)
+    dataset['files_modified'] = int((file_change_dataset or {}).get('files_modified', 0) or 0)
+    dataset['files_removed'] = int((file_change_dataset or {}).get('files_removed', 0) or 0)
+    dataset['files_renamed'] = int((file_change_dataset or {}).get('files_renamed', 0) or 0)
     return dataset
+
+
+def _format_analytics_sync_timestamp(raw_value):
+    if not raw_value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(str(raw_value).replace('Z', '+00:00'))
+    except ValueError:
+        return str(raw_value)
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    parsed = parsed.astimezone(timezone.utc)
+    return parsed.strftime('%Y-%m-%d %H:%M UTC')
+
+
+def _build_analytics_notice(analytics_payload, total_commit_count, detail_commit_count):
+    if not analytics_payload:
+        return 'GitHub analytics are temporarily unavailable while the commit cache refreshes.'
+
+    synced_label = _format_analytics_sync_timestamp(analytics_payload.get('last_synced_at'))
+    prefix = 'Analytics are served from Postgres-backed GitHub commit storage.'
+    if synced_label:
+        prefix = f'{prefix} Last synced {synced_label}.'
+
+    last_error = (analytics_payload.get('last_error') or '').strip()
+    if last_error:
+        prefix = f'{prefix} Last detail refresh note: {last_error}.'
+
+    if total_commit_count == 0:
+        return prefix
+    if total_commit_count > detail_commit_count > 0:
+        return (
+            f'{prefix} '
+            f'{detail_commit_count} of {total_commit_count} recent main commits currently have file details.'
+        )
+    if total_commit_count > 0 and detail_commit_count == 0:
+        return f'{prefix} Detailed file backfill is still in progress for the recent commit window.'
+    return prefix
 
 
 def _sort_commits_raw(commits_raw):
@@ -588,24 +640,9 @@ def get_github_summary():
         }
 
     app = current_app._get_current_object()
-    now_utc = datetime.now(timezone.utc)
-    since_24h = now_utc - timedelta(hours=24)
-    since_24h_iso = since_24h.isoformat().replace('+00:00', 'Z')
-    token_configured = _github_token_configured()
     tasks = {
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
         'branches': lambda: _run_in_app_context(app, lambda: get_branches(owner, repo, per_page=100)),
-        'main_commits_24h': lambda: _run_in_app_context(
-            app,
-            lambda: get_commits_for_branch(
-                owner,
-                repo,
-                MAIN_PIPELINE_BRANCH,
-                per_page=100,
-                page_limit=2 if token_configured else 1,
-                since=since_24h_iso,
-            ),
-        ),
         'builds': lambda: _run_in_app_context(
             app,
             lambda: get_all_builds(branch_name=MAIN_PIPELINE_BRANCH),
@@ -627,22 +664,22 @@ def get_github_summary():
 
     branch_head_commits_raw = _fetch_branch_head_commits(app, owner, repo, branches_raw or [])
     commits = [_commit_item(c) for c in branch_head_commits_raw]
+    analytics_payload = None
+    try:
+        analytics_payload = get_cached_github_24h_commit_details(
+            owner,
+            repo,
+            MAIN_PIPELINE_BRANCH,
+        )
+    except Exception:
+        logger.exception('[GitHub] Failed to load stored 24-hour analytics payload')
+
     main_branch_commits_24h_raw = _sort_commits_raw([
         commit
-        for commit in (results.get('main_commits_24h') or [])
+        for commit in ((analytics_payload or {}).get('commits_raw') or [])
         if isinstance(commit, dict)
     ])
     main_branch_commits_24h_total = len(main_branch_commits_24h_raw)
-    analytics_detail_limit = min(main_branch_commits_24h_total, _detail_commit_limit_last_24h())
-    main_branch_commits_24h_raw = _run_in_app_context(
-        app,
-        lambda: enrich_commits_with_files(
-            owner,
-            repo,
-            main_branch_commits_24h_raw,
-            max_commits=analytics_detail_limit,
-        ),
-    )
     analytics_detail_commit_count = _count_commits_with_file_details(main_branch_commits_24h_raw)
 
     failing_commit = None
@@ -747,21 +784,11 @@ def get_github_summary():
         total_commit_count=main_branch_commits_24h_total,
     )
     file_changes = file_changes_by_period['24h']['items']
-    analytics_notice = None
-    if not token_configured:
-        analytics_notice = (
-            'Detailed GitHub analytics are running without GITHUB_TOKEN, so GitHub may rate-limit '
-            'commit file details and user enrichment.'
-        )
-    elif main_branch_commits_24h_total > analytics_detail_commit_count and analytics_detail_commit_count > 0:
-        analytics_notice = (
-            f'24-hour analytics are based on {analytics_detail_commit_count} of '
-            f'{main_branch_commits_24h_total} main commits with detailed file data.'
-        )
-    elif main_branch_commits_24h_total > 0 and analytics_detail_commit_count == 0:
-        analytics_notice = (
-            'GitHub returned recent commits, but file-level details were unavailable for the 24-hour analytics.'
-        )
+    analytics_notice = _build_analytics_notice(
+        analytics_payload,
+        main_branch_commits_24h_total,
+        analytics_detail_commit_count,
+    )
 
     # Process pull requests
     prs_open = []
@@ -805,8 +832,8 @@ def get_github_summary():
             'branches': len(branches_raw or []),
             'branch_heads': len(commits),
         },
-        'analytics_mode': 'full_history',
-        'analytics_message': 'Analytics based on recent main-branch commit history.',
+        'analytics_mode': 'stored_commit_history',
+        'analytics_message': 'Analytics based on stored main-branch commit history.',
         'analytics_notice': analytics_notice,
         'commit_scope_label': (
             f'Most recent commit on the first {len(commits)} branches returned by GitHub'
@@ -816,6 +843,7 @@ def get_github_summary():
         'commits': commits,
         'failing_commit': failing_commit,
         'code_churn_24h': code_churn_24h,
+        'file_changes_24h': file_changes_by_period['24h'],
         'code_churn': code_churn_list,
         'code_churn_by_period': code_churn_by_period,
         'file_changes': file_changes,
@@ -823,4 +851,30 @@ def get_github_summary():
         'pull_requests_open': prs_open,
         'pull_requests_merged': prs_merged,
         'pull_requests_closed': prs_closed,
+    }
+
+
+def get_github_badge_summary():
+    owner, repo = _get_owner_repo()
+    if not owner or not repo:
+        return {
+            'connected': False,
+            'message': 'GitHub is not configured. Set GITHUB_OWNER and GITHUB_REPO.',
+        }
+
+    app = current_app._get_current_object()
+    branches_raw = _run_in_app_context(
+        app,
+        lambda: get_branches(owner, repo, per_page=100),
+    )
+    if branches_raw is None:
+        return {
+            'connected': False,
+            'message': 'Unable to fetch GitHub data.',
+        }
+
+    branch_head_commits_raw = _fetch_branch_head_commits(app, owner, repo, branches_raw or [])
+    return {
+        'connected': True,
+        'commits': [_commit_item(c) for c in branch_head_commits_raw],
     }

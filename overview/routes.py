@@ -10,6 +10,8 @@ from services.dashboard_kpi_documents_service import (
     get_dashboard_kpi_document_chunks,
     list_dashboard_kpi_document_chunks,
     list_dashboard_kpi_documents,
+    sanitize_dashboard_kpi_summary,
+    sanitize_dashboard_kpi_text,
     sync_dashboard_kpi_documents,
 )
 from services.jenkins_service import get_overview_kpis, request_pipeline_background_refresh
@@ -27,8 +29,8 @@ def _serialize_dashboard_kpi_document(row, include_content=True):
         'pipeline_job_path': row.pipeline_job_path,
         'branch_name': row.branch_name,
         'title': row.title,
-        'content': row.content if include_content else None,
-        'summary': row.summary or {},
+        'content': sanitize_dashboard_kpi_text(row.content) if include_content else None,
+        'summary': sanitize_dashboard_kpi_summary(row.summary),
         'last_generated_at': row.last_generated_at.isoformat() if row.last_generated_at else None,
     }
 
@@ -45,8 +47,8 @@ def _serialize_dashboard_kpi_chunk(row, include_content=True):
         'chunk_index': row.chunk_index,
         'chunk_count': row.chunk_count,
         'title': row.title,
-        'content': row.content if include_content else None,
-        'summary': row.summary or {},
+        'content': sanitize_dashboard_kpi_text(row.content) if include_content else None,
+        'summary': sanitize_dashboard_kpi_summary(row.summary),
         'last_generated_at': row.last_generated_at.isoformat() if row.last_generated_at else None,
     }
 
