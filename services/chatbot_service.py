@@ -45,7 +45,6 @@ DASHBOARD_KPI_METRIC_KEYWORDS = (
     'namespace disk',
     'pods by namespace',
     'replicasets by namespace',
-    'pvcs by namespace',
     'pods by phase',
     'deployment frequency',
     'pods total',

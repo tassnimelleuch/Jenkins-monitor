@@ -19,7 +19,10 @@ from config import Config
 from extensions import cache, db
 from finops_models import FinOpsDailyCost
 from services.finops_storage_service import get_finops_daily_cost_chart
-from services.jenkins_service import get_live_running_builds
+from services.jenkins_service import (
+    get_live_running_builds,
+    refresh_pipeline_storage_from_jenkins,
+)
 from services.pipeline_storage_service import get_stored_pipeline_kpis
 from services.prometheus_queries import (
     CLUSTER_NODE_CPU_PCT_QUERY,
@@ -173,6 +176,10 @@ def _normalize_person_name(name):
     return ' '.join(str(name or '').split()).casefold()
 
 
+def _normalize_stage_name(name):
+    return ' '.join(str(name or '').split()).casefold()
+
+
 def _main_pipeline_context():
     payload = get_stored_pipeline_kpis() or {}
     pipeline, selected_branch, branch_payload = _selected_branch_payload(payload)
@@ -219,8 +226,12 @@ def _historical_stage_average_durations_ms(builds):
             if not stage_name or duration_ms <= 0:
                 continue
 
-            totals[stage_name] = totals.get(stage_name, 0) + duration_ms
-            counts[stage_name] = counts.get(stage_name, 0) + 1
+            normalized_stage_name = _normalize_stage_name(stage_name)
+            if not normalized_stage_name:
+                continue
+
+            totals[normalized_stage_name] = totals.get(normalized_stage_name, 0) + duration_ms
+            counts[normalized_stage_name] = counts.get(normalized_stage_name, 0) + 1
 
     return {
         stage_name: int(totals[stage_name] / counts[stage_name])
@@ -514,7 +525,7 @@ def _build_finops_detected_alerts(subscription_id: str, rows):
             'source_system': 'finops',
             'source_label': 'FinOps',
             'label': FINOPS_TOTAL_LABEL,
-            'title': 'Total daily cost spike',
+            'title': 'Daily cost above average',
             'severity': 'warning',
             'resource_scope': FINOPS_TOTAL_SCOPE,
             'usage_date': row.usage_date,
@@ -526,7 +537,7 @@ def _build_finops_detected_alerts(subscription_id: str, rows):
             'subscription_id': subscription_id,
             'scope_name': FINOPS_TOTAL_SCOPE,
             'scope_label': FINOPS_TOTAL_LABEL,
-            'message': 'Total cost exceeded the month-to-date daily average.',
+            'message': 'Daily total cost is above the month-to-date average.',
         })
     return alerts
 
@@ -627,6 +638,68 @@ def _persistent_alert_defaults(row, payload):
         defaults['label'] = payload.get('label') or FINOPS_TOTAL_LABEL
         defaults['month_label'] = payload.get('month_label') or f'{row.year}-{row.month:02d}'
     return defaults
+
+
+def _enrich_build_failure_streak_payload(payload):
+    kind = str((payload or {}).get('kind') or '').strip()
+    if kind != 'build_failure_streak':
+        return payload, False
+
+    first_failed_build_number = payload.get('first_failed_build_number')
+    branch_name = str(payload.get('branch_name') or 'main').strip() or 'main'
+    has_author = bool(
+        str(payload.get('first_failed_author_login') or '').strip()
+        or str(payload.get('first_failed_author_name') or '').strip()
+    )
+    has_commit = bool(str(payload.get('first_failed_commit_sha') or '').strip())
+
+    if first_failed_build_number is None or (has_author and has_commit):
+        return payload, False
+
+    try:
+        first_failed_author = _failed_build_github_author(branch_name, first_failed_build_number)
+    except Exception:
+        current_app.logger.exception(
+            'Failed to enrich build failure streak alert details for branch %s build %s.',
+            branch_name,
+            first_failed_build_number,
+        )
+        return payload, False
+
+    enriched = dict(payload or {})
+    changed = False
+    for key, value in (
+        ('first_failed_author_login', first_failed_author.get('author_login')),
+        ('first_failed_author_name', first_failed_author.get('author_name')),
+        ('first_failed_commit_sha', first_failed_author.get('commit_sha')),
+    ):
+        if value and enriched.get(key) != value:
+            enriched[key] = value
+            changed = True
+
+    return enriched, changed
+
+
+def _enrich_persistent_alert_rows(rows):
+    changed = False
+    for row in rows or []:
+        payload = dict(row.payload or {})
+        enriched_payload, payload_changed = _enrich_build_failure_streak_payload(payload)
+        if not payload_changed:
+            continue
+        row.payload = enriched_payload
+        changed = True
+
+    if not changed:
+        return False
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Failed to persist enriched build failure streak alert details.')
+        return False
+    return True
 
 
 def _serialize_persistent_alert(row):
@@ -741,10 +814,11 @@ def _build_failure_streak_alerts(branch_name: str, builds):
         first_failed_author.get('author_login')
         or first_failed_author.get('author_name')
     )
+    latest_failed_build_number = latest_build.get('number')
     build_numbers = [build.get('number') for build in streak if build.get('number') is not None]
     alert_key = (
         f'{BUILD_FAILURE_STREAK_RULE_ID}:{branch_name or "main"}:'
-        f'{first_failed_build_number or latest_build.get("number") or "unknown"}'
+        f'{latest_failed_build_number or first_failed_build_number or "unknown"}'
     )
     return [{
         'alert_key': alert_key,
@@ -759,6 +833,7 @@ def _build_failure_streak_alerts(branch_name: str, builds):
         'streak_count': len(streak),
         'threshold_count': BUILD_FAILURE_STREAK_THRESHOLD,
         'build_numbers': build_numbers[:5],
+        'latest_failed_build_number': latest_failed_build_number,
         'first_failed_build_number': first_failed_build_number,
         'latest_failed_at': latest_build.get('timestamp'),
         'first_failed_at': oldest_build.get('timestamp'),
@@ -794,7 +869,9 @@ def _stage_duration_over_average_alerts(builds):
             if not stage_name or not _stage_is_active(stage):
                 continue
 
-            average_duration_ms = int(averages_by_stage.get(stage_name) or 0)
+            average_duration_ms = int(
+                averages_by_stage.get(_normalize_stage_name(stage_name)) or 0
+            )
             if average_duration_ms <= 0:
                 continue
 
@@ -969,6 +1046,16 @@ def _count_alerts_by_source(rows, source_system: str):
 
 
 def get_alerts_payload():
+    try:
+        refresh_pipeline_storage_from_jenkins(
+            include_quality_metrics=False,
+            include_quality_backfill=False,
+        )
+    except Exception:
+        current_app.logger.exception(
+            'Failed to refresh pipeline snapshot for the alerts page.'
+        )
+
     pipeline_context = _main_pipeline_context()
     branch_name = pipeline_context.get('branch_name') or 'main'
     builds = pipeline_context.get('builds') or []
@@ -994,6 +1081,7 @@ def get_alerts_payload():
 
     # Unchecked alerts intentionally stay open even after the live signal clears.
     open_rows = _load_persistent_alert_rows(is_checked=False)
+    _enrich_persistent_alert_rows(open_rows)
     open_alerts = [_serialize_persistent_alert(row) for row in open_rows]
     generated_at = int(_utcnow().timestamp() * 1000)
 

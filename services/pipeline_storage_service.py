@@ -553,7 +553,7 @@ def _selected_branch_payload(branch_row, selected_branch, build_rows):
             'tests_duration': build_tests_duration_points(
                 build_rows,
                 branch_name=branch_row.name,
-                finished_only=False,
+                finished_only=True,
             ),
         },
         'stages': {
@@ -769,7 +769,9 @@ def _prepare_branch_build_payloads(branch_payload):
         if payload is None:
             continue
         _apply_build_core_fields(payload, build)
-        payload['stages'] = build.get('stages') or []
+        # Preserve omitted stage payloads during fast running-build refreshes so
+        # we do not wipe stored historical stages with an artificial empty list.
+        payload['stages'] = build.get('stages')
         if build.get('coverage_percent') is not None:
             payload['coverage_percent'] = build.get('coverage_percent')
             payload['has_coverage_percent'] = True

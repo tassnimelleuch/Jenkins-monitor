@@ -1,0 +1,439 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 3720
+>>
+stream
+0.5670000000000001 w
+0 G
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0.157 0.329 0.42 rg
+28.3464566929133888 819.212834645669318 Td
+(Pipeline Report) Tj
+ET
+BT
+/F1 7.5 Tf
+8.625 TL
+0.376 0.427 0.475 rg
+28.3464566929133888 806.4569291338582389 Td
+(Exported: 2026-05-22 14:49:47 | Branch: main | Status: FAILURE | Pipeline: azure-multibranch-pipeline) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+28.3464566929133888 779.5277952755905062 Td
+(Latest Build) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+28.3464566929133888 769.0396062992125508 Td
+(#174) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+301.8919685039369938 779.5277952755905062 Td
+(Latest Build Status) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+301.8919685039369938 769.0396062992125508 Td
+(FAILURE) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+28.3464566929133888 742.6774015748030706 Td
+(Azure Cost) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+28.3464566929133888 732.1892125984251152 Td
+($0.14) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+301.8919685039369938 742.6774015748030706 Td
+(Open Pull Requests) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+301.8919685039369938 732.1892125984251152 Td
+(2) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+28.3464566929133888 705.8270078740157487 Td
+(SonarQube Issues) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+28.3464566929133888 695.3388188976377933 Td
+(4) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+301.8919685039369938 705.8270078740157487 Td
+(Average Build Duration) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+301.8919685039369938 695.3388188976377933 Td
+(2m 49s) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+28.3464566929133888 668.9766141732283131 Td
+(Average Test Coverage) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+28.3464566929133888 658.4884251968503577 Td
+(99.3%) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+301.8919685039369938 668.9766141732283131 Td
+(Pipeline Success Rate) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+301.8919685039369938 658.4884251968503577 Td
+(40.8%) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+28.3464566929133888 632.1262204724408775 Td
+(Pods Running) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+28.3464566929133888 621.6380314960629221 Td
+(--) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+301.8919685039369938 632.1262204724408775 Td
+(Jenkins Health) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.094 0.141 0.188 rg
+301.8919685039369938 621.6380314960629221 Td
+(60%) Tj
+ET
+BT
+/F2 6.5 Tf
+7.4749999999999996 TL
+0.376 0.427 0.475 rg
+28.3464566929133888 595.2758267716535556 Td
+(Latest Docker Image) Tj
+ET
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.094 0.141 0.188 rg
+28.3464566929133888 584.7876377952754865 Td
+(tasnimelleuchenis/django-contact-app:main-2026-05-22-at-13-47-07-build-174) Tj
+ET
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.157 0.329 0.42 rg
+28.3464566929133888 558.42543307086612 Td
+(Last Commit on main) Tj
+ET
+BT
+/F1 7.5 Tf
+8.625 TL
+0.094 0.141 0.188 rg
+28.3464566929133888 547.086850393700729 Td
+(Commit: ad9b4de by tassnimelleuch) Tj
+T* (Date: 2026-05-22 14:39) Tj
+T* (Message: testing pipeline on fail) Tj
+ET
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.157 0.329 0.42 rg
+28.3464566929133888 510.8033858267716028 Td
+(Notes) Tj
+ET
+BT
+/F1 7.5 Tf
+8.625 TL
+0.094 0.141 0.188 rg
+28.3464566929133888 499.4648031496062686 Td
+(Pipeline refresh failed \(RuntimeError\).) Tj
+T* (Cluster: Kubernetes pod snapshot is unavailable.) Tj
+ET
+BT
+/F1 7 Tf
+8.0499999999999989 TL
+0.376 0.427 0.475 rg
+28.3464566929133888 22.6771653543306684 Td
+(Generated file: jenkins-monitor-report-20260522-144947.pdf) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R ]
+/Count 1
+>>
+endobj
+5 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+6 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 5 0 R
+/F2 6 0 R
+/F3 7 0 R
+/F4 8 0 R
+/F5 9 0 R
+/F6 10 0 R
+/F7 11 0 R
+/F8 12 0 R
+/F9 13 0 R
+/F10 14 0 R
+/F11 15 0 R
+/F12 16 0 R
+/F13 17 0 R
+/F14 18 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+19 0 obj
+<<
+/Producer (jsPDF 2.5.1)
+/CreationDate (D:20260522145003+01'00')
+>>
+endobj
+20 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 21
+0000000000 65535 f 
+0000003924 00000 n 
+0000005741 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000003981 00000 n 
+0000004106 00000 n 
+0000004236 00000 n 
+0000004369 00000 n 
+0000004506 00000 n 
+0000004629 00000 n 
+0000004758 00000 n 
+0000004890 00000 n 
+0000005026 00000 n 
+0000005154 00000 n 
+0000005281 00000 n 
+0000005410 00000 n 
+0000005543 00000 n 
+0000005645 00000 n 
+0000005989 00000 n 
+0000006075 00000 n 
+trailer
+<<
+/Size 21
+/Root 20 0 R
+/Info 19 0 R
+/ID [ <EDAF25A348041368B39AA77373E5CC53> <EDAF25A348041368B39AA77373E5CC53> ]
+>>
+startxref
+6179
+%%EOF

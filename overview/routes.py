@@ -14,7 +14,11 @@ from services.dashboard_kpi_documents_service import (
     sanitize_dashboard_kpi_text,
     sync_dashboard_kpi_documents,
 )
-from services.jenkins_service import get_overview_kpis, request_pipeline_background_refresh
+from services.jenkins_service import (
+    get_overview_kpis,
+    refresh_pipeline_storage_from_jenkins,
+    request_pipeline_background_refresh,
+)
 from services.export_report_service import get_pdf_report_snapshot
 from services.pdf_report_storage_service import (
     get_pdf_report_path,
@@ -86,7 +90,15 @@ def pdf_reports_page():
 @overview_bp.route('/api/pipeline/kpis')
 @role_required('admin', 'developer', 'tester')
 def kpis():
-    if request.args.get('refresh') == '1':
+    if request.args.get('refresh') == '1' and request.args.get('wait') == '1':
+        refresh_pipeline_storage_from_jenkins(
+            include_quality_metrics=False,
+            include_quality_backfill=False,
+        )
+        stored_overview = get_stored_overview_kpis()
+        if stored_overview:
+            return jsonify(stored_overview)
+    elif request.args.get('refresh') == '1':
         request_pipeline_background_refresh()
     return jsonify(get_overview_kpis())
 

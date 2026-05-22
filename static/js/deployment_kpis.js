@@ -350,29 +350,17 @@ async function loadDeploymentKpis() {
     const preferredNs = ['kube-system', 'default'];
     const podsNs = toSeries(data.pods_by_namespace, 8, preferredNs);
     const rsNs = toSeries(data.replica_sets_by_namespace, 8, preferredNs);
-    const pvcsNs = toSeries(data.pvcs_by_namespace, 8, preferredNs);
     const podsPhase = toSeries(data.pods_by_phase, 8);
 
     const podsBadge = document.getElementById('podsNsBadge');
     const rsBadge = document.getElementById('rsNsBadge');
-    const pvcsBadge = document.getElementById('pvcsNsBadge');
     const phaseBadge = document.getElementById('podsPhaseBadge');
     if (podsBadge) podsBadge.textContent = 'Total ' + (data.pods_total ?? 0);
     if (rsBadge) rsBadge.textContent = 'Total ' + (data.replica_sets_total ?? 0);
-    if (pvcsBadge) pvcsBadge.textContent = 'Total ' + (data.pvcs_total ?? 0);
     if (phaseBadge) phaseBadge.textContent = 'Total ' + (data.pods_total ?? 0);
 
     renderBarChart('podsNs', 'podsNsChart', podsNs.labels, podsNs.values, getCssVar('--accent'));
     renderBarChart('rsNs', 'rsNsChart', rsNs.labels, rsNs.values, getCssVar('--blue'));
-
-    const pvcColors = [
-      getCssVar('--orange'),
-      getCssVar('--yellow'),
-      getCssVar('--red'),
-      getCssVar('--blue'),
-      getCssVar('--accent')
-    ];
-    renderDoughnutChart('pvcsNs', 'pvcsNsChart', pvcsNs.labels, pvcsNs.values, pvcColors);
 
     const phaseColors = [
       getCssVar('--green'),

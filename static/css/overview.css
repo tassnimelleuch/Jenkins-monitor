@@ -145,16 +145,6 @@
     animation:fadeUp .5s ease both;
     animation-delay:.35s;
 }
-.overview-24h-info::after{
-    content:'';
-    position:absolute;
-    inset:auto -30px -30px auto;
-    width:120px;
-    height:120px;
-    border-radius:50%;
-    background:radial-gradient(circle, rgba(58,184,248,.18), transparent 65%);
-    pointer-events:none;
-}
 .overview-24h-eyebrow{
     font-size:10px;
     font-weight:800;
@@ -163,18 +153,86 @@
     color:var(--blue);
     margin-bottom:8px;
 }
+.overview-24h-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    margin-bottom:14px;
+    padding:5px 10px;
+    border-radius:999px;
+    background:rgba(58,184,248,.12);
+    border:1px solid rgba(58,184,248,.2);
+    color:var(--blue);
+    font-size:10px;
+    font-weight:800;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+}
+.overview-24h-head{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+}
+.overview-24h-copy{
+    max-width:620px;
+}
+.overview-24h-stats{
+    display:flex;
+    align-items:stretch;
+    gap:12px;
+    flex-wrap:wrap;
+}
 .overview-24h-title{
-    font-size:15px;
+    font-size:18px;
     font-weight:800;
     letter-spacing:-.02em;
     color:var(--text);
     margin-bottom:6px;
 }
-.overview-24h-copy{
-    max-width:780px;
+.overview-24h-note{
     font-size:12px;
     line-height:1.5;
     color:var(--text2);
+}
+.overview-24h-stat{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap:6px;
+    min-width:138px;
+    padding:14px 16px 12px;
+    border-radius:14px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
+    backdrop-filter:blur(10px);
+}
+.overview-24h-stat.is-done{
+    background:
+        linear-gradient(180deg, rgba(0,219,160,.2), rgba(0,219,160,.08)),
+        rgba(0,219,160,.08);
+    border:1px solid rgba(0,219,160,.26);
+}
+.overview-24h-stat.is-pending{
+    background:
+        linear-gradient(180deg, rgba(255,140,66,.22), rgba(255,140,66,.08)),
+        rgba(255,140,66,.08);
+    border:1px solid rgba(255,140,66,.28);
+}
+.overview-24h-stat-label{
+    font-size:10px;
+    font-weight:800;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--text);
+}
+.overview-24h-stat-value{
+    font-size:30px;
+    font-weight:800;
+    line-height:1;
+    letter-spacing:-.04em;
+    color:var(--text);
+    font-family:'JetBrains Mono',monospace;
 }
 .overview-role-info{
     background:
@@ -270,7 +328,7 @@
   font-weight:700;
 }
 .overview-tests-duration-area{
-  height:190px;
+  height:220px;
 }
 .overview-timeline-hdr{
   display:flex;

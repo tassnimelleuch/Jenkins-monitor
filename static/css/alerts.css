@@ -109,6 +109,40 @@
   margin-bottom:12px;
 }
 
+.alert-context-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:10px;
+  margin-bottom:12px;
+}
+
+.alert-context-card{
+  border:1px solid rgba(255,69,96,.16);
+  background:var(--bg3);
+  border-radius:14px;
+  padding:12px 14px;
+}
+
+.alert-context-label{
+  color:var(--text2);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.alert-context-value{
+  margin-top:6px;
+  color:var(--text);
+  font-size:14px;
+  font-weight:700;
+}
+
+.alert-context-value-mono{
+  font-family:'JetBrains Mono',monospace;
+  word-break:break-all;
+}
+
 .alert-meta{
   display:flex;
   flex-wrap:wrap;

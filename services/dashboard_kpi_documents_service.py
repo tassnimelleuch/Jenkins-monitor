@@ -618,7 +618,7 @@ def _build_pipeline_junit_grouped_document(context):
             'For each selected week or month bucket, the chart counts how many builds in that bucket have JUnit results.',
             'For each selected week or month bucket, avgPassed = totalPassed / sampleCount, avgFailed = totalFailed / sampleCount, avgSkipped = totalSkipped / sampleCount, and avgTotal = totalTests / sampleCount.',
             'The stacked bars show the average passed, average failed, and average skipped test counts per build in the selected week or month.',
-            'The summary pills show the number of displayed weeks or months, the number of builds with JUnit results, and the latest week or month average total-test count.',
+            'The summary pills show the number of displayed weeks or months and the latest week or month average total-test count.',
             'The toolbar badge shows the overall average total-test count across all eligible builds.',
         ],
         notes=[
@@ -663,7 +663,7 @@ def _build_pipeline_coverage_grouped_document(context):
             'Builds are grouped by the user display timezone into Monday-start weeks or calendar months depending on the selected toggle.',
             'For each selected week or month bucket, avgCoverage = totalCoverage / sampleCount.',
             'Each plotted point therefore represents the average coverage percentage of the builds that fall in that week or month bucket.',
-            'The summary pills show the number of displayed weeks or months, the number of coverage points included, and the latest week or month average coverage.',
+            'The summary pills show the number of displayed weeks or months and the latest week or month average coverage.',
             'The toolbar badge shows the overall average coverage across every eligible build point.',
         ],
         notes=[
@@ -1184,45 +1184,6 @@ def _build_deployment_replicasets_by_namespace_document(context):
         aliases=['replicasets by namespace', 'workload controllers by namespace', 'namespace replicaset count'],
         time_window='current live cluster snapshot',
         aggregation='ReplicaSet counts grouped by namespace',
-        source_endpoints=['/deployment_kpis/api/cluster'],
-        source_files=[
-            'services/deployment_kpis_service.py',
-            'collectors/kubernetes_collector.py',
-            'static/js/deployment_kpis.js',
-            'templates/deployment_kpis.html',
-        ],
-    )
-
-
-def _build_deployment_pvcs_by_namespace_document(context):
-    content = _render_content(
-        intro='"PVCs by Namespace" is a chart shown on the Deployment KPIs page.',
-        represents=[
-            'The chart shows how PersistentVolumeClaims are distributed across namespaces.',
-            'It reflects namespace-level persistent storage usage in the current cluster snapshot.',
-        ],
-        calculation=[
-            'The metric is sourced from a live Kubernetes cluster snapshot.',
-            'PVCs are grouped by namespace, so each slice represents one namespace.',
-            'For each namespace, the value is the count of PersistentVolumeClaims whose metadata namespace matches that namespace.',
-            'The chart sorts namespaces by count and displays up to the top eight namespaces, with preferred ordering for kube-system and default when applicable.',
-            'The badge shows the total PVC count across the whole cluster snapshot.',
-        ],
-        notes=[
-            'This chart is shown on the Deployment KPIs page.',
-            'It reflects the current cluster state at fetch time rather than a historical trend window.',
-        ],
-    )
-    return _document(
-        context=context,
-        document_key='deployment_kpis.pvcs_by_namespace',
-        dashboard_page='deployment_kpis',
-        title='Deployment KPIs PVCs by Namespace',
-        content=content,
-        tags=['pvcs by namespace', 'namespace pvcs', 'persistent volume claims'],
-        aliases=['pvcs by namespace', 'persistent storage usage', 'namespace pvc count'],
-        time_window='current live cluster snapshot',
-        aggregation='PersistentVolumeClaim counts grouped by namespace',
         source_endpoints=['/deployment_kpis/api/cluster'],
         source_files=[
             'services/deployment_kpis_service.py',
@@ -2887,7 +2848,6 @@ def _build_documents(context):
         _build_deployment_resource_counts_document(context),
         _build_deployment_pods_by_namespace_document(context),
         _build_deployment_replicasets_by_namespace_document(context),
-        _build_deployment_pvcs_by_namespace_document(context),
         _build_deployment_pods_by_phase_document(context),
         _build_deployment_frequency_document(context),
         _build_deployment_latest_image_artifact_document(context),

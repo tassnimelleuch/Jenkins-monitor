@@ -10,24 +10,13 @@
 {% block page_content %}
 <div class="pdfr-head">
   <div>
-    <div class="pdfr-title">PDF Reports</div>
+    <div class="pdfr-title">Saved PDF Reports</div>
     <div class="pdfr-sub">Archived exports saved on this dashboard and available for download.</div>
   </div>
   <div class="pdfr-stats">
     
   </div>
 </div>
-
-<div class="pdfr-path-card">
-  <div class="pdfr-path-label">Storage Folder</div>
-  <div class="pdfr-path-value">{{ reports_dir }}</div>
-</div>
-
-<div class="pdfr-section">
-  <div class="pdfr-section-head">
-    <div class="pdfr-section-title">Saved Reports</div>
-    <span class="pdfr-count" id="pdfReportsCount">{{ reports | length }}</span>
-  </div>
 
   {% if reports %}
   <div class="pdfr-list" id="pdfReportsList">

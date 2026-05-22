@@ -8,7 +8,7 @@ const LIVE_RUNNING_WATCH_POLL_MS = 2000;
 const LIVE_RUNNING_POLL_MS = 2000;
 const LIVE_RUNNING_IDLE_CONFIRM_POLLS = 2;
 const KPI_COMPLETION_BURST_MS = 12000;
-const KPI_COMPLETION_BURST_INTERVAL_MS = 1000;
+const KPI_COMPLETION_BURST_INTERVAL_MS = 2000;
 const OPTIMISTIC_ABORT_WINDOW_MS = 30000;
 
 const _overviewSegTip = document.getElementById('overviewSegTip');
@@ -70,9 +70,18 @@ function _buildStageStripSignature(stages) {
     return _buildStagesSignature(stages, { includeDurations: false });
 }
 
-function _buildTestsDurationSignature(points) {
+function _buildTestsDurationSignature(builds, points) {
     const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-    return theme + '::' + (Array.isArray(points) ? points : [])
+    const buildSignature = (Array.isArray(builds) ? builds : [])
+        .filter(build => build?.result !== null && _isWithinLast24Hours(build))
+        .map(build => [
+            _signaturePart(build?.number),
+            _signaturePart(build?.timestamp),
+            _signaturePart(build?.result),
+        ].join('|'))
+        .join('||');
+    const durationSignature = (Array.isArray(points) ? points : [])
+        .filter(point => point?.result !== null)
         .map(point => [
             _signaturePart(point?.number),
             _signaturePart(point?.timestamp),
@@ -82,6 +91,7 @@ function _buildTestsDurationSignature(points) {
             _signaturePart(point?.sonarcloud_ms),
         ].join('|'))
         .join('||');
+    return [theme, buildSignature, durationSignature].join('::');
 }
 
 function _cacheOverviewMetrics(payload) {
@@ -132,7 +142,7 @@ function scheduleOverviewKpiBurstRefresh({
     _overviewKpiBurstStopAt = Math.max(_overviewKpiBurstStopAt, stopAt);
 
     if (immediate) {
-        loadKPIs({ refresh: true });
+        loadKPIs({ refresh: true, wait: true });
     }
 
     if (_overviewKpiBurstHandle) return;
@@ -142,7 +152,7 @@ function scheduleOverviewKpiBurstRefresh({
             stopOverviewKpiBurstRefresh();
             return;
         }
-        loadKPIs({ refresh: true });
+        loadKPIs({ refresh: true, wait: true });
     }, intervalMs);
 }
 
@@ -368,7 +378,7 @@ async function checkForRunningBuilds() {
 
         stopRunningBuildsWatcher();
         startLiveRunningPoll({ eager: true });
-        loadKPIs({ refresh: true });
+        loadKPIs({ refresh: true, wait: true });
     } catch (e) {
     } finally {
         _runningBuildsWatcherInFlight = false;
@@ -652,6 +662,9 @@ function clearOverviewTestsDuration24hChart(message = 'No tests duration data av
     if (!canvas) return;
 
     if (_testsDuration24hChart) {
+        if (typeof _testsDuration24hChart.$cleanupHoverBridge === 'function') {
+            _testsDuration24hChart.$cleanupHoverBridge();
+        }
         _testsDuration24hChart.destroy();
         _testsDuration24hChart = null;
     }
@@ -669,21 +682,161 @@ function clearOverviewTestsDuration24hChart(message = 'No tests duration data av
     if (badge) badge.textContent = '24h Avg —';
 }
 
-function renderOverviewTestsDuration24hChart(testsDurationTrend) {
+function normalizeOverviewTestsDurationValue(value) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+}
+
+function classifyOverviewTestsDurationStage(stageName) {
+    const normalized = String(stageName || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ');
+    if (!normalized) return null;
+    if (normalized.includes('pylint')) return 'pylint_ms';
+    if (normalized.includes('sonar')) return 'sonarcloud_ms';
+    if (normalized.includes('pytest')) return 'unit_tests_ms';
+    if (normalized.includes('unit') && normalized.includes('test')) return 'unit_tests_ms';
+    if (
+        normalized.includes('test')
+        && !['integration', 'e2e', 'smoke', 'acceptance', 'performance', 'load']
+            .some(marker => normalized.includes(marker))
+    ) {
+        return 'unit_tests_ms';
+    }
+    return null;
+}
+
+function deriveOverviewTestsDurationFromBuild(build) {
+    const totals = {
+        unit_tests_ms: 0,
+        pylint_ms: 0,
+        sonarcloud_ms: 0,
+    };
+
+    (build?.stages || []).forEach(stage => {
+        const bucket = classifyOverviewTestsDurationStage(stage?.name);
+        if (!bucket) return;
+        totals[bucket] += normalizeOverviewTestsDurationValue(stage?.duration_ms);
+    });
+
+    const totalDurationMs = totals.unit_tests_ms + totals.pylint_ms + totals.sonarcloud_ms;
+    return {
+        total_duration_ms: totalDurationMs,
+        ...totals,
+    };
+}
+
+function buildOverviewTestsDurationPoints(buildTrend, testsDurationTrend) {
+    const durationByBuildNumber = new Map(
+        (Array.isArray(testsDurationTrend) ? testsDurationTrend : [])
+            .filter(point => point?.number != null)
+            .map(point => [point.number, point])
+    );
+
+    return (Array.isArray(buildTrend) ? buildTrend : [])
+        .filter(build => build?.number != null && build?.result !== null && _isWithinLast24Hours(build))
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0) || (a.number || 0) - (b.number || 0))
+        .map(build => {
+            const storedPoint = durationByBuildNumber.get(build.number);
+            const derivedPoint = deriveOverviewTestsDurationFromBuild(build);
+            const totalDurationMs = storedPoint?.total_duration_ms != null
+                ? normalizeOverviewTestsDurationValue(storedPoint.total_duration_ms)
+                : derivedPoint.total_duration_ms;
+
+            return {
+                number: build.number,
+                timestamp: build.timestamp || 0,
+                total_duration_ms: totalDurationMs,
+                unit_tests_ms: storedPoint?.unit_tests_ms != null
+                    ? normalizeOverviewTestsDurationValue(storedPoint.unit_tests_ms)
+                    : derivedPoint.unit_tests_ms,
+                pylint_ms: storedPoint?.pylint_ms != null
+                    ? normalizeOverviewTestsDurationValue(storedPoint.pylint_ms)
+                    : derivedPoint.pylint_ms,
+                sonarcloud_ms: storedPoint?.sonarcloud_ms != null
+                    ? normalizeOverviewTestsDurationValue(storedPoint.sonarcloud_ms)
+                    : derivedPoint.sonarcloud_ms,
+            };
+        });
+}
+
+function setOverviewTestsDurationActiveIndex(chart, index) {
+    if (!chart || index == null || index < 0) return;
+    const xScale = chart.scales?.x;
+    const yScale = chart.scales?.y;
+    if (!xScale || !yScale) return;
+
+    const activeElements = [{ datasetIndex: 0, index }];
+    const anchor = {
+        x: xScale.getPixelForValue(index),
+        y: yScale.getPixelForValue(chart.data.datasets[0].data[index] || 0),
+    };
+    chart.setActiveElements(activeElements);
+    chart.tooltip.setActiveElements(activeElements, anchor);
+    chart.update('none');
+}
+
+function clearOverviewTestsDurationActiveIndex(chart) {
+    if (!chart) return;
+    chart.setActiveElements([]);
+    chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+    chart.update('none');
+}
+
+function attachOverviewTestsDurationHoverBridge(chart) {
+    const canvas = chart?.canvas;
+    if (!canvas) return;
+
+    const handleMouseMove = event => {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const chartArea = chart.chartArea;
+        const xScale = chart.scales?.x;
+        if (!chartArea || !xScale) return;
+
+        const withinColumnZone = (
+            x >= chartArea.left
+            && x <= chartArea.right
+            && y >= chartArea.top
+            && y <= chart.height
+        );
+        if (!withinColumnZone) {
+            clearOverviewTestsDurationActiveIndex(chart);
+            return;
+        }
+
+        let nearestIndex = 0;
+        let smallestDistance = Number.POSITIVE_INFINITY;
+        for (let index = 0; index < xScale.ticks.length; index += 1) {
+            const distance = Math.abs(x - xScale.getPixelForTick(index));
+            if (distance < smallestDistance) {
+                smallestDistance = distance;
+                nearestIndex = index;
+            }
+        }
+
+        setOverviewTestsDurationActiveIndex(chart, nearestIndex);
+    };
+
+    const handleMouseLeave = () => clearOverviewTestsDurationActiveIndex(chart);
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseleave', handleMouseLeave);
+    chart.$cleanupHoverBridge = () => {
+        canvas.removeEventListener('mousemove', handleMouseMove);
+        canvas.removeEventListener('mouseleave', handleMouseLeave);
+    };
+}
+
+function renderOverviewTestsDuration24hChart(buildTrend, testsDurationTrend) {
     const canvas = document.getElementById('testsDuration24hChart');
     if (!canvas || typeof Chart === 'undefined') return;
 
     const container = canvas.parentElement;
     const badge = document.getElementById('testsDuration24hBadge');
     const summary = document.getElementById('testsDuration24hSummary');
-    const cutoffMs = Date.now() - LAST_24_HOURS_MS;
-    const points = (Array.isArray(testsDurationTrend) ? testsDurationTrend : [])
-        .filter(point =>
-            typeof point.total_duration_ms === 'number' &&
-            point.total_duration_ms > 0 &&
-            (point.timestamp || 0) >= cutoffMs
-        )
-        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    const points = buildOverviewTestsDurationPoints(buildTrend, testsDurationTrend);
 
     if (!points.length) {
         clearOverviewTestsDuration24hChart();
@@ -695,19 +848,20 @@ function renderOverviewTestsDuration24hChart(testsDurationTrend) {
     if (existingEmpty) existingEmpty.remove();
 
     const avgDurationMs = Math.round(
-        points.reduce((sum, point) => sum + point.total_duration_ms, 0) / points.length
+        points.reduce((sum, point) => sum + point.total_duration_ms, 0) / Math.max(points.length, 1)
     );
     const latestPoint = points[points.length - 1];
     const maxDurationMs = Math.max(...points.map(point => point.total_duration_ms));
 
-    if (summary) {
-        summary.innerHTML =
-            `<span class="overview-tests-duration-pill"><strong>${fmtDur(latestPoint.total_duration_ms)}</strong> latest build</span>` +
-            `<span class="overview-tests-duration-pill"><strong>${fmtDur(maxDurationMs)}</strong> peak duration</span>`;
-    }
-
     if (badge) {
         badge.textContent = `24h Avg ${fmtDur(avgDurationMs)}`;
+    }
+    if (summary) {
+        const buildsWithTests = points.filter(point => point.total_duration_ms > 0).length;
+        summary.innerHTML =
+            `<span class="overview-tests-duration-pill"><strong>${points.length}</strong> finished builds</span>` +
+            `<span class="overview-tests-duration-pill"><strong>${buildsWithTests}</strong> reached test stages</span>` +
+            `<span class="overview-tests-duration-pill"><strong>${fmtDur(latestPoint.total_duration_ms)}</strong> latest build</span>`;
     }
 
     const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
@@ -716,6 +870,9 @@ function renderOverviewTestsDuration24hChart(testsDurationTrend) {
     const titleColor = isDark ? '#c2c0b6' : '#3d3d3a';
 
     if (_testsDuration24hChart) {
+        if (typeof _testsDuration24hChart.$cleanupHoverBridge === 'function') {
+            _testsDuration24hChart.$cleanupHoverBridge();
+        }
         _testsDuration24hChart.destroy();
         _testsDuration24hChart = null;
     }
@@ -738,6 +895,11 @@ function renderOverviewTestsDuration24hChart(testsDurationTrend) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+                axis: 'x',
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -771,10 +933,17 @@ function renderOverviewTestsDuration24hChart(testsDurationTrend) {
                 x: {
                     grid: { display: false },
                     border: { display: false },
-                    ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 8 }
+                    ticks: {
+                        color: textColor,
+                        font: { size: 9 },
+                        autoSkip: false,
+                        maxRotation: 0,
+                        minRotation: 0,
+                    }
                 },
                 y: {
                     min: 0,
+                    suggestedMax: Math.max(maxDurationMs * 1.15, avgDurationMs * 1.3, 60_000),
                     grid: { color: gridColor, drawTicks: false },
                     border: { display: false },
                     ticks: {
@@ -788,6 +957,7 @@ function renderOverviewTestsDuration24hChart(testsDurationTrend) {
             animation: { duration: 600, easing: 'easeOutQuart' }
         }
     });
+    attachOverviewTestsDurationHoverBridge(_testsDuration24hChart);
 }
 
 function hasOverviewLatestBuildsChart() {
@@ -807,6 +977,21 @@ function hasOverviewHistoryTimeline() {
     return Boolean(document.getElementById('overviewBuildTimeline'));
 }
 
+function updateOverview24hInfo(doneCount, pendingCount) {
+    const doneEl = document.getElementById('overview24hDoneCount');
+    const pendingEl = document.getElementById('overview24hPendingCount');
+    if (!doneEl && !pendingEl) return;
+
+    if (typeof doneCount !== 'number' || !Number.isFinite(doneCount)) {
+        if (doneEl) doneEl.textContent = '--';
+        if (pendingEl) pendingEl.textContent = '--';
+        return;
+    }
+
+    if (doneEl) doneEl.textContent = String(doneCount);
+    if (pendingEl) pendingEl.textContent = String(pendingCount);
+}
+
 function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
     if (!d?.connected) {
         resetOverviewRenderCache();
@@ -823,6 +1008,7 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
         clearDashboard();
         clearOverviewHistory();
         clearOverviewTestsDuration24hChart('No tests duration data available');
+        updateOverview24hInfo(null, null);
         return;
     }
 
@@ -890,6 +1076,9 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
     const historyLast24h = trend
         .filter(build => _isWithinLast24Hours(build, now))
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0));
+    const pendingLast24h = historyLast24h.filter(build => build.result === null).length;
+    const doneLast24h = historyLast24h.length - pendingLast24h;
+    updateOverview24hInfo(doneLast24h, pendingLast24h);
     const finishedLast24h = baseTrend.filter(
         b => b.result !== null && _isWithinLast24Hours(b, now)
     );
@@ -907,10 +1096,10 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
         }
     }
 
-    const testsDurationSignature = _buildTestsDurationSignature(d.tests_duration);
+    const testsDurationSignature = _buildTestsDurationSignature(trend, d.tests_duration);
     if (Array.isArray(d.tests_duration)) {
         if (_overviewTestsDurationSignature !== testsDurationSignature) {
-            renderOverviewTestsDuration24hChart(d.tests_duration);
+            renderOverviewTestsDuration24hChart(trend, d.tests_duration);
             _overviewTestsDurationSignature = testsDurationSignature;
         }
     } else {
@@ -952,13 +1141,15 @@ function getInitialOverviewPayload() {
     }
 }
 
-async function loadKPIs({ refresh = false } = {}) {
+async function loadKPIs({ refresh = false, wait = false } = {}) {
     if (_overviewLoadInFlight) return;
     _overviewLoadInFlight = true;
 
     try {
         const baseUrl = document.body.dataset.kpisUrl;
-        const url = refresh ? `${baseUrl}?refresh=1` : baseUrl;
+        const url = refresh
+            ? `${baseUrl}?refresh=1${wait ? '&wait=1' : ''}`
+            : baseUrl;
         const res = await fetch(url);
         const d   = await res.json();
         renderOverviewPayload(d);

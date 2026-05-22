@@ -1,6 +1,8 @@
 const INITIAL_SHOW = 5;
-const POLL_MS = 5000;
+const POLL_MS = 2000;
 const SLOW_POLL_MS = 10000;
+const KPI_COMPLETION_BURST_MS = 12000;
+const KPI_COMPLETION_BURST_INTERVAL_MS = 2000;
 
 let _allBuilds = [];
 let _showingAll = false;
@@ -25,6 +27,9 @@ let _pipelineCoverageRenderSignature = null;
 let _pipelineJunitRenderSignature = null;
 let _pipelineTestsDurationTrendRenderSignature = null;
 let _pipelineTestsDuration24hRenderSignature = null;
+let _pipelineKpiBurstHandle = null;
+let _pipelineKpiBurstStopAt = 0;
+let _prevRunningBuildNumbers = new Set();
 
 // Legacy build-history helpers are intentionally kept in this file for
 // possible rollback, even though the current page no longer renders the
@@ -101,6 +106,37 @@ function resetPipelineChartRenderCache() {
   _pipelineJunitRenderSignature = null;
   _pipelineTestsDurationTrendRenderSignature = null;
   _pipelineTestsDuration24hRenderSignature = null;
+}
+
+function stopPipelineKpiBurstRefresh() {
+  if (_pipelineKpiBurstHandle) {
+    clearInterval(_pipelineKpiBurstHandle);
+    _pipelineKpiBurstHandle = null;
+  }
+  _pipelineKpiBurstStopAt = 0;
+}
+
+function schedulePipelineKpiBurstRefresh({
+  durationMs = KPI_COMPLETION_BURST_MS,
+  intervalMs = KPI_COMPLETION_BURST_INTERVAL_MS,
+  immediate = true,
+} = {}) {
+  const stopAt = Date.now() + durationMs;
+  _pipelineKpiBurstStopAt = Math.max(_pipelineKpiBurstStopAt, stopAt);
+
+  if (immediate) {
+    window.setTimeout(() => loadPipelineKPIs({ refresh: true, wait: true }), 0);
+  }
+
+  if (_pipelineKpiBurstHandle) return;
+
+  _pipelineKpiBurstHandle = setInterval(() => {
+    if (Date.now() >= _pipelineKpiBurstStopAt) {
+      stopPipelineKpiBurstRefresh();
+      return;
+    }
+    loadPipelineKPIs({ refresh: true, wait: true });
+  }, intervalMs);
 }
 
 function segCls(status) {
@@ -296,8 +332,13 @@ function triggerBuild() {
     queuedMessage: '✅ Build queued — watching for updates',
     triggerErrorMessage: 'Failed to trigger',
     onQueued() {
-      if (!_pollHandle) _pollHandle = setInterval(loadPipelineKPIs, POLL_MS);
-      setTimeout(loadPipelineKPIs, 2000);
+      if (!_pollHandle) {
+        _pollHandle = setInterval(
+          () => loadPipelineKPIs({ refresh: true, wait: true }),
+          POLL_MS
+        );
+      }
+      setTimeout(() => loadPipelineKPIs({ refresh: true, wait: true }), 2000);
     }
   });
 }
@@ -780,6 +821,7 @@ function setJunitGrouping(grouping) {
 function buildTestsDurationGroups(points, grouping) {
   const grouped = new Map();
   const validPoints = (points || []).filter(point =>
+    point?.result !== null &&
     typeof point.total_duration_ms === 'number' &&
     point.total_duration_ms > 0 &&
     point.timestamp
@@ -1040,7 +1082,7 @@ function renderCoverageTrend(coverageTrend) {
   const periodLabelPlural = _coverageGrouping === 'month' ? 'months' : 'weeks';
 
   _coverageSourcePoints = Array.isArray(coverageTrend) ? coverageTrend : [];
-  const { groups, sampleCount, overallAvg } = buildCoverageGroups(_coverageSourcePoints, _coverageGrouping);
+  const { groups, overallAvg } = buildCoverageGroups(_coverageSourcePoints, _coverageGrouping);
   const renderSignature = buildPipelineRenderSignature('coverage', {
     grouping: _coverageGrouping,
     items: _coverageSourcePoints,
@@ -1082,7 +1124,6 @@ function renderCoverageTrend(coverageTrend) {
   if (summary) {
     summary.innerHTML =
       `<span class="pipeline-duration-pill"><strong>${groups.length}</strong> ${periodLabelPlural}</span>` +
-      `<span class="pipeline-duration-pill"><strong>${sampleCount}</strong> coverage points</span>` +
       `<span class="pipeline-duration-pill"><strong>${groups[groups.length - 1].avgCoverage.toFixed(1)}%</strong> latest ${periodLabel} avg</span>`;
   }
   if (badge) {
@@ -1117,10 +1158,6 @@ function renderCoverageTrend(coverageTrend) {
               return group.detailLabel;
             },
             label: ctx => ` Avg coverage: ${ctx.raw.toFixed(1)}%`,
-            afterLabel(ctx) {
-              const group = groups[ctx.dataIndex];
-              return ` Builds: ${group.sampleCount}`;
-            }
           },
           backgroundColor: isDark ? '#2c2c2a' : '#fff',
           titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
@@ -1168,7 +1205,7 @@ function renderJUnitTrend(junitTrend) {
   const periodLabelPlural = _junitGrouping === 'month' ? 'months' : 'weeks';
 
   _junitSourcePoints = Array.isArray(junitTrend) ? junitTrend : [];
-  const { groups, sampleCount, overallAvgTotal } = buildJunitGroups(_junitSourcePoints, _junitGrouping);
+  const { groups, overallAvgTotal } = buildJunitGroups(_junitSourcePoints, _junitGrouping);
   const renderSignature = buildPipelineRenderSignature('junit', {
     grouping: _junitGrouping,
     items: _junitSourcePoints,
@@ -1208,7 +1245,6 @@ function renderJUnitTrend(junitTrend) {
   if (summary) {
     summary.innerHTML =
       `<span class="pipeline-duration-pill"><strong>${groups.length}</strong> ${periodLabelPlural}</span>` +
-      `<span class="pipeline-duration-pill"><strong>${sampleCount}</strong> builds with JUnit</span>` +
       `<span class="pipeline-duration-pill"><strong>${formatAverageCount(groups[groups.length - 1].avgTotal)}</strong> tests latest ${periodLabel} avg</span>`;
   }
   if (badge) {
@@ -1258,10 +1294,6 @@ function renderJUnitTrend(junitTrend) {
               return group.detailLabel;
             },
             label: ctx => ` Avg ${ctx.dataset.label}: ${formatAverageCount(ctx.raw)}`,
-            afterLabel(ctx) {
-              const group = groups[ctx.dataIndex];
-              return ` Builds: ${group.sampleCount}`;
-            }
           },
           backgroundColor: isDark ? '#2c2c2a' : '#fff',
           titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
@@ -1308,7 +1340,7 @@ function renderTestsDurationTrend(testsDurationTrend) {
   const periodLabelPlural = _testsDurationGrouping === 'month' ? 'months' : 'weeks';
 
   _testsDurationSourcePoints = Array.isArray(testsDurationTrend) ? testsDurationTrend : [];
-  const { groups, sampleCount, overallAvgMs } = buildTestsDurationGroups(
+  const { groups, overallAvgMs } = buildTestsDurationGroups(
     _testsDurationSourcePoints,
     _testsDurationGrouping
   );
@@ -1317,6 +1349,7 @@ function renderTestsDurationTrend(testsDurationTrend) {
     items: _testsDurationSourcePoints,
     fields: [
       'number',
+      'result',
       'timestamp',
       'total_duration_ms',
       'unit_tests_ms',
@@ -1360,7 +1393,6 @@ function renderTestsDurationTrend(testsDurationTrend) {
   if (summary) {
     summary.innerHTML =
       `<span class="pipeline-duration-pill"><strong>${groups.length}</strong> ${periodLabelPlural}</span>` +
-      `<span class="pipeline-duration-pill"><strong>${sampleCount}</strong> builds with test stages</span>` +
       `<span class="pipeline-duration-pill"><strong>${formatPeriodDuration(groups[groups.length - 1].avgDurationMs)}</strong> latest ${periodLabel} avg</span>`;
   }
   if (badge) {
@@ -1395,10 +1427,6 @@ function renderTestsDurationTrend(testsDurationTrend) {
               return group.detailLabel;
             },
             label: ctx => ` Avg tests duration: ${formatPeriodDuration(ctx.raw)}`,
-            afterLabel(ctx) {
-              const group = groups[ctx.dataIndex];
-              return ` Builds: ${group.sampleCount}`;
-            }
           },
           backgroundColor: isDark ? '#2c2c2a' : '#fff',
           titleColor: isDark ? '#c2c0b6' : '#3d3d3a',
@@ -1470,6 +1498,7 @@ function renderTestsDuration24hChart(testsDurationTrend) {
   const cutoffMs = Date.now() - (24 * 60 * 60 * 1000);
   const points = (Array.isArray(testsDurationTrend) ? testsDurationTrend : [])
     .filter(point =>
+      point?.result !== null &&
       typeof point.total_duration_ms === 'number' &&
       point.total_duration_ms > 0 &&
       (point.timestamp || 0) >= cutoffMs
@@ -1479,6 +1508,7 @@ function renderTestsDuration24hChart(testsDurationTrend) {
     items: points,
     fields: [
       'number',
+      'result',
       'timestamp',
       'total_duration_ms',
       'unit_tests_ms',
@@ -1626,18 +1656,23 @@ async function pollRunningStages() {
   } catch (e) {}
 }
 
-async function loadPipelineKPIs() {
+async function loadPipelineKPIs({ refresh = false, wait = false } = {}) {
   if (_pipelineKpisLoadInFlight) return;
   _pipelineKpisLoadInFlight = true;
 
   try {
-    const url = document.body.dataset.pipelineKpisUrl;
+    const baseUrl = document.body.dataset.pipelineKpisUrl;
+    const url = refresh
+      ? `${baseUrl}?refresh=1${wait ? '&wait=1' : ''}`
+      : baseUrl;
     const data = await (await fetch(url)).json();
     const branchData = getSelectedBranchPayload(data);
     const summary = branchData.summary || {};
     const builds = branchData.builds || [];
 
     if (!data.connected) {
+      _prevRunningBuildNumbers = new Set();
+      stopPipelineKpiBurstRefresh();
       resetPipelineChartRenderCache();
       if (typeof clearStatRow === 'function') clearStatRow();
       clearGroupedDurationChart('No build data available');
@@ -1649,6 +1684,8 @@ async function loadPipelineKPIs() {
     }
 
     if (!builds.length) {
+      _prevRunningBuildNumbers = new Set();
+      stopPipelineKpiBurstRefresh();
       return;
     }
 
@@ -1701,12 +1738,30 @@ async function loadPipelineKPIs() {
     */
     renderCharts(branchData);
 
-    const hasRunning = builds.some(b => b.result === null);
+    const currentRunningBuildNumbers = new Set(
+      builds
+        .filter(b => b.result === null)
+        .map(b => b.number)
+    );
+    const buildJustFinished = Array.from(_prevRunningBuildNumbers)
+      .some(number => !currentRunningBuildNumbers.has(number));
+    _prevRunningBuildNumbers = currentRunningBuildNumbers;
+
+    const hasRunning = currentRunningBuildNumbers.size > 0;
     if (hasRunning && !_pollHandle) {
-      _pollHandle = setInterval(loadPipelineKPIs, POLL_MS);
+      _pollHandle = setInterval(
+        () => loadPipelineKPIs({ refresh: true, wait: true }),
+        POLL_MS
+      );
     } else if (!hasRunning && _pollHandle) {
       clearInterval(_pollHandle);
       _pollHandle = null;
+    }
+
+    if (hasRunning) {
+      stopPipelineKpiBurstRefresh();
+    } else if (buildJustFinished) {
+      schedulePipelineKpiBurstRefresh();
     }
     /*
     Legacy running-stage polling kept for later rollback:

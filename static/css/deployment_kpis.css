@@ -1,3 +1,47 @@
+.deployment-app-banner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:10px;
+  padding:16px 18px;
+  border:1px solid rgba(58,184,248,.24);
+  border-radius:16px;
+  background:
+    radial-gradient(circle at top right, rgba(58,184,248,.16), transparent 34%),
+    linear-gradient(135deg, var(--bg2), var(--bg3));
+  box-shadow:var(--shadow);
+}
+.deployment-app-eyebrow{
+  font-size:10.5px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--blue);
+}
+.deployment-app-title{
+  margin-top:4px;
+  font-size:16px;
+  font-weight:800;
+  letter-spacing:-.02em;
+  color:var(--text);
+}
+.deployment-app-link{
+  display:inline-flex;
+  align-items:center;
+  padding:10px 14px;
+  border-radius:999px;
+  border:1px solid rgba(58,184,248,.24);
+  background:rgba(58,184,248,.12);
+  color:var(--blue);
+  font-size:12px;
+  font-weight:700;
+  white-space:nowrap;
+}
+.deployment-app-link:hover{
+  background:rgba(58,184,248,.18);
+}
+
 .stat-row.deploy-stat-row{width:100%;grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:10px;gap:8px;}
 .stat-row.deploy-stat-row .stat-card{padding:12px 14px;}
 .stat-row.deploy-stat-row .stat-value{display:flex;align-items:center;gap:8px;}
@@ -5,7 +49,7 @@
 .stat-row.deploy-stat-row .stat-card.namespaces .stat-icon{background:rgba(58,184,248,.12);color:var(--blue);}
 .stat-row.deploy-stat-row .stat-card.namespaces .stat-value{color:var(--blue);}
 
-.deploy-grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:6px;overflow-x:auto;padding-bottom:2px;}
+.deploy-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:6px;overflow-x:auto;padding-bottom:2px;}
 .deploy-grid .chart-card{padding:12px 12px 8px;}
 .deploy-chart-area{height:165px;}
 .deploy-grid .chart-card.full{grid-column:1/-1;}
@@ -93,6 +137,8 @@
 
 
 @media (max-width:780px){
+  .deployment-app-banner{flex-direction:column;align-items:flex-start;}
+  .deployment-app-link{white-space:normal;overflow-wrap:anywhere;}
   .stat-row.deploy-stat-row{grid-template-columns:1fr;}
   .deploy-grid-split{grid-template-columns:1fr;}
   .artifact-details-grid{flex-direction:column;}

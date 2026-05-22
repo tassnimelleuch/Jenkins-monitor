@@ -458,6 +458,125 @@
   border-top:1px solid rgba(20, 120, 40, 0.1);
 }
 
+:root[data-theme="dark"] .gh-commit-failing{
+  border-color:rgba(255,69,96,.3);
+  background:linear-gradient(180deg, rgba(255,69,96,.12) 0%, var(--bg3) 82%);
+  box-shadow:0 8px 18px rgba(0,0,0,.32);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-commit-msg{
+  color:#ffd7de;
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-commit-sha,
+:root[data-theme="dark"] .gh-commit-failing .gh-culprit,
+:root[data-theme="dark"] .gh-commit-failing .gh-culprit-label,
+:root[data-theme="dark"] .gh-build-badge{
+  color:#ff9bac;
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-meta{
+  color:var(--text2);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-commit-sha-badge{
+  background:rgba(255,69,96,.14);
+  border-color:rgba(255,69,96,.26);
+  color:#ffb2bf;
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-commit-sha-badge:hover{
+  background:rgba(255,69,96,.2);
+  border-color:rgba(255,69,96,.32);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-build-badge{
+  background:rgba(255,69,96,.12);
+  border-color:rgba(255,69,96,.24);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-culprit-section{
+  background:rgba(255,69,96,.08);
+  border-color:rgba(255,69,96,.18);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-user-card,
+:root[data-theme="dark"] .gh-commit-failing .gh-user-card-plain{
+  background:var(--bg2);
+  border-color:rgba(255,69,96,.2);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-user-card:hover{
+  background:var(--bg4);
+  border-color:rgba(255,69,96,.32);
+  box-shadow:0 4px 12px rgba(0,0,0,.16);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-user-avatar{
+  border-color:rgba(255,69,96,.2);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-user-name{
+  color:var(--text);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-commit-footer{
+  border-top-color:rgba(255,69,96,.14);
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-build-link{
+  background:rgba(255,69,96,.16);
+  border:1px solid rgba(255,69,96,.24);
+  color:#ffdbe2;
+}
+:root[data-theme="dark"] .gh-commit-failing .gh-build-link:hover{
+  background:rgba(255,69,96,.24);
+  box-shadow:0 4px 12px rgba(0,0,0,.18);
+}
+
+:root[data-theme="dark"] .gh-commit-fixed{
+  border-color:rgba(0,219,160,.3);
+  background:linear-gradient(180deg, rgba(0,219,160,.12) 0%, var(--bg3) 82%);
+  box-shadow:0 8px 18px rgba(0,0,0,.32);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-commit-msg-success,
+:root[data-theme="dark"] .gh-commit-fixed .gh-culprit-label-success,
+:root[data-theme="dark"] .gh-build-badge-success{
+  color:#9ff0d4;
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-commit-sha-badge-success{
+  background:rgba(0,219,160,.14);
+  border-color:rgba(0,219,160,.26);
+  color:#b9ffe7;
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-commit-sha-badge-success:hover{
+  background:rgba(0,219,160,.2);
+  border-color:rgba(0,219,160,.32);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-build-badge-success{
+  background:rgba(0,219,160,.12);
+  border-color:rgba(0,219,160,.24);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-culprit-section-success{
+  background:rgba(0,219,160,.08);
+  border-color:rgba(0,219,160,.18);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-user-card,
+:root[data-theme="dark"] .gh-commit-fixed .gh-user-card-plain{
+  background:var(--bg2);
+  border-color:rgba(0,219,160,.2);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-user-card:hover{
+  background:var(--bg4);
+  border-color:rgba(0,219,160,.32);
+  box-shadow:0 4px 12px rgba(0,0,0,.16);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-user-avatar{
+  border-color:rgba(0,219,160,.2);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-user-name{
+  color:var(--text);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-commit-footer{
+  border-top-color:rgba(0,219,160,.14);
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-build-link-success{
+  background:rgba(0,219,160,.16);
+  border:1px solid rgba(0,219,160,.24);
+  color:#d4fff1;
+}
+:root[data-theme="dark"] .gh-commit-fixed .gh-build-link-success:hover{
+  background:rgba(0,219,160,.24);
+  box-shadow:0 4px 12px rgba(0,0,0,.18);
+}
+
 /* Time to Fix */
 .ttf-container{
   background:linear-gradient(135deg, #f0fdf4 0%, rgba(34, 197, 94, 0.05) 100%);
@@ -490,6 +609,17 @@
   color:#7a2e27;
   text-transform:uppercase;
   letter-spacing:0.05em;
+}
+
+:root[data-theme="dark"] .ttf-container{
+  background:linear-gradient(135deg, rgba(0,219,160,.12) 0%, rgba(0,219,160,.04) 100%);
+  border-color:rgba(0,219,160,.22);
+}
+:root[data-theme="dark"] .ttf-time{
+  color:#8ef0cb;
+}
+:root[data-theme="dark"] .ttf-label{
+  color:var(--text2);
 }
 
 .ttf-severity{

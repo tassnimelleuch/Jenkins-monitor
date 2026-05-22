@@ -75,14 +75,10 @@ function buildAlertMeta(alert) {
     const buildNumbers = Array.isArray(alert.build_numbers) && alert.build_numbers.length
       ? alert.build_numbers.map(number => `#${number}`).join(', ')
       : '--';
-    const firstFailedBy = alert.first_failed_author_login
-      ? `@${alert.first_failed_author_login}`
-      : (alert.first_failed_author_name || '--');
 
     items.push(
       `Recent failures: ${buildNumbers}`,
-      `GitHub user: ${firstFailedBy}`,
-      `Commit: ${alert.first_failed_commit_sha || '--'}`
+      `Streak started: ${alert.first_failed_build_number ? `#${alert.first_failed_build_number}` : '--'}`
     );
   } else if (alert.kind === 'stage_duration_over_average') {
     items.push(
@@ -105,6 +101,28 @@ function buildAlertMeta(alert) {
   }
 
   return items;
+}
+
+function buildAlertContext(alert) {
+  if (alert.kind !== 'build_failure_streak') return '';
+
+  const firstFailedBy = alert.first_failed_author_login
+    ? `@${alert.first_failed_author_login}`
+    : (alert.first_failed_author_name || '--');
+  const firstFailedCommit = alert.first_failed_commit_sha || '--';
+
+  return `
+    <div class="alert-context-grid">
+      <div class="alert-context-card">
+        <div class="alert-context-label">First failed by</div>
+        <div class="alert-context-value">${escapeHtml(firstFailedBy)}</div>
+      </div>
+      <div class="alert-context-card">
+        <div class="alert-context-label">First failed commit</div>
+        <div class="alert-context-value alert-context-value-mono">${escapeHtml(firstFailedCommit)}</div>
+      </div>
+    </div>
+  `;
 }
 
 function buildAlertAction(alert, canManageAlerts) {
@@ -144,6 +162,7 @@ function renderAlertRows(listId, alerts, canManageAlerts) {
     const metaItems = buildAlertMeta(alert)
       .map(item => `<span>${escapeHtml(item)}</span>`)
       .join('');
+    const context = buildAlertContext(alert);
     const action = buildAlertAction(alert, canManageAlerts);
 
     return `
@@ -154,6 +173,7 @@ function renderAlertRows(listId, alerts, canManageAlerts) {
             <span class="alert-build-tag">${escapeHtml(alert.label || 'Alert')}</span>
           </div>
           <div class="alert-message">${escapeHtml(alert.message || 'Alert triggered.')}</div>
+          ${context}
           <div class="alert-meta">${metaItems}</div>
         </div>
         ${action}

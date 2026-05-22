@@ -210,6 +210,56 @@ def _stored_payload_needs_artifact_refresh(stored_payload):
     )
 
 
+def _stored_payload_has_stage_history_gaps(stored_payload):
+    if not stored_payload:
+        return True
+
+    _, branch_payload = _get_selected_branch_snapshot(stored_payload)
+    if not branch_payload:
+        return True
+
+    finished_builds = [
+        build
+        for build in (branch_payload.get('builds') or [])
+        if build.get('number') is not None and build.get('result') is not None
+    ]
+    if not finished_builds:
+        return False
+
+    return not any(build.get('stages') for build in finished_builds)
+
+
+def _stored_branch_payload(payload):
+    _, branch_payload = _get_selected_branch_snapshot(payload or {})
+    return branch_payload or {}
+
+
+def _overlay_stored_stage_history(builds_data, stored_branch_payload):
+    if not stored_branch_payload:
+        return list(builds_data or [])
+
+    stored_builds_by_number = {
+        build.get('number'): build
+        for build in (stored_branch_payload.get('builds') or [])
+        if build.get('number') is not None
+    }
+
+    merged = []
+    for build in builds_data or []:
+        stored_build = stored_builds_by_number.get(build.get('number')) or {}
+        merged.append({
+            **stored_build,
+            **build,
+            'stages': (
+                build.get('stages')
+                if build.get('stages') is not None
+                else (stored_build.get('stages') or [])
+            ),
+        })
+
+    return merged
+
+
 def _get_cached_selected_branch_head():
     now = datetime.now(timezone.utc)
     with _pipeline_head_cache_lock:
@@ -557,7 +607,7 @@ def _fetch_overview_kpis_from_jenkins():
     }
 
 
-def _fetch_pipeline_kpis_from_jenkins():
+def _fetch_pipeline_kpis_from_jenkins(include_quality_metrics=True):
     selected_branch = configured_branch_name(current_app.config, default='main')
     all_builds = get_all_builds()
     if all_builds is None:
@@ -565,13 +615,30 @@ def _fetch_pipeline_kpis_from_jenkins():
 
     summary = _summarize_build_history(all_builds)
     app = current_app._get_current_object()
+    stored_payload = get_stored_pipeline_kpis() if not include_quality_metrics else None
+    stored_branch_payload = _stored_branch_payload(stored_payload)
+
+    stage_build_numbers = []
+    recent_finished_stage_fetches = 0
+    for build in all_builds:
+        build_number = build.get('number')
+        if build_number is None:
+            continue
+        if include_quality_metrics:
+            stage_build_numbers.append(build_number)
+            continue
+        if build.get('result') is None:
+            stage_build_numbers.append(build_number)
+            continue
+        if recent_finished_stage_fetches < 5:
+            stage_build_numbers.append(build_number)
+            recent_finished_stage_fetches += 1
 
     stage_tasks = {
-        b.get('number'): (
-            lambda n=b.get('number'): _call_in_app_context(app, lambda: get_stages(n))
+        build_number: (
+            lambda n=build_number: _call_in_app_context(app, lambda: get_stages(n))
         )
-        for b in all_builds
-        if b.get('number')
+        for build_number in stage_build_numbers
     }
     stages_by_build = (
         parallel_execute(stage_tasks, max_workers=6, timeout=20)
@@ -582,7 +649,7 @@ def _fetch_pipeline_kpis_from_jenkins():
     builds_data = []
     for b in all_builds:
         num = b.get('number')
-        stages = stages_by_build.get(num, []) if num else []
+        stages = stages_by_build.get(num) if num else None
         builds_data.append({
             'branch': selected_branch,
             'number': num,
@@ -594,11 +661,16 @@ def _fetch_pipeline_kpis_from_jenkins():
             'stages': stages,
         })
 
-    finished = [b for b in builds_data if b['result'] is not None]
+    history_builds_data = (
+        _overlay_stored_stage_history(builds_data, stored_branch_payload)
+        if not include_quality_metrics
+        else builds_data
+    )
+    finished = [b for b in history_builds_data if b['result'] is not None]
     tests_duration_trend = build_tests_duration_points(
-        builds_data,
+        history_builds_data,
         branch_name=selected_branch,
-        finished_only=False,
+        finished_only=True,
     )
 
     durations = [b['duration'] for b in finished if b['duration'] > 0]
@@ -607,7 +679,7 @@ def _fetch_pipeline_kpis_from_jenkins():
     stage_failures = {}
     stage_totals = {}
     for b in finished:
-        for stage in b.get('stages', []):
+        for stage in (b.get('stages') or []):
             stage_name = stage.get('name', 'Unknown')
             stage_totals[stage_name] = stage_totals.get(stage_name, 0) + 1
             if stage.get('status') == 'FAILED':
@@ -618,78 +690,86 @@ def _fetch_pipeline_kpis_from_jenkins():
         failures = stage_failures.get(stage_name, 0)
         failure_rate_by_stage[stage_name] = round((failures / count * 100), 1) if count > 0 else 0
 
-    coverage_builds = list(reversed(finished[:PIPELINE_COVERAGE_TREND_HISTORY_LIMIT]))
-    junit_builds = _select_recent_junit_builds(finished)
-
-    coverage_tasks = {
-        b.get('number'): (
-            lambda n=b.get('number'): _call_in_app_context(app, lambda: get_coverage_percent(n))
-        )
-        for b in coverage_builds
-        if b.get('number')
-    }
-    test_report_tasks = {
-        b.get('number'): (
-            lambda n=b.get('number'): _call_in_app_context(app, lambda: get_test_report(n))
-        )
-        for b in junit_builds
-        if b.get('number')
-    }
-
-    coverage_by_build = (
-        parallel_execute(coverage_tasks, max_workers=6, timeout=20)
-        if coverage_tasks
-        else {}
-    )
-    test_reports_by_build = (
-        parallel_execute(test_report_tasks, max_workers=6, timeout=20)
-        if test_report_tasks
-        else {}
-    )
-
     coverage_trend = []
     junit_trend = []
-    coverage_vals = []
-    for b in coverage_builds:
-        num = b.get('number')
-        coverage = coverage_by_build.get(num) if num else None
-        if coverage is not None:
-            coverage_vals.append(coverage)
-        coverage_trend.append({
-            'branch': selected_branch,
-            'number': num,
-            'coverage': coverage,
-            'timestamp': b.get('timestamp', 0),
-        })
+    avg_test_coverage = None
+    if include_quality_metrics:
+        coverage_builds = list(reversed(finished[:PIPELINE_COVERAGE_TREND_HISTORY_LIMIT]))
+        junit_builds = _select_recent_junit_builds(finished)
 
-    for b in junit_builds:
-        num = b.get('number')
-        report = test_reports_by_build.get(num) if num else None
-        if report:
-            junit_trend.append({
+        coverage_tasks = {
+            b.get('number'): (
+                lambda n=b.get('number'): _call_in_app_context(app, lambda: get_coverage_percent(n))
+            )
+            for b in coverage_builds
+            if b.get('number')
+        }
+        test_report_tasks = {
+            b.get('number'): (
+                lambda n=b.get('number'): _call_in_app_context(app, lambda: get_test_report(n))
+            )
+            for b in junit_builds
+            if b.get('number')
+        }
+
+        coverage_by_build = (
+            parallel_execute(coverage_tasks, max_workers=6, timeout=20)
+            if coverage_tasks
+            else {}
+        )
+        test_reports_by_build = (
+            parallel_execute(test_report_tasks, max_workers=6, timeout=20)
+            if test_report_tasks
+            else {}
+        )
+
+        coverage_vals = []
+        for b in coverage_builds:
+            num = b.get('number')
+            coverage = coverage_by_build.get(num) if num else None
+            if coverage is not None:
+                coverage_vals.append(coverage)
+            coverage_trend.append({
                 'branch': selected_branch,
                 'number': num,
+                'coverage': coverage,
                 'timestamp': b.get('timestamp', 0),
-                **report,
-            })
-        else:
-            junit_trend.append({
-                'branch': selected_branch,
-                'number': num,
-                'timestamp': b.get('timestamp', 0),
-                'total': None,
-                'passed': None,
-                'failed': None,
-                'skipped': None,
             })
 
-    avg_test_coverage = round(sum(coverage_vals) / len(coverage_vals), 1) if coverage_vals else None
+        for b in junit_builds:
+            num = b.get('number')
+            report = test_reports_by_build.get(num) if num else None
+            if report:
+                junit_trend.append({
+                    'branch': selected_branch,
+                    'number': num,
+                    'timestamp': b.get('timestamp', 0),
+                    **report,
+                })
+            else:
+                junit_trend.append({
+                    'branch': selected_branch,
+                    'number': num,
+                    'timestamp': b.get('timestamp', 0),
+                    'total': None,
+                    'passed': None,
+                    'failed': None,
+                    'skipped': None,
+                })
+
+        avg_test_coverage = round(sum(coverage_vals) / len(coverage_vals), 1) if coverage_vals else None
+    else:
+        stored_trends = stored_branch_payload.get('trends') or {}
+        stored_quality = stored_branch_payload.get('quality') or {}
+        coverage_trend = list(stored_trends.get('coverage') or [])
+        junit_trend = list(stored_trends.get('junit') or [])
+        avg_test_coverage = stored_quality.get('avg_test_coverage')
 
     successful_deployments = 0
     total_finished_builds = len(finished)
 
     for b in finished:
-        stage_map = _map_stage_statuses(b.get('stages', []))
+        stage_map = _map_stage_statuses(b.get('stages') or [])
         deploy_ok = stage_map.get(DEPLOY_STAGE) == 'SUCCESS'
         rollout_ok = stage_map.get(ROLLOUT_STAGE) == 'SUCCESS'
 
@@ -772,22 +852,33 @@ def _fetch_pipeline_kpis_from_jenkins():
     }
 
 
-def refresh_pipeline_storage_from_jenkins():
-    payload = _fetch_pipeline_kpis_from_jenkins()
+def refresh_pipeline_storage_from_jenkins(
+    *,
+    include_quality_metrics=True,
+    include_quality_backfill=True,
+):
+    if not include_quality_metrics:
+        stored_payload = get_stored_pipeline_kpis()
+        if _stored_payload_has_stage_history_gaps(stored_payload):
+            include_quality_metrics = True
+
+    payload = _fetch_pipeline_kpis_from_jenkins(
+        include_quality_metrics=include_quality_metrics,
+    )
     if not payload.get('connected'):
         return payload
 
     sync_pipeline_snapshot(payload)
     selected_branch = (payload.get('pipeline') or {}).get('selected_branch')
     selected_payload = ((payload.get('branches') or {}).get(selected_branch) or {})
-    app = current_app._get_current_object()
-
-    backfill_branch_test_results(
-        selected_branch,
-        selected_payload.get('builds') or [],
-        coverage_fetcher=lambda n: _call_in_app_context(app, lambda: get_coverage_percent(n)),
-        test_report_fetcher=lambda n: _call_in_app_context(app, lambda: get_test_report(n)),
-    )
+    if include_quality_backfill:
+        app = current_app._get_current_object()
+        backfill_branch_test_results(
+            selected_branch,
+            selected_payload.get('builds') or [],
+            coverage_fetcher=lambda n: _call_in_app_context(app, lambda: get_coverage_percent(n)),
+            test_report_fetcher=lambda n: _call_in_app_context(app, lambda: get_test_report(n)),
+        )
 
     warm_pipeline_snapshot_cache()
     _cache_selected_branch_head(payload)

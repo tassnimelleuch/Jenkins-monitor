@@ -7,10 +7,12 @@ from services.jenkins_service import (
     get_live_running_builds,
     get_pipeline_kpis,
     invalidate_pipeline_live_state,
+    refresh_pipeline_storage_from_jenkins,
     request_pipeline_background_refresh,
 )
 from collectors.jenkins_collector import trigger_build, abort_build
 from services.metrics_service import get_vm_metrics
+from services.pipeline_storage_service import get_stored_pipeline_kpis
 from services.user_account_service import get_pending_count
 
 @pipeline_kpis_bp.route('/pipeline_kpis')
@@ -27,6 +29,16 @@ def pipeline_kpis():
 @pipeline_kpis_bp.route('/api/pipeline_kpis')
 @role_required('admin', 'developer', 'tester')
 def pipeline_kpis_api():
+    if request.args.get('refresh') == '1' and request.args.get('wait') == '1':
+        payload = refresh_pipeline_storage_from_jenkins(
+            include_quality_metrics=False,
+            include_quality_backfill=False,
+        )
+        response_payload = get_stored_pipeline_kpis() or payload
+        return current_app.response_class(
+            json.dumps(response_payload, indent=2),
+            mimetype='application/json'
+        )
     if request.args.get('refresh') == '1':
         request_pipeline_background_refresh()
     payload = get_pipeline_kpis()
