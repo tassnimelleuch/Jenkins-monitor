@@ -23,6 +23,28 @@ function formatCurrency(value, currencyCode = 'USD') {
   }).format(Number(value));
 }
 
+function formatPercent(value) {
+  if (value == null || Number.isNaN(Number(value))) return '-';
+  return `${Number(value).toFixed(1)}%`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeAlertKind(value) {
+  const normalized = String(value || 'generic')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-');
+  return normalized || 'generic';
+}
+
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
@@ -34,64 +56,113 @@ function toggleHidden(id, hidden) {
 }
 
 function buildAlertMeta(alert) {
+  const items = [];
+
   if (alert.kind === 'finops_daily_cost') {
-    return [
-      `Day: ${alert.usage_date || '--'}`,
+    items.push(
       `Current: ${formatCurrency(alert.current_value, alert.currency_code)}`,
       `Average: ${formatCurrency(alert.threshold_value, alert.currency_code)}`,
       `Over by: ${formatCurrency(alert.delta_value, alert.currency_code)}`,
-      `Month: ${alert.month_label || '--'}`,
-      `Detected: ${formatAlertTime(alert.last_detected_at)}`,
-    ];
+      `Month: ${alert.month_label || '--'}`
+    );
+  } else if (alert.kind === 'open_pull_request_age') {
+    items.push(
+      `Title: ${alert.title || '--'}`,
+      `Author: ${alert.author_login || '--'}`,
+      `Open for: ${formatAlertDuration(alert.age_ms)}`
+    );
+  } else if (alert.kind === 'build_failure_streak') {
+    const buildNumbers = Array.isArray(alert.build_numbers) && alert.build_numbers.length
+      ? alert.build_numbers.map(number => `#${number}`).join(', ')
+      : '--';
+    const firstFailedBy = alert.first_failed_author_login
+      ? `@${alert.first_failed_author_login}`
+      : (alert.first_failed_author_name || '--');
+
+    items.push(
+      `Recent failures: ${buildNumbers}`,
+      `GitHub user: ${firstFailedBy}`,
+      `Commit: ${alert.first_failed_commit_sha || '--'}`
+    );
+  } else if (alert.kind === 'stage_duration_over_average') {
+    items.push(
+      `Stage: ${alert.stage_name || '--'}`,
+      `Running: ${formatAlertDuration(alert.duration_ms)}`,
+      `Average: ${formatAlertDuration(alert.threshold_ms)}`,
+      `Over by: ${formatAlertDuration(alert.exceeded_by_ms)}`
+    );
+  } else if (alert.kind === 'prometheus_metric_threshold') {
+    items.push(
+      `Current: ${formatPercent(alert.current_value)}`,
+      `Over by: ${formatPercent(alert.delta_value)}`
+    );
+  } else {
+    items.push(
+      `Current: ${formatAlertDuration(alert.duration_ms)}`,
+      `Threshold: ${formatAlertDuration(alert.threshold_ms)}`,
+      `Over by: ${formatAlertDuration(alert.exceeded_by_ms)}`
+    );
   }
 
-  return [
-    `Current: ${formatAlertDuration(alert.duration_ms)}`,
-    `Threshold: ${formatAlertDuration(alert.threshold_ms)}`,
-    `Over by: ${formatAlertDuration(alert.exceeded_by_ms)}`,
-    `Started: ${formatAlertTime(alert.started_at)}`,
-  ];
+  return items;
 }
 
-function renderAlertRows(alerts, canCheckAlerts) {
-  const list = document.getElementById('alertsList');
+function buildAlertAction(alert, canManageAlerts) {
+  if (!canManageAlerts) return '';
+
+  if (!alert.requires_check) return '';
+
+  return `
+    <button
+      class="alert-check-btn"
+      type="button"
+      data-alert-check-id="${escapeHtml(alert.id)}"
+      aria-label="Mark alert checked"
+      title="Mark alert checked">
+      <svg class="alert-check-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M3.5 8.5 6.5 11.5 12.5 5.5" />
+      </svg>
+    </button>
+  `;
+}
+
+function renderAlertRows(listId, alerts, canManageAlerts) {
+  const list = document.getElementById(listId);
   if (!list) return;
 
-  list.innerHTML = alerts.map(alert => {
-    const metaItems = buildAlertMeta(alert)
-      .map(item => `<span>${item}</span>`)
-      .join('');
+  if (!Array.isArray(alerts) || alerts.length === 0) {
+    list.innerHTML = `
+      <div class="alerts-empty">
+        No open alerts right now.
+      </div>
+    `;
+    return;
+  }
 
-    const checkAction = alert.requires_check && canCheckAlerts
-      ? `
-        <button
-          class="alert-check-btn"
-          type="button"
-          data-alert-check-id="${alert.id}">
-          Checked
-        </button>
-      `
-      : '';
+  list.innerHTML = alerts.map(alert => {
+    const kindClass = sanitizeAlertKind(alert.kind);
+    const metaItems = buildAlertMeta(alert)
+      .map(item => `<span>${escapeHtml(item)}</span>`)
+      .join('');
+    const action = buildAlertAction(alert, canManageAlerts);
 
     return `
-      <article class="alert-row alert-row-${alert.kind}">
+      <article class="alert-row alert-row-${kindClass}">
         <div class="alert-row-main">
           <div class="alert-row-top">
-            <span class="alert-source-tag">${alert.source_label || 'Alert'}</span>
-            <span class="alert-build-tag">${alert.label || 'Alert'}</span>
-            <span class="alert-severity">${alert.severity || 'warning'}</span>
+            <span class="alert-source-tag">${escapeHtml(alert.source_label || 'Alert')}</span>
+            <span class="alert-build-tag">${escapeHtml(alert.label || 'Alert')}</span>
           </div>
-          <div class="alert-message">${alert.message || 'Alert triggered.'}</div>
+          <div class="alert-message">${escapeHtml(alert.message || 'Alert triggered.')}</div>
           <div class="alert-meta">${metaItems}</div>
         </div>
-        ${checkAction}
+        ${action}
       </article>
     `;
   }).join('');
 }
 
-async function markAlertChecked(alertId) {
-  const template = document.body.dataset.alertCheckUrlTemplate || '';
+async function postAlertAction(template, alertId, fallbackMessage) {
   if (!template || !alertId) return false;
 
   const url = template.replace(/\/0\/check$/, `/${alertId}/check`);
@@ -103,7 +174,7 @@ async function markAlertChecked(alertId) {
   });
 
   if (!response.ok) {
-    let message = 'Could not mark the alert as checked.';
+    let message = fallbackMessage;
     try {
       const payload = await response.json();
       message = payload.error || message;
@@ -116,10 +187,18 @@ async function markAlertChecked(alertId) {
   return true;
 }
 
+async function markAlertChecked(alertId) {
+  return postAlertAction(
+    document.body.dataset.alertCheckUrlTemplate || '',
+    alertId,
+    'Could not mark the alert as checked.'
+  );
+}
+
 async function loadAlerts() {
   try {
     const url = document.body.dataset.alertsUrl;
-    const canCheckAlerts = document.body.dataset.canCheckAlerts === 'true';
+    const canManageAlerts = document.body.dataset.canCheckAlerts === 'true';
     const response = await fetch(url);
     const data = await response.json();
     const summary = data.summary || {};
@@ -127,31 +206,33 @@ async function loadAlerts() {
     const pipeline = data.pipeline || {};
     const alertCount = Number(summary.alert_count ?? alerts.length ?? 0);
     const finopsAlertCount = Number(summary.finops_alert_count ?? 0);
-    const buildAlertCount = Number(summary.build_alert_count ?? 0);
-    const thresholdMs = summary.threshold_ms || 0;
+    const githubAlertCount = Number(summary.github_alert_count ?? 0);
+    const prometheusAlertCount = Number(summary.prometheus_alert_count ?? 0);
+    const jenkinsAlertCount = Number(summary.jenkins_alert_count ?? summary.build_alert_count ?? 0);
 
     setText(
       'alertsSubtitle',
-      `Monitoring ${finopsAlertCount} pending total-cost FinOps alert${finopsAlertCount === 1 ? '' : 's'} and ${buildAlertCount} Jenkins alert${buildAlertCount === 1 ? '' : 's'}.`
+      `${alertCount} open alert${alertCount === 1 ? '' : 's'}: ${finopsAlertCount} FinOps, ${jenkinsAlertCount} Jenkins, ${githubAlertCount} GitHub, ${prometheusAlertCount} Prometheus.`
     );
     setText(
       'alertsRuleText',
-      `Total-cost FinOps alerts stay until an admin checks them. Jenkins alerts track running builds over ${formatAlertDuration(thresholdMs)} on ${pipeline.selected_branch || 'main'}.`
+      'Open alerts from FinOps, Jenkins, GitHub, and Prometheus.'
     );
-    setText('alertsUpdatedAt', `Updated ${formatAlertTime(data.generated_at)}`);
 
     const pill = document.getElementById('alertsStatusPill');
     if (pill) {
       pill.hidden = alertCount === 0;
-      pill.textContent = `${alertCount} active`;
+      pill.textContent = `${alertCount} open`;
       pill.classList.toggle('is-alert', alertCount > 0);
     }
 
     toggleHidden('alertsCard', alertCount === 0);
     toggleHidden('alertsIdleState', alertCount > 0);
 
-    if (alertCount > 0) {
-      renderAlertRows(alerts, canCheckAlerts);
+    renderAlertRows('alertsList', alerts, canManageAlerts);
+
+    if (alertCount === 0) {
+      setText('alertsIdleState', 'No open alerts right now.');
     }
   } catch (e) {
     toggleHidden('alertsCard', true);
@@ -167,21 +248,22 @@ async function loadAlerts() {
 }
 
 document.addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-alert-check-id]');
-  if (!button) return;
+  const checkButton = event.target.closest('[data-alert-check-id]');
+  if (checkButton) {
+    const alertId = checkButton.dataset.alertCheckId;
+    if (!alertId) return;
 
-  const alertId = button.dataset.alertCheckId;
-  if (!alertId) return;
+    checkButton.disabled = true;
+    checkButton.setAttribute('aria-busy', 'true');
 
-  button.disabled = true;
-  button.textContent = 'Checking...';
-
-  try {
-    await markAlertChecked(alertId);
-    await loadAlerts();
-  } catch (error) {
-    button.disabled = false;
-    button.textContent = 'Checked';
+    try {
+      await markAlertChecked(alertId);
+      await loadAlerts();
+    } catch (error) {
+      checkButton.disabled = false;
+      checkButton.removeAttribute('aria-busy');
+    }
+    return;
   }
 });
 

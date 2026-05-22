@@ -9,6 +9,7 @@ from collectors.github_collector import get_latest_commit_for_branch, get_pull_r
 from pipeline_identity import configured_branch_name, pipeline_name
 from services.deployment_kpis_service import get_deployment_kpis
 from services.finops_service import FinOpsService
+from services.github_storage_service import get_cached_github_24h_commit_details
 from services.jenkins_service import get_pipeline_kpis, refresh_pipeline_storage_from_jenkins
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import get_stored_pipeline_kpis
@@ -117,6 +118,7 @@ def _load_pipeline_snapshot():
         },
         'average_duration_ms': summary.get('avg_duration_ms'),
         'average_test_coverage': quality.get('avg_test_coverage'),
+        'success_rate': summary.get('success_rate'),
         'jenkins_health_score': summary.get('health_score'),
     }
 
@@ -187,6 +189,44 @@ def _format_commit(commit_raw, branch_name=MAIN_BRANCH_NAME):
     }
 
 
+def _top_changed_file_from_commits(commits_raw):
+    if not commits_raw:
+        return None
+
+    file_changes = {}
+    for commit in commits_raw:
+        if not isinstance(commit, dict):
+            continue
+
+        for file_obj in (commit.get('files') or []):
+            filename = str((file_obj or {}).get('filename') or '').strip()
+            if not filename:
+                continue
+
+            entry = file_changes.setdefault(filename, {
+                'filename': filename,
+                'touches': 0,
+                'additions': 0,
+                'deletions': 0,
+                'line_changes': 0,
+            })
+            entry['touches'] += 1
+            entry['additions'] += _safe_int((file_obj or {}).get('additions'), default=0)
+            entry['deletions'] += _safe_int((file_obj or {}).get('deletions'), default=0)
+
+    if not file_changes:
+        return None
+
+    for entry in file_changes.values():
+        entry['line_changes'] = entry['additions'] + entry['deletions']
+
+    ranked = sorted(
+        file_changes.values(),
+        key=lambda item: (-item['line_changes'], -item['touches'], item['filename']),
+    )
+    return ranked[0]
+
+
 def _load_github_snapshot():
     owner = current_app.config.get('GITHUB_OWNER')
     repo = current_app.config.get('GITHUB_REPO')
@@ -198,20 +238,19 @@ def _load_github_snapshot():
 
     open_prs_raw = get_pull_requests(owner, repo, state='open', per_page=100) or []
     latest_main_commit_raw = get_latest_commit_for_branch(owner, repo, MAIN_BRANCH_NAME)
+    analytics_payload = get_cached_github_24h_commit_details(owner, repo, MAIN_BRANCH_NAME) or {}
+    top_changed_file = _top_changed_file_from_commits(analytics_payload.get('commits_raw') or [])
 
     return {
         'connected': bool(open_prs_raw or latest_main_commit_raw),
         'owner': owner,
         'repo': repo,
         'open_pr_count': len(open_prs_raw),
-        'open_prs': [
-            _format_pull_request(pr)
-            for pr in open_prs_raw
-        ],
         'main_commit': (
             _format_commit(latest_main_commit_raw, branch_name=MAIN_BRANCH_NAME)
             if latest_main_commit_raw else None
         ),
+        'top_changed_file': top_changed_file,
         'message': None if (open_prs_raw or latest_main_commit_raw) else 'Unable to fetch GitHub export data.',
     }
 
@@ -335,6 +374,7 @@ def get_pdf_report_snapshot():
         'latest_build': pipeline_snapshot.get('latest_build') or {},
         'average_duration_ms': pipeline_snapshot.get('average_duration_ms'),
         'average_test_coverage': pipeline_snapshot.get('average_test_coverage'),
+        'success_rate': pipeline_snapshot.get('success_rate'),
         'jenkins_health_score': pipeline_snapshot.get('jenkins_health_score'),
         'finops': finops_snapshot,
         'github': github_snapshot,

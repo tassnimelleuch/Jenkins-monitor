@@ -934,6 +934,11 @@ async function exportPDF() {
         note: ''
       },
       {
+        title: 'Latest Build Status',
+        value: latestBuild.status || '--',
+        note: ''
+      },
+      {
         title: 'Azure Cost',
         value: formatPdfCurrency(finops.day_cost, finops.currency_code || 'USD'),
         note: ''
@@ -956,6 +961,11 @@ async function exportPDF() {
       {
         title: 'Average Test Coverage',
         value: formatPdfPercent(payload.average_test_coverage, 1),
+        note: ''
+      },
+      {
+        title: 'Pipeline Success Rate',
+        value: formatPdfPercent(payload.success_rate, 1),
         note: ''
       },
       {
@@ -1010,16 +1020,6 @@ async function exportPDF() {
 
       y += rowHeight + rowGap;
     }
-
-    drawSection('Open Pull Requests', (
-      Array.isArray(github.open_prs) && github.open_prs.length
-        ? github.open_prs.map(pr => {
-            const draftLabel = pr.draft ? ' [draft]' : '';
-            const authorLabel = pr.author ? ` - @${pr.author}` : '';
-            return `#${pr.number || '--'} ${truncatePdfText(pr.title, 72)}${draftLabel}${authorLabel}`;
-          })
-        : ['No open pull requests at export time.']
-    ));
 
     drawSection('Last Commit on main', [
       `Commit: ${mainCommit.short_sha || '--'}${mainCommit.author_name ? ` by ${mainCommit.author_name}` : ''}`,

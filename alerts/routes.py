@@ -2,11 +2,14 @@ from flask import jsonify, render_template, session
 
 from alerts import alerts_bp
 from services.access_service import role_required
-from services.alerts_service import get_alerts_payload, mark_persistent_alert_checked
+from services.alerts_service import (
+    get_alerts_payload,
+    mark_persistent_alert_checked,
+)
 
 
 @alerts_bp.route('/alerts')
-@role_required('admin', 'developer', 'tester')
+@role_required('admin')
 def alerts_page():
     return render_template(
         'alerts.html',
@@ -16,7 +19,7 @@ def alerts_page():
 
 
 @alerts_bp.route('/api/alerts')
-@role_required('admin', 'developer', 'tester')
+@role_required('admin')
 def alerts_api():
     return jsonify(get_alerts_payload())
 
