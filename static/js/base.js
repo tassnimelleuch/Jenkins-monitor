@@ -5,19 +5,18 @@ function getCssVar(name) {
 
 function getUserDisplayPreferences() {
   const body = document.body;
+  const systemTimeZone = body?.dataset.systemTimeZone || 'UTC';
   return {
-    timeFormat: body?.dataset.timeFormat === '12h' ? '12h' : '24h',
-    dateFormat: ['dd/mm/yyyy', 'mm/dd/yyyy', 'yyyy-mm-dd'].includes(body?.dataset.dateFormat)
-      ? body.dataset.dateFormat
-      : 'dd/mm/yyyy',
-    timeZone: body?.dataset.timeZone || 'browser',
-    showSeconds: body?.dataset.showSeconds === 'true'
+    timeFormat: '24h',
+    dateFormat: 'yyyy-mm-dd',
+    timeZone: systemTimeZone,
+    showSeconds: false
   };
 }
 
 function getDisplayTimeZone() {
   const { timeZone } = getUserDisplayPreferences();
-  return timeZone && timeZone !== 'browser' ? timeZone : undefined;
+  return timeZone || undefined;
 }
 
 function normalizeDateValue(value) {
@@ -151,16 +150,11 @@ function formatUserDateKey(key, opts = {}) {
     }).format(date);
   }
 
-  const { dateFormat } = getUserDisplayPreferences();
   if (!includeYear) {
-    if (dateFormat === 'mm/dd/yyyy') return `${month}/${day}`;
-    if (dateFormat === 'yyyy-mm-dd') return `${month}-${day}`;
-    return `${day}/${month}`;
+    return `${month}-${day}`;
   }
 
-  if (dateFormat === 'mm/dd/yyyy') return `${month}/${day}/${year}`;
-  if (dateFormat === 'yyyy-mm-dd') return `${year}-${month}-${day}`;
-  return `${day}/${month}/${year}`;
+  return `${year}-${month}-${day}`;
 }
 
 function formatUserDateKeyRange(startKey, endKey, opts = {}) {
@@ -192,34 +186,29 @@ function formatUserDate(dateValue, opts = {}) {
   const parts = getUserDateParts(dateValue);
   if (!parts) return opts.fallback ?? '--';
 
-  const { dateFormat } = getUserDisplayPreferences();
   const includeYear = opts.includeYear !== false;
   const year = parts.year;
   const month = parts.month;
   const day = parts.day;
 
   if (!includeYear) {
-    if (dateFormat === 'mm/dd/yyyy') return `${month}/${day}`;
-    if (dateFormat === 'yyyy-mm-dd') return `${month}-${day}`;
-    return `${day}/${month}`;
+    return `${month}-${day}`;
   }
 
-  if (dateFormat === 'mm/dd/yyyy') return `${month}/${day}/${year}`;
-  if (dateFormat === 'yyyy-mm-dd') return `${year}-${month}-${day}`;
-  return `${day}/${month}/${year}`;
+  return `${year}-${month}-${day}`;
 }
 
 function formatUserTime(dateValue, opts = {}) {
   const date = normalizeDateValue(dateValue);
   if (!date) return opts.fallback ?? '--';
 
-  const { timeFormat, showSeconds } = getUserDisplayPreferences();
+  const { showSeconds } = getUserDisplayPreferences();
   return new Intl.DateTimeFormat(undefined, {
     timeZone: getDisplayTimeZone(),
     hour: '2-digit',
     minute: '2-digit',
     second: (opts.includeSeconds ?? showSeconds) ? '2-digit' : undefined,
-    hour12: timeFormat === '12h'
+    hour12: false
   }).format(date);
 }
 
@@ -623,50 +612,456 @@ function triggerBuildWithConfirmation(opts = {}) {
   );
 }
 
-// ── PDF Export 
-function exportPDF(){
-  const {jsPDF}=window.jspdf;
-  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  const dark=document.documentElement.getAttribute('data-theme')==='dark';
-  const ts=formatUserDateTime(new Date(), { includeSeconds: false, fallback: '--' });
-  doc.setFillColor(dark?11:240,dark?11:240,dark?18:248);doc.rect(0,0,297,210,'F');
-  doc.setFillColor(124,111,255);doc.rect(0,0,297,22,'F');
-  doc.setTextColor(255,255,255);doc.setFontSize(14);doc.setFont('helvetica','bold');
-  doc.text('Jenkins Monitor — KPI Report',14,13);
-  doc.setFontSize(8);doc.setFont('helvetica','normal');
-  doc.text(`Generated: ${ts}  |  Pipeline: ${getPipelineName()}  |  Branch: ${getBranchName()}`,14,20);
-  const total=document.getElementById('sv-total').textContent;
-  const succ=document.getElementById('sv-success').textContent;
-  const fail=document.getElementById('sv-failed').textContent;
-  const abrt=document.getElementById('sv-aborted').textContent;
-  const health=document.getElementById('health-val').textContent+'%';
-  const rate=document.getElementById('rate-val').textContent+'%';
-  const kpis=[
-    {l:'Total Builds',v:total,s:'All time',c:[124,111,255]},
-    {l:'Successful',v:succ,s:'Last 30 days',c:[0,219,160]},
-    {l:'Failed',v:fail,s:'Last 30 days',c:[255,69,96]},
-    {l:'Aborted',v:abrt,s:'Last 30 days',c:[255,140,66]},
-    {l:'Health Score',v:health,s:'Index',c:[0,219,160]},
-    {l:'Success Rate',v:rate,s:'Last 30 days',c:[58,184,248]},
-  ];
-  doc.setTextColor(dark?190:40,dark?190:40,dark?210:60);
-  doc.setFontSize(9);doc.setFont('helvetica','bold');
-  doc.text('KEY PERFORMANCE INDICATORS',14,32);
-  kpis.forEach((k,i)=>{
-    const x=14+i*47,y=36,w=44,h=30,[r,g,b]=k.c;
-    doc.setFillColor(dark?18:255,dark?18:255,dark?28:255);doc.roundedRect(x,y,w,h,3,3,'F');
-    doc.setFillColor(r,g,b);doc.roundedRect(x,y,w,3,1,1,'F');
-    doc.setTextColor(dark?120:100,dark?120:100,dark?150:130);
-    doc.setFontSize(6.5);doc.setFont('helvetica','bold');
-    doc.text(k.l.toUpperCase(),x+3,y+9);
-    doc.setTextColor(r,g,b);doc.setFontSize(13);doc.setFont('helvetica','bold');
-    doc.text(k.v,x+3,y+20);
-    doc.setTextColor(dark?120:100,dark?120:100,dark?150:130);
-    doc.setFontSize(6.5);doc.setFont('helvetica','normal');
-    doc.text(k.s,x+3,y+27);
+// ── PDF Export
+function canExportPdf() {
+  return document.body?.dataset.canExportPdf === 'true';
+}
+
+function getExportReportUrl() {
+  return document.body?.dataset.exportReportUrl || '';
+}
+
+function getStoreExportReportUrl() {
+  return document.body?.dataset.storeExportReportUrl || '';
+}
+
+function setExportButtonBusy(isBusy) {
+  const btn = document.getElementById('exportPdfBtn');
+  if (!btn) return;
+
+  if (!btn.dataset.originalLabel) {
+    btn.dataset.originalLabel = btn.textContent;
+  }
+
+  btn.disabled = Boolean(isBusy);
+  btn.textContent = isBusy ? 'Preparing...' : btn.dataset.originalLabel;
+}
+
+function hasPdfNumericValue(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+}
+
+function formatPdfPercent(value, digits = 1) {
+  if (!hasPdfNumericValue(value)) return '--';
+  return `${Number(value).toFixed(digits)}%`;
+}
+
+function formatPdfDuration(ms) {
+  if (!hasPdfNumericValue(ms)) return '--';
+  const totalMs = Number(ms);
+  if (totalMs <= 0) return '--';
+
+  const totalSeconds = Math.round(totalMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function formatPdfCurrency(value, currencyCode = 'USD') {
+  if (!hasPdfNumericValue(value)) return '--';
+  const amount = Number(value);
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currencyCode || 'USD',
+      maximumFractionDigits: 2
+    }).format(amount);
+  } catch (e) {
+    return `${currencyCode || 'USD'} ${amount.toFixed(2)}`;
+  }
+}
+
+function truncatePdfText(value, maxLength = 90) {
+  const text = String(value ?? '').trim();
+  if (!text) return '--';
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
+}
+
+function formatDockerImageReference(imageName, tag) {
+  const cleanImageName = String(imageName || '').trim();
+  const cleanTag = String(tag || '').trim();
+
+  if (cleanImageName && cleanTag) {
+    return cleanImageName.endsWith(`:${cleanTag}`)
+      ? cleanImageName
+      : `${cleanImageName}:${cleanTag}`;
+  }
+  return cleanImageName || cleanTag || '--';
+}
+
+async function fetchExportReportSnapshot() {
+  const url = getExportReportUrl();
+  if (!url) {
+    throw new Error('PDF export endpoint is not configured.');
+  }
+
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Your session no longer has access to the PDF export endpoint.');
+  }
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data?.error || 'Failed to load PDF export data.');
+  }
+
+  return data || {};
+}
+
+async function storeExportedPdfReport(pdfBlob, payload) {
+  const url = getStoreExportReportUrl();
+  if (!url) {
+    throw new Error('PDF archive endpoint is not configured.');
+  }
+
+  const formData = new FormData();
+  formData.append('file', pdfBlob, payload.file_name || 'jenkins-monitor-report.pdf');
+  formData.append('file_name', payload.file_name || 'jenkins-monitor-report.pdf');
+  formData.append('generated_at', payload.generated_at || '');
+
+  const res = await fetch(url, {
+    method: 'POST',
+    body: formData
   });
-  doc.save(`jenkins-report-${Date.now()}.pdf`);
-  showToast('PDF exported successfully');
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Your session no longer has access to the PDF archive endpoint.');
+  }
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || 'Failed to archive the PDF report.');
+  }
+
+  return data?.report || null;
+}
+
+function updatePdfReportsPage(report) {
+  if (document.body?.dataset.page !== 'pdf-reports' || !report) return;
+
+  const list = document.getElementById('pdfReportsList');
+  if (!list) return;
+
+  const existing = Array.from(list.querySelectorAll('.pdfr-card')).find(
+    item => item.dataset.fileName === (report.file_name || '')
+  );
+  if (existing) existing.remove();
+
+  const empty = document.getElementById('pdfReportsEmpty');
+  if (empty) empty.style.display = 'none';
+  list.style.display = 'flex';
+
+  const card = document.createElement('div');
+  card.className = 'pdfr-card';
+  card.dataset.fileName = report.file_name || '';
+  card.innerHTML = `
+    <div class="pdfr-main">
+      <a class="pdfr-link" href="${escapeHtml(report.view_url || '#')}" target="_blank" rel="noopener">${escapeHtml(report.file_name || 'report.pdf')}</a>
+      <div class="pdfr-meta">Exported ${escapeHtml(report.exported_at_label || '--')}</div>
+      <div class="pdfr-filepath">${escapeHtml(report.absolute_path || '--')}</div>
+    </div>
+    <div class="pdfr-side">
+      <div class="pdfr-size">${escapeHtml(String(report.size_kb ?? '--'))} KB</div>
+      <a class="pdfr-open" href="${escapeHtml(report.view_url || '#')}" target="_blank" rel="noopener">Open</a>
+      <a class="pdfr-download" href="${escapeHtml(report.download_url || '#')}">Download</a>
+    </div>
+  `;
+  list.prepend(card);
+
+  const count = list.querySelectorAll('.pdfr-card').length;
+  const countBadge = document.getElementById('pdfReportsCount');
+  const statCount = document.getElementById('pdfReportsStatCount');
+  if (countBadge) countBadge.textContent = String(count);
+  if (statCount) statCount.textContent = String(count);
+}
+
+async function exportPDF() {
+  if (!canExportPdf()) {
+    return;
+  }
+
+  setExportButtonBusy(true);
+
+  try {
+    const payload = await fetchExportReportSnapshot();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
+    const contentWidth = pageWidth - (margin * 2);
+    const cardGap = 3;
+    const cardWidth = (contentWidth - cardGap) / 2;
+    const rowGap = 2;
+    let y = margin;
+
+    const latestBuild = payload.latest_build || {};
+    const finops = payload.finops || {};
+    const github = payload.github || {};
+    const sonar = payload.sonarqube || {};
+    const kubernetes = payload.kubernetes || {};
+    const docker = payload.docker || {};
+    const mainCommit = github.main_commit || {};
+    const dockerImageReference = formatDockerImageReference(docker.image_name, docker.tag);
+
+    function addHeader() {
+      const headerHeight = 16;
+      doc.setTextColor(40, 84, 107);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('Pipeline Report', margin, 8);
+      doc.setTextColor(96, 109, 121);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+
+      const exportedAt = formatUserDateTime(payload.generated_at, {
+        includeSeconds: true,
+        fallback: '--'
+      });
+      const metaLine = [
+        `Exported: ${exportedAt}`,
+        `Branch: ${payload.branch_name || getBranchName()}`,
+        `Status: ${latestBuild.status || '--'}`,
+        `Pipeline: ${payload.pipeline_name || getPipelineName()}`
+      ].join(' | ');
+      const metaLines = doc.splitTextToSize(metaLine, contentWidth).slice(0, 2);
+      doc.text(metaLines, margin, 12.5);
+
+      doc.setTextColor(24, 36, 48);
+      y = headerHeight + 3;
+    }
+
+    function ensureSpace(heightNeeded) {
+      if (y + heightNeeded <= pageHeight - 16) return;
+      doc.addPage();
+      addHeader();
+    }
+
+    function getMetricBlockHeight(card, width) {
+      const valueFontSize = card.valueFontSize || 10;
+      const valueMaxLines = card.valueMaxLines || 2;
+      const noteMaxLines = card.noteMaxLines || 1;
+      const titleLines = doc.splitTextToSize(String(card.title || ''), width).slice(0, 2);
+      const valueLines = doc.splitTextToSize(String(card.value ?? '--'), width).slice(0, valueMaxLines);
+      const noteLines = card.note
+        ? doc.splitTextToSize(String(card.note), width).slice(0, noteMaxLines)
+        : [];
+
+      const titleHeight = titleLines.length * 2.9;
+      const valueHeight = valueLines.length * (valueFontSize >= 10 ? 3.9 : 3.4);
+      const noteHeight = noteLines.length ? (noteLines.length * 2.8) + 0.8 : 0;
+      return Math.max(11, 2.5 + titleHeight + valueHeight + noteHeight);
+    }
+
+    function drawMetricCard(x, top, title, value, note = '', opts = {}) {
+      const width = opts.width || cardWidth;
+      const valueFontSize = opts.valueFontSize || 10;
+      const valueMaxLines = opts.valueMaxLines || 2;
+      const noteMaxLines = opts.noteMaxLines || 1;
+      const titleLines = doc.splitTextToSize(String(title || ''), width).slice(0, 2);
+      const valueLines = doc.splitTextToSize(String(value ?? '--'), width).slice(0, valueMaxLines);
+      const noteLines = note
+        ? doc.splitTextToSize(String(note), width).slice(0, noteMaxLines)
+        : [];
+      let cursorY = top + 3;
+
+      doc.setTextColor(96, 109, 121);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.text(titleLines, x, cursorY);
+      cursorY += (titleLines.length * 2.9) + 0.8;
+
+      doc.setTextColor(24, 36, 48);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(valueFontSize);
+      doc.text(valueLines, x, cursorY);
+
+      if (noteLines.length) {
+        cursorY += (valueLines.length * (valueFontSize >= 10 ? 3.9 : 3.4)) + 0.7;
+        doc.setTextColor(96, 109, 121);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.2);
+        doc.text(noteLines, x, cursorY);
+      }
+    }
+
+    function drawSection(title, lines) {
+      const printableLines = (Array.isArray(lines) ? lines : [])
+        .map(line => String(line || '').trim())
+        .filter(Boolean);
+
+      if (!printableLines.length) return;
+
+      const wrappedLines = [];
+      printableLines.forEach(line => {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        const parts = doc.splitTextToSize(line, contentWidth);
+        parts.forEach(part => wrappedLines.push(part));
+      });
+
+      const sectionHeight = 4 + (wrappedLines.length * 3.6);
+      ensureSpace(sectionHeight + rowGap);
+
+      doc.setTextColor(40, 84, 107);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text(title, margin, y + 3);
+
+      doc.setTextColor(24, 36, 48);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(wrappedLines, margin, y + 7);
+
+      y += sectionHeight + rowGap;
+    }
+
+    addHeader();
+
+    const cards = [
+      {
+        title: 'Latest Build',
+        value: latestBuild.number != null ? `#${latestBuild.number}` : '--',
+        note: ''
+      },
+      {
+        title: 'Azure Cost',
+        value: formatPdfCurrency(finops.day_cost, finops.currency_code || 'USD'),
+        note: ''
+      },
+      {
+        title: 'Open Pull Requests',
+        value: hasPdfNumericValue(github.open_pr_count) ? String(github.open_pr_count) : '--',
+        note: ''
+      },
+      {
+        title: 'SonarQube Issues',
+        value: hasPdfNumericValue(sonar.total_issues) ? String(sonar.total_issues) : '--',
+        note: ''
+      },
+      {
+        title: 'Average Build Duration',
+        value: formatPdfDuration(payload.average_duration_ms),
+        note: ''
+      },
+      {
+        title: 'Average Test Coverage',
+        value: formatPdfPercent(payload.average_test_coverage, 1),
+        note: ''
+      },
+      {
+        title: 'Pods Running',
+        value: (
+          hasPdfNumericValue(kubernetes.pods_running) &&
+          hasPdfNumericValue(kubernetes.pods_total)
+        )
+          ? `${kubernetes.pods_running} / ${kubernetes.pods_total}`
+          : '--',
+        note: ''
+      },
+      {
+        title: 'Jenkins Health',
+        value: formatPdfPercent(payload.jenkins_health_score, 0),
+        note: ''
+      },
+      {
+        title: 'Latest Docker Image',
+        value: dockerImageReference,
+        note: '',
+        valueFontSize: 8.5,
+        valueMaxLines: 4
+      }
+    ];
+
+    for (let index = 0; index < cards.length; index += 2) {
+      const leftCard = cards[index];
+      const rightCard = cards[index + 1] || null;
+      const leftWidth = rightCard ? cardWidth : contentWidth;
+      const leftHeight = getMetricBlockHeight(leftCard, leftWidth);
+      const rightHeight = rightCard ? getMetricBlockHeight(rightCard, cardWidth) : 0;
+      const rowHeight = Math.max(leftHeight, rightHeight);
+
+      ensureSpace(rowHeight + rowGap);
+
+      drawMetricCard(margin, y, leftCard.title, leftCard.value, leftCard.note, {
+        width: leftWidth,
+        valueFontSize: leftCard.valueFontSize,
+        valueMaxLines: leftCard.valueMaxLines,
+        noteMaxLines: leftCard.noteMaxLines
+      });
+
+      if (rightCard) {
+        drawMetricCard(margin + cardWidth + cardGap, y, rightCard.title, rightCard.value, rightCard.note, {
+          width: cardWidth,
+          valueFontSize: rightCard.valueFontSize,
+          valueMaxLines: rightCard.valueMaxLines,
+          noteMaxLines: rightCard.noteMaxLines
+        });
+      }
+
+      y += rowHeight + rowGap;
+    }
+
+    drawSection('Open Pull Requests', (
+      Array.isArray(github.open_prs) && github.open_prs.length
+        ? github.open_prs.map(pr => {
+            const draftLabel = pr.draft ? ' [draft]' : '';
+            const authorLabel = pr.author ? ` - @${pr.author}` : '';
+            return `#${pr.number || '--'} ${truncatePdfText(pr.title, 72)}${draftLabel}${authorLabel}`;
+          })
+        : ['No open pull requests at export time.']
+    ));
+
+    drawSection('Last Commit on main', [
+      `Commit: ${mainCommit.short_sha || '--'}${mainCommit.author_name ? ` by ${mainCommit.author_name}` : ''}`,
+      `Date: ${mainCommit.date ? formatUserDateTime(mainCommit.date, { includeSeconds: false, fallback: '--' }) : '--'}`,
+      `Message: ${truncatePdfText(mainCommit.headline || mainCommit.message || '--', 110)}`
+    ]);
+
+    if (Array.isArray(payload.warnings) && payload.warnings.length) {
+      drawSection('Notes', payload.warnings.map(item => truncatePdfText(item, 140)));
+    }
+
+    const footerText = `Generated file: ${payload.file_name || 'jenkins-monitor-report.pdf'}`;
+    doc.setTextColor(96, 109, 121);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text(footerText, margin, pageHeight - 8);
+
+    const pdfBlob = doc.output('blob');
+    let storedReport = null;
+    let archiveError = null;
+
+    try {
+      storedReport = await storeExportedPdfReport(pdfBlob, payload);
+      updatePdfReportsPage(storedReport);
+    } catch (error) {
+      archiveError = error;
+    }
+
+    doc.save(payload.file_name || `jenkins-monitor-report-${Date.now()}.pdf`);
+
+    if (storedReport) {
+      showToast('PDF exported and archived successfully');
+    } else if (archiveError) {
+      showToast(`PDF exported locally, but archive failed: ${archiveError?.message || 'unknown error'}`, 'abort-toast');
+    } else {
+      showToast('PDF exported successfully');
+    }
+  } catch (error) {
+    showToast(`❌ ${error?.message || 'PDF export failed'}`, 'abort-toast');
+  } finally {
+    setExportButtonBusy(false);
+  }
 }
 
 

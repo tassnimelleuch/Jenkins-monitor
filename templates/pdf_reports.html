@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}PDF Reports{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pdf_reports.css') }}">
+{% endblock %}
+
+{% block body_attrs %}data-page="pdf-reports"{% endblock %}
+
+{% block page_content %}
+<div class="pdfr-head">
+  <div>
+    <div class="pdfr-title">PDF Reports</div>
+    <div class="pdfr-sub">Archived exports saved on this dashboard and available for download.</div>
+  </div>
+  <div class="pdfr-stats">
+    
+  </div>
+</div>
+
+<div class="pdfr-path-card">
+  <div class="pdfr-path-label">Storage Folder</div>
+  <div class="pdfr-path-value">{{ reports_dir }}</div>
+</div>
+
+<div class="pdfr-section">
+  <div class="pdfr-section-head">
+    <div class="pdfr-section-title">Saved Reports</div>
+    <span class="pdfr-count" id="pdfReportsCount">{{ reports | length }}</span>
+  </div>
+
+  {% if reports %}
+  <div class="pdfr-list" id="pdfReportsList">
+    {% for report in reports %}
+    <div class="pdfr-card" data-file-name="{{ report.file_name }}">
+      <div class="pdfr-main">
+        <a class="pdfr-link" href="{{ url_for('overview.view_pdf_report', file_name=report.file_name) }}" target="_blank" rel="noopener">
+          {{ report.file_name }}
+        </a>
+        <div class="pdfr-meta">Exported {{ report.exported_at_label }}</div>
+        <div class="pdfr-filepath">{{ report.absolute_path }}</div>
+      </div>
+      <div class="pdfr-side">
+        <div class="pdfr-size">{{ report.size_kb }} KB</div>
+        <a class="pdfr-open" href="{{ url_for('overview.view_pdf_report', file_name=report.file_name) }}" target="_blank" rel="noopener">
+          Open
+        </a>
+        <a class="pdfr-download" href="{{ url_for('overview.download_pdf_report', file_name=report.file_name) }}">
+          Download
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="pdfr-list" id="pdfReportsList" style="display:none;"></div>
+  <div class="pdfr-empty" id="pdfReportsEmpty">No stored PDF reports yet. Export one from the top bar to archive it here.</div>
+  {% endif %}
+</div>
+{% endblock %}

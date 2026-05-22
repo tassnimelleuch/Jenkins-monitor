@@ -18,11 +18,11 @@ from services.user_account_service import (
     ensure_user_preference_columns,
     ensure_admin_account,
     get_active_session_user,
-    get_user_preferences,
     get_pending_count,
     normalize_role,
     role_matches,
 )
+from services.system_timezone_service import get_system_timezone_name
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -99,8 +99,8 @@ def inject_pending_count():
     context = {
         'pipeline_name': pipeline_name(app.config.get('JENKINS_JOB'), branch_name=branch_name),
         'branch_name': branch_name,
+        'system_time_zone': get_system_timezone_name(),
         'has_role': lambda *roles, role=current_role: role_matches(role, roles),
-        'user_preferences': get_user_preferences(current_user),
     }
     if current_role == 'admin':
         context['pending_count'] = get_pending_count()

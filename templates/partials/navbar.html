@@ -13,7 +13,9 @@
         {% if has_role('admin', 'developer') %}
         <button class="btn btn-green" id="startStopBtn" type="button" onclick="toggleBuild()">▶ Start Build</button>
         {% endif %}
-        <button class="btn btn-export" type="button" onclick="exportPDF()">↓ Export PDF</button>
+        {% if has_role('admin') %}
+        <button class="btn btn-export" id="exportPdfBtn" type="button" onclick="exportPDF()">↓ Export PDF</button>
+        {% endif %}
         <button class="btn btn-ai" type="button" onclick="toggleChat()" data-chat-toggle aria-label="Open chatbot">
             {% include 'partials/chatbot_icon.html' %}
             <span>Chatbot</span>

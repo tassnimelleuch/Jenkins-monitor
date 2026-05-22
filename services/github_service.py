@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from flask import current_app
 from services.parallel_executor import parallel_execute
+from services.system_timezone_service import format_system_datetime, to_system_timezone
 from collectors.github_collector import (
     get_branches,
     get_commit,
@@ -475,8 +476,8 @@ def _format_analytics_sync_timestamp(raw_value):
 
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    parsed = parsed.astimezone(timezone.utc)
-    return parsed.strftime('%Y-%m-%d %H:%M UTC')
+    parsed = to_system_timezone(parsed)
+    return format_system_datetime(parsed, fmt='%Y-%m-%d %H:%M %Z') or str(raw_value)
 
 
 def _build_analytics_notice(analytics_payload, total_commit_count, detail_commit_count):

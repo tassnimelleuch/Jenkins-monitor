@@ -1,4 +1,4 @@
-from flask import session, jsonify, render_template, request
+from flask import session, jsonify, render_template, request, send_from_directory, url_for
 from overview import overview_bp
 from services.access_service import role_required
 from services.dashboard_kpi_chroma_service import (
@@ -15,6 +15,13 @@ from services.dashboard_kpi_documents_service import (
     sync_dashboard_kpi_documents,
 )
 from services.jenkins_service import get_overview_kpis, request_pipeline_background_refresh
+from services.export_report_service import get_pdf_report_snapshot
+from services.pdf_report_storage_service import (
+    get_pdf_report_path,
+    get_pdf_reports_dir,
+    list_pdf_reports,
+    store_pdf_report,
+)
 from services.pipeline_storage_service import get_stored_overview_kpis
 from collectors.jenkins_collector import check_connection, get_console_log
 from services.azure_service import get_connection_status
@@ -64,6 +71,18 @@ def dashboard():
     )
 
 
+@overview_bp.route('/pdf-reports')
+@role_required('admin')
+def pdf_reports_page():
+    return render_template(
+        'pdf_reports.html',
+        username=session.get('username'),
+        role=session.get('role'),
+        reports=list_pdf_reports(),
+        reports_dir=get_pdf_reports_dir(),
+    )
+
+
 @overview_bp.route('/api/pipeline/kpis')
 @role_required('admin', 'developer', 'tester')
 def kpis():
@@ -109,6 +128,64 @@ def azure_status():
     result = get_connection_status()
     status_code = 200 if result['connected'] else 503
     return jsonify(result), status_code
+
+
+@overview_bp.route('/api/export/pdf-report', methods=['GET'])
+@role_required('admin')
+def export_pdf_report_api():
+    try:
+        payload = get_pdf_report_snapshot()
+    except RuntimeError as exc:
+        return jsonify({'error': str(exc)}), 502
+    except Exception as exc:
+        return jsonify({'error': f'PDF export snapshot failed ({type(exc).__name__}): {exc}'}), 500
+    return jsonify(payload), 200
+
+
+@overview_bp.route('/api/export/pdf-report/store', methods=['POST'])
+@role_required('admin')
+def store_exported_pdf_report_api():
+    file_storage = request.files.get('file')
+    if file_storage is None:
+        return jsonify({'error': 'No PDF file was uploaded.'}), 400
+
+    try:
+        report = store_pdf_report(
+            file_storage,
+            generated_at=request.form.get('generated_at'),
+            preferred_file_name=request.form.get('file_name') or file_storage.filename,
+        )
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'error': f'PDF archive failed ({type(exc).__name__}): {exc}'}), 500
+
+    return jsonify({
+        'stored': True,
+        'report': {
+            **report,
+            'view_url': url_for('overview.view_pdf_report', file_name=report['file_name']),
+            'download_url': url_for('overview.download_pdf_report', file_name=report['file_name']),
+        },
+    }), 201
+
+
+@overview_bp.route('/pdf-reports/view/<path:file_name>')
+@role_required('admin')
+def view_pdf_report(file_name):
+    path = get_pdf_report_path(file_name)
+    if path is None:
+        return jsonify({'error': 'PDF report not found.'}), 404
+    return send_from_directory(str(path.parent), path.name, as_attachment=False)
+
+
+@overview_bp.route('/pdf-reports/download/<path:file_name>')
+@role_required('admin')
+def download_pdf_report(file_name):
+    path = get_pdf_report_path(file_name)
+    if path is None:
+        return jsonify({'error': 'PDF report not found.'}), 404
+    return send_from_directory(str(path.parent), path.name, as_attachment=True)
 
 
 @overview_bp.route('/api/dashboard/kpi-documents', methods=['GET'])

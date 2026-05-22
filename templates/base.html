@@ -16,10 +16,10 @@
     data-pipeline-name="{{ pipeline_name }}"
     data-branch-name="{{ branch_name }}"
     data-can-manage-builds="{{ 'true' if has_role('admin', 'developer') else 'false' }}"
-    data-time-format="{{ user_preferences.time_format }}"
-    data-date-format="{{ user_preferences.date_format }}"
-    data-time-zone="{{ user_preferences.timezone }}"
-    data-show-seconds="{{ 'true' if user_preferences.show_seconds else 'false' }}"
+    data-can-export-pdf="{{ 'true' if has_role('admin') else 'false' }}"
+    data-export-report-url="{{ url_for('overview.export_pdf_report_api') }}"
+    data-store-export-report-url="{{ url_for('overview.store_exported_pdf_report_api') }}"
+    data-system-time-zone="{{ system_time_zone }}"
     {% block body_attrs %}{% endblock %}>
 
     {% include 'partials/sidebar.html' %}

@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()  
 
+from services.system_timezone_service import get_system_timezone_name
+
 
 def _require_postgres_driver():
     if importlib.util.find_spec('psycopg2') is None:
@@ -44,7 +46,7 @@ class Config:
     SQLALCHEMY_DATABASE_URI = _build_database_uri()
     SQLALCHEMY_ENGINE_OPTIONS = {
         'connect_args': {
-            'options': '-c timezone=UTC',
+            'options': f"-c timezone={get_system_timezone_name()}",
         },
     }
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -88,6 +90,10 @@ class Config:
     DOCKERHUB_TAG = os.getenv("DOCKERHUB_TAG")
     DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN")
     DOCKERHUB_BUILD_TAG_SUFFIX = os.getenv("DOCKERHUB_BUILD_TAG_SUFFIX", "build-{build_number}")
+    PDF_REPORTS_DIR = os.getenv(
+        'PDF_REPORTS_DIR',
+        os.path.join(os.getcwd(), 'pdf_reports'),
+    )
 
     OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')
     OLLAMA_CHAT_ENDPOINT = os.getenv('OLLAMA_CHAT_ENDPOINT', '/api/chat')

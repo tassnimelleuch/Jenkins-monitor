@@ -142,6 +142,18 @@ def _extract_size_mb(tag_data):
     return round(size_bytes / (1024 * 1024), 1)
 
 
+def _preferred_latest_tag(results):
+    if not results:
+        return None
+
+    for tag_data in results:
+        tag_name = (tag_data.get('name') or '').strip().lower()
+        if tag_name and tag_name != 'latest':
+            return tag_data
+
+    return results[0]
+
+
 def _get_build_tag_suffix(build_number):
     template = current_app.config.get('DOCKERHUB_BUILD_TAG_SUFFIX', 'build-{build_number}')
     try:
@@ -196,14 +208,14 @@ def get_repository_tag(tag=None, image_name=None):
         return None
 
     tag_name = tag or (current_app.config.get('DOCKERHUB_TAG') or '').strip()
-    if tag_name:
+    if tag_name and tag_name.strip().lower() != 'latest':
         url = f'{_get_base_url()}/repositories/{namespace}/{repository}/tags/{tag_name}/'
         return _get_json(url)
 
     url = f'{_get_base_url()}/repositories/{namespace}/{repository}/tags'
-    data = _get_json(url, params={'page_size': 1, 'ordering': 'last_updated'})
+    data = _get_json(url, params={'page_size': 5, 'ordering': 'last_updated'})
     results = (data or {}).get('results') or []
-    return results[0] if results else None
+    return _preferred_latest_tag(results)
 
 
 def find_repository_tag_for_build(
