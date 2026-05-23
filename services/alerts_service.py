@@ -537,7 +537,7 @@ def _build_finops_detected_alerts(subscription_id: str, rows):
             'subscription_id': subscription_id,
             'scope_name': FINOPS_TOTAL_SCOPE,
             'scope_label': FINOPS_TOTAL_LABEL,
-            'message': 'Daily total cost is above the month-to-date average.',
+            'message': 'Daily total cost is above the average for this month.',
         })
     return alerts
 
