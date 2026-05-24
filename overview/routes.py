@@ -1,4 +1,4 @@
-from flask import session, jsonify, render_template, request, send_from_directory, url_for
+from flask import Response, session, jsonify, render_template, request, send_from_directory, stream_with_context, url_for
 from overview import overview_bp
 from services.access_service import role_required
 from services.dashboard_kpi_chroma_service import (
@@ -20,6 +20,12 @@ from services.jenkins_service import (
     request_pipeline_background_refresh,
 )
 from services.export_report_service import get_pdf_report_snapshot
+from services.live_stream_service import (
+    get_cached_azure_status_payload,
+    get_cached_jenkins_status_payload,
+    iter_console_log_events,
+    iter_dashboard_live_events,
+)
 from services.pdf_report_storage_service import (
     get_pdf_report_path,
     get_pdf_reports_dir,
@@ -27,8 +33,7 @@ from services.pdf_report_storage_service import (
     store_pdf_report,
 )
 from services.pipeline_storage_service import get_stored_overview_kpis
-from collectors.jenkins_collector import check_connection, get_console_log
-from services.azure_service import get_connection_status
+from collectors.jenkins_collector import get_console_log
 
 
 def _serialize_dashboard_kpi_document(row, include_content=True):
@@ -106,7 +111,7 @@ def kpis():
 @overview_bp.route('/api/status')
 @role_required('admin', 'developer', 'tester')
 def status():
-    return jsonify({'connected': check_connection()})
+    return jsonify(get_cached_jenkins_status_payload())
 
 
 @overview_bp.route('/api/log/<int:build_number>')
@@ -137,9 +142,35 @@ def latest_build():
 @overview_bp.route('/api/azure/status', methods=['GET'])
 @role_required('admin', 'developer', 'tester')
 def azure_status():
-    result = get_connection_status()
+    result = get_cached_azure_status_payload()
     status_code = 200 if result['connected'] else 503
     return jsonify(result), status_code
+
+
+@overview_bp.route('/api/stream/live')
+@role_required('admin', 'developer', 'tester')
+def live_updates_stream():
+    response = Response(
+        stream_with_context(iter_dashboard_live_events()),
+        mimetype='text/event-stream',
+    )
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    response.headers['Connection'] = 'keep-alive'
+    return response
+
+
+@overview_bp.route('/api/stream/log/<int:build_number>')
+@role_required('admin', 'developer', 'tester')
+def console_log_stream(build_number):
+    response = Response(
+        stream_with_context(iter_console_log_events(build_number)),
+        mimetype='text/event-stream',
+    )
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    response.headers['Connection'] = 'keep-alive'
+    return response
 
 
 @overview_bp.route('/api/export/pdf-report', methods=['GET'])

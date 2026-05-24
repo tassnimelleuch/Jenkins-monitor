@@ -1,5 +1,7 @@
 <header class="topbar">
-    <div class="pipe-icon">⚙</div>
+    <div class="pipe-icon" aria-hidden="true">
+        <img src="{{ url_for('static', filename='logo/logo_dashboard-removebg-preview.png') }}" alt="">
+    </div>
 
     <div>
         <div class="pipe-name">{{ pipeline_name }}</div>

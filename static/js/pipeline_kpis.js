@@ -30,6 +30,8 @@ let _pipelineTestsDuration24hRenderSignature = null;
 let _pipelineKpiBurstHandle = null;
 let _pipelineKpiBurstStopAt = 0;
 let _prevRunningBuildNumbers = new Set();
+let _pipelineLiveStream = null;
+let _pipelineLiveStreamReceived = false;
 
 // Legacy build-history helpers are intentionally kept in this file for
 // possible rollback, even though the current page no longer renders the
@@ -116,11 +118,83 @@ function stopPipelineKpiBurstRefresh() {
   _pipelineKpiBurstStopAt = 0;
 }
 
+function getPipelineLiveStreamUrl() {
+  return document.body.dataset.liveStreamUrl || '';
+}
+
+function canUsePipelineLiveStream() {
+  return typeof window.EventSource !== 'undefined' && Boolean(getPipelineLiveStreamUrl());
+}
+
+function pipelineLiveStreamActive() {
+  return Boolean(_pipelineLiveStream);
+}
+
+function closePipelineLiveStream() {
+  if (_pipelineLiveStream) {
+    _pipelineLiveStream.close();
+    _pipelineLiveStream = null;
+  }
+}
+
+function connectPipelineLiveStream() {
+  if (!canUsePipelineLiveStream() || pipelineLiveStreamActive()) return false;
+
+  _pipelineLiveStream = new EventSource(getPipelineLiveStreamUrl());
+  _pipelineLiveStream.addEventListener('open', () => {
+    _pipelineLiveStreamReceived = true;
+  });
+  _pipelineLiveStream.addEventListener('stream_ready', () => {
+    _pipelineLiveStreamReceived = true;
+  });
+  _pipelineLiveStream.addEventListener('heartbeat', () => {
+    _pipelineLiveStreamReceived = true;
+  });
+  _pipelineLiveStream.addEventListener('jenkins_status', event => {
+    _pipelineLiveStreamReceived = true;
+    try {
+      applyJenkinsStatusPayload(JSON.parse(event.data));
+    } catch (error) {
+      console.error('Pipeline Jenkins SSE parse error:', error);
+    }
+  });
+  _pipelineLiveStream.addEventListener('azure_status', event => {
+    _pipelineLiveStreamReceived = true;
+    try {
+      applyAzureStatusPayload(JSON.parse(event.data));
+    } catch (error) {
+      console.error('Pipeline Azure SSE parse error:', error);
+    }
+  });
+  _pipelineLiveStream.addEventListener('build_started', () => {
+    _pipelineLiveStreamReceived = true;
+    loadPipelineKPIs({ refresh: true });
+  });
+  _pipelineLiveStream.addEventListener('build_finished', () => {
+    _pipelineLiveStreamReceived = true;
+    schedulePipelineKpiBurstRefresh();
+  });
+  _pipelineLiveStream.onerror = () => {
+    closePipelineLiveStream();
+    console.warn('Pipeline SSE stream closed. REST fallback polling is disabled.');
+  };
+
+  return true;
+}
+
 function schedulePipelineKpiBurstRefresh({
   durationMs = KPI_COMPLETION_BURST_MS,
   intervalMs = KPI_COMPLETION_BURST_INTERVAL_MS,
   immediate = true,
 } = {}) {
+  if (pipelineLiveStreamActive()) {
+    stopPipelineKpiBurstRefresh();
+    if (immediate) {
+      window.setTimeout(() => loadPipelineKPIs({ refresh: true, wait: true }), 0);
+    }
+    return;
+  }
+
   const stopAt = Date.now() + durationMs;
   _pipelineKpiBurstStopAt = Math.max(_pipelineKpiBurstStopAt, stopAt);
 
@@ -332,13 +406,7 @@ function triggerBuild() {
     queuedMessage: '✅ Build queued — watching for updates',
     triggerErrorMessage: 'Failed to trigger',
     onQueued() {
-      if (!_pollHandle) {
-        _pollHandle = setInterval(
-          () => loadPipelineKPIs({ refresh: true, wait: true }),
-          POLL_MS
-        );
-      }
-      setTimeout(() => loadPipelineKPIs({ refresh: true, wait: true }), 2000);
+      loadPipelineKPIs({ refresh: true });
     }
   });
 }
@@ -1748,12 +1816,7 @@ async function loadPipelineKPIs({ refresh = false, wait = false } = {}) {
     _prevRunningBuildNumbers = currentRunningBuildNumbers;
 
     const hasRunning = currentRunningBuildNumbers.size > 0;
-    if (hasRunning && !_pollHandle) {
-      _pollHandle = setInterval(
-        () => loadPipelineKPIs({ refresh: true, wait: true }),
-        POLL_MS
-      );
-    } else if (!hasRunning && _pollHandle) {
+    if (_pollHandle) {
       clearInterval(_pollHandle);
       _pollHandle = null;
     }
@@ -1780,6 +1843,7 @@ async function loadPipelineKPIs({ refresh = false, wait = false } = {}) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const hasLiveStream = connectPipelineLiveStream();
   const btn = document.getElementById('startStopBtn');
   if (btn) {
     btn.removeAttribute('onclick');
@@ -1806,12 +1870,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   updateTestsDurationGroupingButtons();
 
-  _slowHandle = setInterval(() => {
-    if (!_pollHandle) loadPipelineKPIs();
-  }, SLOW_POLL_MS);
-
   loadPipelineKPIs();
+  if (!hasLiveStream) {
+    console.warn('Pipeline live SSE stream is unavailable. REST fallback polling is disabled.');
+  }
 });
+
+window.addEventListener('beforeunload', closePipelineLiveStream);
 
 
 // ── VM metrics polling ────────────────────────────────────────────────────────

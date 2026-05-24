@@ -34,6 +34,9 @@ let _lastOverviewPayload = null;
 let _liveRunningBuilds = [];
 let _hasLiveRunningPollData = false;
 let _optimisticallyAbortedBuilds = new Map();
+let _overviewLiveStream = null;
+let _overviewLiveStreamReceived = false;
+let _overviewLiveStreamFallbackStarted = false;
 
 function _isWithinLast24Hours(build, now = Date.now()) {
     const ts = Number(build?.timestamp || 0);
@@ -133,16 +136,28 @@ function stopOverviewKpiBurstRefresh() {
     _overviewKpiBurstStopAt = 0;
 }
 
+function loadImmediateOverviewKPIs() {
+    return loadKPIs({ refresh: true, wait: true });
+}
+
 function scheduleOverviewKpiBurstRefresh({
     durationMs = KPI_COMPLETION_BURST_MS,
     intervalMs = KPI_COMPLETION_BURST_INTERVAL_MS,
     immediate = true,
 } = {}) {
+    if (overviewLiveStreamActive()) {
+        stopOverviewKpiBurstRefresh();
+        if (immediate) {
+            loadImmediateOverviewKPIs();
+        }
+        return;
+    }
+
     const stopAt = Date.now() + durationMs;
     _overviewKpiBurstStopAt = Math.max(_overviewKpiBurstStopAt, stopAt);
 
     if (immediate) {
-        loadKPIs({ refresh: true, wait: true });
+        loadImmediateOverviewKPIs();
     }
 
     if (_overviewKpiBurstHandle) return;
@@ -152,7 +167,7 @@ function scheduleOverviewKpiBurstRefresh({
             stopOverviewKpiBurstRefresh();
             return;
         }
-        loadKPIs({ refresh: true, wait: true });
+        loadKPIs({ refresh: true });
     }, intervalMs);
 }
 
@@ -177,21 +192,13 @@ function stopLiveRunningPoll({ restartWatcher = true } = {}) {
 }
 
 function startLiveRunningPoll({ eager = true } = {}) {
-    if (!hasOverviewLiveBuildWidgets() || _runningStagesHandle) return;
+    void eager;
     stopRunningBuildsWatcher();
-    _liveRunningEmptyPollStreak = 0;
-    _runningStagesHandle = setInterval(pollRunningStages, LIVE_RUNNING_POLL_MS);
-    if (eager) {
-        pollRunningStages();
-    }
 }
 
 function startRunningBuildsWatcher({ eager = true } = {}) {
-    if (!hasOverviewLiveBuildWidgets() || _runningStagesHandle || _runningBuildsWatcherHandle) return;
-    _runningBuildsWatcherHandle = setInterval(checkForRunningBuilds, LIVE_RUNNING_WATCH_POLL_MS);
-    if (eager) {
-        checkForRunningBuilds();
-    }
+    void eager;
+    stopRunningBuildsWatcher();
 }
 
 function hasOverviewLiveBuildWidgets() {
@@ -349,40 +356,155 @@ function handleBuildAbortSuccess(buildNumber) {
 }
 
 function refreshRunningBuildsNow() {
-    return pollRunningStages();
+    return Promise.resolve();
+}
+
+function getOverviewLiveStreamUrl() {
+    return document.body.dataset.liveStreamUrl || '';
+}
+
+function canUseOverviewLiveStream() {
+    return typeof window.EventSource !== 'undefined' && Boolean(getOverviewLiveStreamUrl());
+}
+
+function overviewLiveStreamActive() {
+    return Boolean(_overviewLiveStream);
+}
+
+function applyOverviewLiveRunningBuildsData(
+    builds,
+    {
+        updateStageStrips = true,
+        source = 'stream',
+    } = {}
+) {
+    const previousRunningNumbers = new Set((_liveRunningBuilds || []).map(build => build.number));
+    const normalizedBuilds = (Array.isArray(builds) ? builds : [])
+        .map(normalizeLiveRunningBuild)
+        .filter(build => !isBuildOptimisticallyAborted(build.number))
+        .sort((a, b) =>
+            (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0)
+        );
+
+    _hasLiveRunningPollData = true;
+    _liveRunningBuilds = normalizedBuilds;
+
+    const currentRunningNumbers = new Set(_liveRunningBuilds.map(build => build.number));
+    const buildJustFinished = Array.from(previousRunningNumbers)
+        .some(number => !currentRunningNumbers.has(number));
+
+    if (_liveRunningBuilds.length > 0) {
+        _liveRunningEmptyPollStreak = 0;
+    } else if (source === 'poll') {
+        _liveRunningEmptyPollStreak += 1;
+    } else {
+        _liveRunningEmptyPollStreak = 0;
+    }
+
+    if (_lastOverviewPayload) {
+        renderOverviewPayload(_lastOverviewPayload, { eagerRunningStages: false });
+    } else {
+        updateActiveBuilds(_liveRunningBuilds.length, _liveRunningBuilds);
+    }
+
+    if (updateStageStrips) {
+        _liveRunningBuilds.forEach(build => {
+            const strip = document.querySelector('#brow-' + build.number + ' .stage-strip');
+            if (!strip || !Array.isArray(build.stages) || !build.stages.length) return;
+            const nextSignature = _buildStageStripSignature(build.stages);
+
+            if (strip.dataset.stageSignature !== nextSignature) {
+                strip.innerHTML = buildOverviewStageSegmentsHtml(build.number, build.stages);
+                strip.dataset.stageSignature = nextSignature;
+            } else {
+                updateOverviewStageSegmentDurations(strip, build.stages);
+            }
+        });
+    }
+
+    if (buildJustFinished) {
+        scheduleOverviewKpiBurstRefresh();
+    }
+
+    if (
+        source === 'poll'
+        && _runningStagesHandle
+        && _liveRunningBuilds.length === 0
+        && _liveRunningEmptyPollStreak >= LIVE_RUNNING_IDLE_CONFIRM_POLLS
+    ) {
+        stopLiveRunningPoll();
+    }
+}
+
+function closeOverviewLiveStream() {
+    if (_overviewLiveStream) {
+        _overviewLiveStream.close();
+        _overviewLiveStream = null;
+    }
+}
+
+function startOverviewPollingFallback({ eager = true } = {}) {
+    void eager;
+    if (_overviewLiveStreamFallbackStarted) return;
+    _overviewLiveStreamFallbackStarted = true;
+    console.warn('Overview live fallback polling is disabled while SSE behavior is being validated.');
+}
+
+function connectOverviewLiveStream() {
+    if (!canUseOverviewLiveStream() || overviewLiveStreamActive()) return false;
+
+    _overviewLiveStream = new EventSource(getOverviewLiveStreamUrl());
+    _overviewLiveStream.addEventListener('open', () => {
+        _overviewLiveStreamReceived = true;
+    });
+    _overviewLiveStream.addEventListener('stream_ready', () => {
+        _overviewLiveStreamReceived = true;
+    });
+    _overviewLiveStream.addEventListener('heartbeat', () => {
+        _overviewLiveStreamReceived = true;
+    });
+    _overviewLiveStream.addEventListener('jenkins_status', event => {
+        _overviewLiveStreamReceived = true;
+        try {
+            applyJenkinsStatusPayload(JSON.parse(event.data));
+        } catch (error) {
+            console.error('Overview Jenkins SSE parse error:', error);
+        }
+    });
+    _overviewLiveStream.addEventListener('azure_status', event => {
+        _overviewLiveStreamReceived = true;
+        try {
+            applyAzureStatusPayload(JSON.parse(event.data));
+        } catch (error) {
+            console.error('Overview Azure SSE parse error:', error);
+        }
+    });
+    _overviewLiveStream.addEventListener('running_stages', event => {
+        _overviewLiveStreamReceived = true;
+        try {
+            const payload = JSON.parse(event.data);
+            applyOverviewLiveRunningBuildsData(payload?.builds, {
+                updateStageStrips: true,
+                source: 'stream',
+            });
+        } catch (error) {
+            console.error('Overview running stages SSE parse error:', error);
+        }
+    });
+    _overviewLiveStream.addEventListener('build_started', () => {
+        _overviewLiveStreamReceived = true;
+        loadImmediateOverviewKPIs();
+    });
+    _overviewLiveStream.onerror = () => {
+        closeOverviewLiveStream();
+        console.warn('Overview SSE stream closed. REST fallback polling is disabled.');
+    };
+
+    return true;
 }
 
 async function checkForRunningBuilds() {
-    if (_runningBuildsWatcherInFlight || _runningStagesHandle) return;
-    _runningBuildsWatcherInFlight = true;
-
-    try {
-        const data = await (await fetch('/api/running_builds')).json();
-        const runningBuilds = (Array.isArray(data) ? data : [])
-            .map(normalizeLiveRunningBuild)
-            .filter(build => !isBuildOptimisticallyAborted(build.number))
-            .sort((a, b) =>
-                (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0)
-            );
-
-        if (!runningBuilds.length) return;
-
-        _hasLiveRunningPollData = true;
-        _liveRunningBuilds = runningBuilds;
-
-        if (_lastOverviewPayload) {
-            renderOverviewPayload(_lastOverviewPayload, { eagerRunningStages: false });
-        } else {
-            updateActiveBuilds(_liveRunningBuilds.length, _liveRunningBuilds);
-        }
-
-        stopRunningBuildsWatcher();
-        startLiveRunningPoll({ eager: true });
-        loadKPIs({ refresh: true, wait: true });
-    } catch (e) {
-    } finally {
-        _runningBuildsWatcherInFlight = false;
-    }
+    return Promise.resolve();
 }
 
 function fmtDate(ts) {
@@ -1049,7 +1171,10 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
 
     const snapshotRunningBuilds = baseTrend.filter(build => build.result === null);
     const snapshotShowsRunning = snapshotRunningBuilds.length > 0 || (metrics.running ?? 0) > 0;
-    if (!hasOverviewLiveBuildWidgets()) {
+    if (overviewLiveStreamActive()) {
+        stopLiveRunningPoll({ restartWatcher: false });
+        stopRunningBuildsWatcher();
+    } else if (!hasOverviewLiveBuildWidgets()) {
         stopLiveRunningPoll({ restartWatcher: false });
         stopRunningBuildsWatcher();
     } else if (snapshotShowsRunning && !_runningStagesHandle) {
@@ -1271,8 +1396,7 @@ function triggerBuild() {
         queuedMessage: '✅ Build queued — watch Active Builds',
         triggerErrorMessage: 'Failed to trigger build',
         onQueued() {
-            startPolling(2000);
-            setTimeout(() => startPolling(10000), 10000);
+            loadImmediateOverviewKPIs();
         }
     });
 }
@@ -1400,73 +1524,18 @@ function renderTrendChart(builds) {
 }
 // Fast stage updater — only updates squares on running rows
 async function pollRunningStages() {
-  if (_runningStagesPollInFlight) return;
-  _runningStagesPollInFlight = true;
-
-  try {
-    const previousRunningNumbers = new Set((_liveRunningBuilds || []).map(build => build.number));
-    const data = await (await fetch('/api/running_stages')).json();
-    _hasLiveRunningPollData = true;
-    _liveRunningBuilds = (Array.isArray(data) ? data : [])
-      .map(normalizeLiveRunningBuild)
-      .filter(build => !isBuildOptimisticallyAborted(build.number))
-      .sort((a, b) =>
-        (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0)
-      );
-    const currentRunningNumbers = new Set(_liveRunningBuilds.map(build => build.number));
-    const buildJustFinished = Array.from(previousRunningNumbers).some(number => !currentRunningNumbers.has(number));
-
-    if (_liveRunningBuilds.length > 0) {
-      _liveRunningEmptyPollStreak = 0;
-    } else {
-      _liveRunningEmptyPollStreak += 1;
-    }
-
-    if (_lastOverviewPayload) {
-      renderOverviewPayload(_lastOverviewPayload, { eagerRunningStages: false });
-    } else {
-      updateActiveBuilds(_liveRunningBuilds.length, _liveRunningBuilds);
-    }
-
-    _liveRunningBuilds.forEach(b => {
-      const strip = document.querySelector('#brow-' + b.number + ' .stage-strip');
-      if (!strip || !Array.isArray(b.stages) || !b.stages.length) return;
-      const nextSignature = _buildStageStripSignature(b.stages);
-
-      if (strip.dataset.stageSignature !== nextSignature) {
-        const nextHtml = buildOverviewStageSegmentsHtml(b.number, b.stages);
-        strip.innerHTML = nextHtml;
-        strip.dataset.stageSignature = nextSignature;
-      } else {
-        updateOverviewStageSegmentDurations(strip, b.stages);
-      }
-    });
-
-    if (buildJustFinished) {
-      scheduleOverviewKpiBurstRefresh();
-    }
-
-    if (
-      _runningStagesHandle
-      && _liveRunningBuilds.length === 0
-      && _liveRunningEmptyPollStreak >= LIVE_RUNNING_IDLE_CONFIRM_POLLS
-    ) {
-      stopLiveRunningPoll();
-    }
-  } catch (e) {
-  } finally {
-    _runningStagesPollInFlight = false;
-  }
+  return Promise.resolve();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     requestNotificationPermission();
+    connectOverviewLiveStream();
     const initialPayload = getInitialOverviewPayload();
     if (initialPayload) {
         renderOverviewPayload(initialPayload, { eagerRunningStages: false });
     } else {
         loadKPIs();
     }
-    startRunningBuildsWatcher({ eager: !initialPayload });
-    startPolling(5000);
 });
+
+window.addEventListener('beforeunload', closeOverviewLiveStream);

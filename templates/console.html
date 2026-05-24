@@ -14,7 +14,8 @@
 </head>
 <body
   class="console-page"
-  data-system-time-zone="{{ system_time_zone }}">
+  data-system-time-zone="{{ system_time_zone }}"
+  data-console-stream-url="{{ url_for('overview.console_log_stream', build_number=build_number) }}">
 
   <div class="topbar">
     <a class="back-btn" href="javascript:window.close()">
@@ -64,10 +65,10 @@
     <div id="logBottom"></div>
   </div>
 
-  <script src="{{ url_for('static', filename='js/base.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/base.js', v='20260523-sse3') }}"></script>
   <script>
     const BUILD_NUMBER = {{ build_number|tojson }};
   </script>
-  <script src="{{ url_for('static', filename='js/console.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/console.js', v='20260523-sse3') }}"></script>
 </body>
 </html>

@@ -1158,70 +1158,68 @@ function setActive(el) {
   el.classList.add('active');
 }
 
+function applyJenkinsStatusPayload(data) {
+  const dot = document.getElementById('jenkinsStatusDot');
+  const val = document.getElementById('jenkinsStatusVal');
+  if (!dot || !val) return;
+
+  if (data && data.connected) {
+    dot.classList.remove('pulse-dot-error');
+    val.textContent = 'Connected';
+    val.className = 'ji-val ok';
+    return;
+  }
+
+  dot.classList.add('pulse-dot-error');
+  val.textContent = 'Disconnected';
+  val.className = 'ji-val error';
+}
+
 // Connection status
 async function checkStatus() {
   try {
     const res = await fetch('/api/status');
     if (!res.ok) throw new Error('status request failed');
-
-    const data = await res.json();
-    const dot  = document.getElementById('jenkinsStatusDot');
-    const val  = document.getElementById('jenkinsStatusVal');
-
-    if (!dot || !val) return;
-
-    if (data.connected) {
-      dot.classList.remove('pulse-dot-error');
-      val.textContent = 'Connected';
-      val.className   = 'ji-val ok';
-    } else {
-      dot.classList.add('pulse-dot-error');
-      val.textContent = 'Disconnected';
-      val.className   = 'ji-val error';
-    }
+    applyJenkinsStatusPayload(await res.json());
   } catch (e) {
-    const dot = document.getElementById('jenkinsStatusDot');
-    const val = document.getElementById('jenkinsStatusVal');
-    if (dot) dot.classList.add('pulse-dot-error');
-    if (val) {
-      val.textContent = 'Discionnected';
-      val.className   = 'ji-val error';
-    }
+    applyJenkinsStatusPayload({ connected: false });
     console.error('Jenkins status error:', e);
   }
+}
+
+function applyAzureStatusPayload(data) {
+  const dot = document.getElementById('azureStatusDot');
+  const val = document.getElementById('azureStatusVal');
+  if (!dot || !val) return;
+
+  if (data && data.connected === true) {
+    dot.classList.remove('pulse-dot-error');
+    val.textContent = 'Connected';
+    val.className = 'ji-val ok';
+    return;
+  }
+
+  dot.classList.add('pulse-dot-error');
+  val.textContent = data ? 'Disconnected' : 'Unreachable';
+  val.className = 'ji-val error';
+}
+
+function pageUsesLiveStatusStream() {
+  return (
+    typeof window.EventSource !== 'undefined' &&
+    Boolean(document.body.dataset.liveStreamUrl)
+  );
 }
 
 // azure connection status
 async function checkAzureStatus() {
   try {
     const res = await fetch('/api/azure/status');
-    if (!res.ok) throw new Error('azure status request failed');
-    const data = await res.json().catch(() => ({ connected: false }));
-    const dot = document.getElementById('azureStatusDot');
-    const val = document.getElementById('azureStatusVal');
-
-    if (!dot || !val) return;
-
-    const connected = data && data.connected === true;
-    if (connected) {
-      dot.classList.remove('pulse-dot-error');
-      val.textContent = 'Connected';
-      val.className = 'ji-val ok';
-    } else {
-      dot.classList.add('pulse-dot-error');
-      val.textContent = 'Disconnected';
-      val.className = 'ji-val error';
-    }
+    const data = await res.json().catch(() => null);
+    if (!data) throw new Error('azure status response failed');
+    applyAzureStatusPayload(data);
   } catch (e) {
-    const dot = document.getElementById('azureStatusDot');
-    const val = document.getElementById('azureStatusVal');
-
-    if (dot) dot.classList.add('pulse-dot-error');
-    if (val) {
-      val.textContent = 'Unreachable';
-      val.className = 'ji-val error';
-    }
-
+    applyAzureStatusPayload(null);
     console.error('Azure status error:', e);
   }
 }
@@ -1247,11 +1245,14 @@ function openConsole(num) {
 }
 
 function refreshBuildViewsAfterMutation({ liveDelayMs = 200, fullDelayMs = 1500 } = {}) {
-  if (typeof refreshRunningBuildsNow === 'function') {
+  const page = document.body.dataset.page || '';
+  const overviewUsesLiveStream = page === 'overview' && pageUsesLiveStatusStream();
+
+  if (!overviewUsesLiveStream && typeof refreshRunningBuildsNow === 'function') {
     setTimeout(() => refreshRunningBuildsNow(), liveDelayMs);
     setTimeout(() => refreshRunningBuildsNow(), fullDelayMs);
   }
-  if (typeof loadKPIs === 'function') {
+  if (!overviewUsesLiveStream && typeof loadKPIs === 'function') {
     setTimeout(() => loadKPIs(), fullDelayMs);
   }
   if (typeof loadPipelineKPIs === 'function') {
@@ -1381,8 +1382,10 @@ async function loadGitHubBadge() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  checkStatus();
-  checkAzureStatus();
+  if (!pageUsesLiveStatusStream()) {
+    checkStatus();
+    checkAzureStatus();
+  }
   if (!['pipeline-kpis', 'overview'].includes(document.body.dataset.page || '')) {
     loadLatestBuild();
   }

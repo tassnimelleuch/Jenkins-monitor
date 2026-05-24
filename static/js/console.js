@@ -2,6 +2,9 @@ let _isRunning = true;
 let _autoScroll = true;
 let _pollHandle = null;
 let _lastLineCount = 0;
+let _consoleStream = null;
+let _consoleStreamReceived = false;
+let _consolePollingFallbackStarted = false;
 
 // ── LINE CLASSIFIER
 function cls(line) {
@@ -93,6 +96,7 @@ async function fetchLog() {
 }
 
 function startPolling() {
+  _consolePollingFallbackStarted = true;
   fetchLog();
   _pollHandle = setInterval(fetchLog, 3000);
 }
@@ -102,6 +106,61 @@ function stopPolling() {
     clearInterval(_pollHandle);
     _pollHandle = null;
   }
+}
+
+function getConsoleStreamUrl() {
+  return document.body.dataset.consoleStreamUrl || '';
+}
+
+function closeConsoleStream() {
+  if (_consoleStream) {
+    _consoleStream.close();
+    _consoleStream = null;
+  }
+}
+
+function startConsoleStream() {
+  if (typeof window.EventSource === 'undefined' || !getConsoleStreamUrl()) {
+    updateBadge('Live stream unavailable');
+    return;
+  }
+
+  _consoleStream = new EventSource(getConsoleStreamUrl());
+  _consoleStream.addEventListener('open', () => {
+    _consoleStreamReceived = true;
+  });
+  _consoleStream.addEventListener('stream_ready', () => {
+    _consoleStreamReceived = true;
+  });
+  _consoleStream.addEventListener('log_snapshot', event => {
+    _consoleStreamReceived = true;
+    try {
+      const payload = JSON.parse(event.data);
+      renderLines(payload.log || '');
+    } catch (error) {
+      console.error('Console SSE parse error:', error);
+    }
+  });
+  _consoleStream.addEventListener('build_result', event => {
+    _consoleStreamReceived = true;
+    try {
+      const payload = JSON.parse(event.data);
+      updateBadge(`Finished: ${payload.result || 'UNKNOWN'}`);
+    } catch (error) {
+      console.error('Console result SSE parse error:', error);
+    }
+    _isRunning = false;
+    stopPolling();
+    closeConsoleStream();
+
+    const li = document.getElementById('liveIndicator');
+    if (li) li.style.display = 'none';
+  });
+  _consoleStream.onerror = () => {
+    closeConsoleStream();
+    updateBadge('Live stream disconnected');
+    console.warn('Console SSE stream closed. REST fallback polling is disabled.');
+  };
 }
 
 function scrollToBottom() {
@@ -114,5 +173,7 @@ window.addEventListener('scroll', () => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-  startPolling();
+  startConsoleStream();
 });
+
+window.addEventListener('beforeunload', closeConsoleStream);
