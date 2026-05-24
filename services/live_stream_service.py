@@ -16,6 +16,7 @@ LIVE_STREAM_RETRY_MS = 3000
 LIVE_RUNNING_POLL_SECONDS = 2
 LIVE_JENKINS_STATUS_POLL_SECONDS = 10
 LIVE_AZURE_STATUS_POLL_SECONDS = 20
+LIVE_ALERTS_POLL_SECONDS = 10
 LIVE_HEARTBEAT_SECONDS = 15
 
 CONSOLE_LOG_POLL_SECONDS = 2
@@ -256,6 +257,56 @@ def iter_dashboard_live_events():
                     {
                         'ts': _utcnow_iso(),
                     }
+                )
+                next_heartbeat_at = now + LIVE_HEARTBEAT_SECONDS
+
+            if not emitted:
+                time.sleep(0.25)
+    except GeneratorExit:
+        return
+
+
+def iter_alert_live_events():
+    from services.alerts_service import get_alerts_payload
+
+    last_alerts_signature = None
+    next_alerts_at = 0.0
+    next_heartbeat_at = 0.0
+
+    try:
+        yield _format_sse_event(
+            'stream_ready',
+            {'ts': _utcnow_iso()},
+            retry_ms=LIVE_STREAM_RETRY_MS,
+        )
+
+        while True:
+            now = time.monotonic()
+            emitted = False
+
+            if now >= next_alerts_at:
+                try:
+                    alerts_payload = get_alerts_payload()
+                    alerts_signature = _payload_signature(alerts_payload)
+                    if alerts_signature != last_alerts_signature:
+                        last_alerts_signature = alerts_signature
+                        emitted = True
+                        yield _format_sse_event(
+                            'alerts_payload',
+                            alerts_payload,
+                            retry_ms=LIVE_STREAM_RETRY_MS,
+                        )
+                except Exception:
+                    emitted = True
+                    _log_stream_exception('Alerts live stream update failed.')
+                    yield _format_sse_comment(f'alerts-update-error {_utcnow_iso()}')
+                next_alerts_at = now + LIVE_ALERTS_POLL_SECONDS
+
+            if now >= next_heartbeat_at:
+                emitted = True
+                yield _format_sse_event(
+                    'heartbeat',
+                    {'ts': _utcnow_iso()},
                 )
                 next_heartbeat_at = now + LIVE_HEARTBEAT_SECONDS
 

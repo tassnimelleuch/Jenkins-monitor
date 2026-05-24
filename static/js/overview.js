@@ -1099,19 +1099,19 @@ function hasOverviewHistoryTimeline() {
     return Boolean(document.getElementById('overviewBuildTimeline'));
 }
 
-function updateOverview24hInfo(doneCount, pendingCount) {
-    const doneEl = document.getElementById('overview24hDoneCount');
-    const pendingEl = document.getElementById('overview24hPendingCount');
-    if (!doneEl && !pendingEl) return;
+function updateOverview24hInfo(finishedCount, runningCount) {
+    const finishedEl = document.getElementById('overview24hFinishedCount');
+    const runningEl = document.getElementById('overview24hRunningCount');
+    if (!finishedEl && !runningEl) return;
 
-    if (typeof doneCount !== 'number' || !Number.isFinite(doneCount)) {
-        if (doneEl) doneEl.textContent = '--';
-        if (pendingEl) pendingEl.textContent = '--';
+    if (typeof finishedCount !== 'number' || !Number.isFinite(finishedCount)) {
+        if (finishedEl) finishedEl.textContent = '--';
+        if (runningEl) runningEl.textContent = '--';
         return;
     }
 
-    if (doneEl) doneEl.textContent = String(doneCount);
-    if (pendingEl) pendingEl.textContent = String(pendingCount);
+    if (finishedEl) finishedEl.textContent = String(finishedCount);
+    if (runningEl) runningEl.textContent = String(runningCount);
 }
 
 function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
@@ -1201,9 +1201,9 @@ function renderOverviewPayload(d, { eagerRunningStages = true } = {}) {
     const historyLast24h = trend
         .filter(build => _isWithinLast24Hours(build, now))
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.number || 0) - (a.number || 0));
-    const pendingLast24h = historyLast24h.filter(build => build.result === null).length;
-    const doneLast24h = historyLast24h.length - pendingLast24h;
-    updateOverview24hInfo(doneLast24h, pendingLast24h);
+    const runningLast24h = historyLast24h.filter(build => build.result === null).length;
+    const finishedLast24hCount = historyLast24h.length - runningLast24h;
+    updateOverview24hInfo(finishedLast24hCount, runningLast24h);
     const finishedLast24h = baseTrend.filter(
         b => b.result !== null && _isWithinLast24Hours(b, now)
     );

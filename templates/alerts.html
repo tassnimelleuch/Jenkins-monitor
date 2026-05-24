@@ -4,17 +4,26 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css', v='20260524-live1') }}">
 {% endblock %}
 
-{% block body_attrs %}data-alerts-url="{{ url_for('alerts.alerts_api') }}" data-alert-check-url-template="{{ url_for('alerts.check_alert', alert_id=0) }}" data-can-check-alerts="{{ 'true' if role == 'admin' else 'false' }}" data-page="alerts"{% endblock %}
+{% block body_attrs %}data-alerts-url="{{ url_for('alerts.alerts_api') }}" data-alerts-stream-url="{{ url_for('alerts.alerts_stream') }}" data-alert-check-url-template="{{ url_for('alerts.check_alert', alert_id=0) }}" data-can-check-alerts="{{ 'true' if role == 'admin' else 'false' }}" data-page="alerts"{% endblock %}
 
 {% block page_content %}
 <div class="alerts-hero">
-  <div>
+  <div class="alerts-copy">
     <div class="alerts-title">Alerts</div>
+    <div class="alerts-sub" id="alertsSubtitle">Checking active alerts...</div>
   </div>
   <div class="alerts-pill" id="alertsStatusPill" hidden>Checking...</div>
+</div>
+
+<div class="alerts-filters" id="alertsFilters" aria-label="Alert source filters">
+  <button class="alerts-filter-btn is-active" type="button" data-alert-filter="all" data-filter-label="All" aria-pressed="true">All</button>
+  <button class="alerts-filter-btn" type="button" data-alert-filter="finops" data-filter-label="FinOps" aria-pressed="false">FinOps</button>
+  <button class="alerts-filter-btn" type="button" data-alert-filter="jenkins" data-filter-label="Jenkins" aria-pressed="false">Jenkins</button>
+  <button class="alerts-filter-btn" type="button" data-alert-filter="prometheus" data-filter-label="Prometheus" aria-pressed="false">Prometheus</button>
+  <button class="alerts-filter-btn" type="button" data-alert-filter="github" data-filter-label="GitHub" aria-pressed="false">GitHub</button>
 </div>
 
 <div class="alerts-list-card" id="alertsCard" hidden>
@@ -36,5 +45,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
+<script src="{{ url_for('static', filename='js/alerts.js', v='20260524-live1') }}"></script>
 {% endblock %}

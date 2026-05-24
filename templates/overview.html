@@ -9,7 +9,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css', v='20260524-copy1') }}">
 {% endblock %}
 {% block page_content %}
 {% set show_overview_build_charts = has_role('admin', 'developer') %}
@@ -47,13 +47,13 @@
             <div class="overview-24h-note">Every build chart below is scoped to the last 24 hours of pipeline activity.</div>
         </div>
         <div class="overview-24h-stats">
-            <div class="overview-24h-stat is-done">
-                <span class="overview-24h-stat-label">Done</span>
-                <span class="overview-24h-stat-value" id="overview24hDoneCount">--</span>
+            <div class="overview-24h-stat is-finished">
+                <span class="overview-24h-stat-label">Finished</span>
+                <span class="overview-24h-stat-value" id="overview24hFinishedCount">--</span>
             </div>
-            <div class="overview-24h-stat is-pending">
-                <span class="overview-24h-stat-label">Pending</span>
-                <span class="overview-24h-stat-value" id="overview24hPendingCount">--</span>
+            <div class="overview-24h-stat is-running">
+                <span class="overview-24h-stat-label">Running</span>
+                <span class="overview-24h-stat-value" id="overview24hRunningCount">--</span>
             </div>
         </div>
     </div>
@@ -151,5 +151,5 @@
 
 {% block extra_js %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="{{ url_for('static', filename='js/overview.js', v='20260523-sse3') }}"></script>
+<script src="{{ url_for('static', filename='js/overview.js', v='20260524-copy1') }}"></script>
 {% endblock %}

@@ -1,4 +1,4 @@
-from flask import jsonify, render_template, session
+from flask import Response, jsonify, render_template, session, stream_with_context
 
 from alerts import alerts_bp
 from services.access_service import role_required
@@ -6,6 +6,7 @@ from services.alerts_service import (
     get_alerts_payload,
     mark_persistent_alert_checked,
 )
+from services.live_stream_service import iter_alert_live_events
 
 
 @alerts_bp.route('/alerts')
@@ -22,6 +23,19 @@ def alerts_page():
 @role_required('admin')
 def alerts_api():
     return jsonify(get_alerts_payload())
+
+
+@alerts_bp.route('/api/alerts/stream')
+@role_required('admin')
+def alerts_stream():
+    response = Response(
+        stream_with_context(iter_alert_live_events()),
+        mimetype='text/event-stream',
+    )
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    response.headers['Connection'] = 'keep-alive'
+    return response
 
 
 @alerts_bp.route('/api/alerts/<int:alert_id>/check', methods=['POST'])

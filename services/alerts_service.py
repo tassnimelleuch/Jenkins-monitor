@@ -40,7 +40,8 @@ FINOPS_DAILY_COST_RULE_ID = 'finops_daily_cost_above_average'
 FINOPS_TOTAL_SCOPE = 'total'
 FINOPS_TOTAL_LABEL = 'Total cost'
 PULL_REQUEST_STALE_RULE_ID = 'open_pull_request_over_three_days'
-PULL_REQUEST_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000
+MS_PER_DAY = 24 * 60 * 60 * 1000
+PULL_REQUEST_STALE_THRESHOLD_MS = 3 * MS_PER_DAY
 BUILD_FAILURE_STREAK_RULE_ID = 'consecutive_build_failures'
 BUILD_FAILURE_STREAK_THRESHOLD = 2
 STAGE_DURATION_OVER_AVERAGE_RULE_ID = 'stage_duration_over_average'
@@ -713,6 +714,7 @@ def _serialize_persistent_alert(row):
         'id': row.id,
         'alert_key': row.alert_key,
         'rule_id': row.rule_id,
+        'source_system': row.source_system,
         'severity': row.severity,
         'message': row.message,
         'usage_date': usage_date_value,
@@ -1014,7 +1016,7 @@ def _stale_open_pull_request_alerts(branch_name: str):
             'created_at': _timestamp_ms(created_at),
             'updated_at': _timestamp_ms(updated_at),
             'message': (
-                f'PR #{pr_number} has been open longer than 1 day.'
+                f'PR #{pr_number} has been open longer than 3 days.'
             ),
         })
 

@@ -1,3 +1,42 @@
+const ALERT_DAY_MS = 24 * 60 * 60 * 1000;
+const ALERT_FILTER_LABELS = {
+  all: 'All',
+  finops: 'FinOps',
+  jenkins: 'Jenkins',
+  prometheus: 'Prometheus',
+  github: 'GitHub',
+};
+const ALERT_FILTER_KEYS = Object.keys(ALERT_FILTER_LABELS);
+
+let _alertsPayload = null;
+let _alertsFilter = 'all';
+let _alertsStream = null;
+let _alertsStreamReceived = false;
+let _alertsStreamLoggedError = false;
+
+function getAlertsUrl() {
+  return document.body.dataset.alertsUrl || '';
+}
+
+function getAlertsStreamUrl() {
+  return document.body.dataset.alertsStreamUrl || '';
+}
+
+function canUseAlertsLiveStream() {
+  return typeof window.EventSource !== 'undefined' && Boolean(getAlertsStreamUrl());
+}
+
+function alertsLiveStreamActive() {
+  return Boolean(_alertsStream);
+}
+
+function closeAlertsLiveStream() {
+  if (_alertsStream) {
+    _alertsStream.close();
+    _alertsStream = null;
+  }
+}
+
 function formatAlertDuration(ms) {
   const totalSeconds = Math.max(0, Math.round((ms || 0) / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -9,9 +48,18 @@ function formatAlertDuration(ms) {
   return `${seconds}s`;
 }
 
-function formatAlertTime(ts) {
-  if (!ts) return '--';
-  return new Date(ts).toLocaleString();
+function formatAlertAgeDays(ms) {
+  const totalDays = Math.max(0, Number(ms || 0)) / ALERT_DAY_MS;
+  if (totalDays <= 0) return '0 days';
+
+  const roundedDays = totalDays >= 10
+    ? Math.round(totalDays)
+    : Math.round(totalDays * 10) / 10;
+  const dayText = Number.isInteger(roundedDays)
+    ? String(roundedDays)
+    : roundedDays.toFixed(1).replace(/\.0$/, '');
+  const dayValue = Number(dayText);
+  return `${dayText} day${dayValue === 1 ? '' : 's'}`;
 }
 
 function formatCurrency(value, currencyCode = 'USD') {
@@ -69,7 +117,8 @@ function buildAlertMeta(alert) {
     items.push(
       `Title: ${alert.title || '--'}`,
       `Author: ${alert.author_login || '--'}`,
-      `Open for: ${formatAlertDuration(alert.age_ms)}`
+      `Base: ${alert.base_branch || '--'}`,
+      `Open for: ${formatAlertAgeDays(alert.age_ms)}`
     );
   } else if (alert.kind === 'build_failure_streak') {
     const buildNumbers = Array.isArray(alert.build_numbers) && alert.build_numbers.length
@@ -127,7 +176,6 @@ function buildAlertContext(alert) {
 
 function buildAlertAction(alert, canManageAlerts) {
   if (!canManageAlerts) return '';
-
   if (!alert.requires_check) return '';
 
   return `
@@ -151,7 +199,7 @@ function renderAlertRows(listId, alerts, canManageAlerts) {
   if (!Array.isArray(alerts) || alerts.length === 0) {
     list.innerHTML = `
       <div class="alerts-empty">
-        No open alerts right now.
+        No matching alerts right now.
       </div>
     `;
     return;
@@ -180,6 +228,153 @@ function renderAlertRows(listId, alerts, canManageAlerts) {
       </article>
     `;
   }).join('');
+}
+
+function sourceSystemForAlert(alert) {
+  const sourceSystem = String(alert?.source_system || '').trim().toLowerCase();
+  if (sourceSystem) return sourceSystem;
+  return String(alert?.source_label || '').trim().toLowerCase();
+}
+
+function buildAlertSourceCounts(alerts) {
+  const counts = {
+    all: Array.isArray(alerts) ? alerts.length : 0,
+    finops: 0,
+    jenkins: 0,
+    prometheus: 0,
+    github: 0,
+  };
+
+  (alerts || []).forEach(alert => {
+    const sourceSystem = sourceSystemForAlert(alert);
+    if (Object.prototype.hasOwnProperty.call(counts, sourceSystem)) {
+      counts[sourceSystem] += 1;
+    }
+  });
+
+  return counts;
+}
+
+function getAlertFilterLabel(filterKey) {
+  return ALERT_FILTER_LABELS[filterKey] || ALERT_FILTER_LABELS.all;
+}
+
+function filterAlerts(alerts, filterKey) {
+  if (filterKey === 'all') return Array.isArray(alerts) ? alerts : [];
+  return (alerts || []).filter(alert => sourceSystemForAlert(alert) === filterKey);
+}
+
+function buildAlertsSubtitle(totalCount, counts, filteredCount) {
+  if (totalCount === 0) {
+    return 'No open alerts right now.';
+  }
+
+  if (_alertsFilter === 'all') {
+    return `${totalCount} open alert${totalCount === 1 ? '' : 's'}: ${counts.finops} FinOps, ${counts.jenkins} Jenkins, ${counts.github} GitHub, ${counts.prometheus} Prometheus.`;
+  }
+
+  const filterLabel = getAlertFilterLabel(_alertsFilter);
+  if (filteredCount === 0) {
+    return `No open ${filterLabel} alerts right now. ${totalCount} alert${totalCount === 1 ? '' : 's'} still open in other sources.`;
+  }
+
+  return `Showing ${filteredCount} ${filterLabel} alert${filteredCount === 1 ? '' : 's'} out of ${totalCount} open alert${totalCount === 1 ? '' : 's'}.`;
+}
+
+function buildAlertsRuleText() {
+  if (_alertsFilter === 'all') {
+    return 'Open alerts from FinOps, Jenkins, GitHub, and Prometheus.';
+  }
+  return `Showing ${getAlertFilterLabel(_alertsFilter)} alerts only.`;
+}
+
+function buildAlertsEmptyState(totalCount) {
+  if (totalCount === 0 || _alertsFilter === 'all') {
+    return 'No open alerts right now.';
+  }
+  return `No open ${getAlertFilterLabel(_alertsFilter)} alerts right now.`;
+}
+
+function updateAlertStatusPill(totalCount, filteredCount) {
+  const pill = document.getElementById('alertsStatusPill');
+  if (!pill) return;
+
+  if (totalCount === 0) {
+    pill.hidden = true;
+    pill.textContent = '0 open';
+    pill.classList.remove('is-alert');
+    return;
+  }
+
+  pill.hidden = false;
+  if (_alertsFilter === 'all') {
+    pill.textContent = `${totalCount} open`;
+    pill.classList.toggle('is-alert', totalCount > 0);
+    return;
+  }
+
+  pill.textContent = `${filteredCount} ${getAlertFilterLabel(_alertsFilter)}`;
+  pill.classList.toggle('is-alert', filteredCount > 0);
+}
+
+function updateAlertFilterButtons(counts) {
+  document.querySelectorAll('[data-alert-filter]').forEach(button => {
+    const filterKey = String(button.dataset.alertFilter || 'all').trim().toLowerCase();
+    const label = button.dataset.filterLabel || getAlertFilterLabel(filterKey);
+    const count = Number(counts[filterKey] ?? 0);
+    const isActive = filterKey === _alertsFilter;
+
+    button.textContent = `${label} (${count})`;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+}
+
+function renderAlertsFromState() {
+  const payload = _alertsPayload || {};
+  const alerts = Array.isArray(payload.alerts) ? payload.alerts : [];
+  const counts = buildAlertSourceCounts(alerts);
+  const filteredAlerts = filterAlerts(alerts, _alertsFilter);
+  const totalCount = counts.all;
+  const filteredCount = filteredAlerts.length;
+  const canManageAlerts = document.body.dataset.canCheckAlerts === 'true';
+
+  updateAlertFilterButtons(counts);
+  setText('alertsSubtitle', buildAlertsSubtitle(totalCount, counts, filteredCount));
+  setText('alertsRuleText', buildAlertsRuleText());
+  updateAlertStatusPill(totalCount, filteredCount);
+
+  toggleHidden('alertsCard', filteredCount === 0);
+  toggleHidden('alertsIdleState', filteredCount > 0);
+  renderAlertRows('alertsList', filteredAlerts, canManageAlerts);
+
+  if (filteredCount === 0) {
+    setText('alertsIdleState', buildAlertsEmptyState(totalCount));
+  }
+}
+
+function applyAlertsPayload(data) {
+  _alertsPayload = {
+    ...data,
+    alerts: Array.isArray(data?.alerts) ? data.alerts : [],
+  };
+  renderAlertsFromState();
+}
+
+function showAlertsUnavailableState() {
+  if (_alertsPayload) return;
+
+  toggleHidden('alertsCard', true);
+  toggleHidden('alertsIdleState', false);
+  setText('alertsSubtitle', 'Unable to load alerts right now.');
+  setText('alertsIdleState', 'Unable to load alerts right now.');
+
+  const pill = document.getElementById('alertsStatusPill');
+  if (pill) {
+    pill.hidden = true;
+    pill.textContent = 'Unavailable';
+    pill.classList.remove('is-alert');
+  }
 }
 
 async function postAlertAction(template, alertId, fallbackMessage) {
@@ -215,79 +410,123 @@ async function markAlertChecked(alertId) {
   );
 }
 
+function applyOptimisticAlertCheck(alertId) {
+  if (!_alertsPayload || !Array.isArray(_alertsPayload.alerts)) return;
+
+  _alertsPayload = {
+    ..._alertsPayload,
+    alerts: _alertsPayload.alerts.filter(alert => String(alert?.id) !== String(alertId)),
+  };
+  renderAlertsFromState();
+}
+
 async function loadAlerts() {
   try {
-    const url = document.body.dataset.alertsUrl;
-    const canManageAlerts = document.body.dataset.canCheckAlerts === 'true';
-    const response = await fetch(url);
+    const response = await fetch(getAlertsUrl());
+    if (!response.ok) {
+      throw new Error('Could not load alerts.');
+    }
+
     const data = await response.json();
-    const summary = data.summary || {};
-    const alerts = data.alerts || [];
-    const pipeline = data.pipeline || {};
-    const alertCount = Number(summary.alert_count ?? alerts.length ?? 0);
-    const finopsAlertCount = Number(summary.finops_alert_count ?? 0);
-    const githubAlertCount = Number(summary.github_alert_count ?? 0);
-    const prometheusAlertCount = Number(summary.prometheus_alert_count ?? 0);
-    const jenkinsAlertCount = Number(summary.jenkins_alert_count ?? summary.build_alert_count ?? 0);
-
-    setText(
-      'alertsSubtitle',
-      `${alertCount} open alert${alertCount === 1 ? '' : 's'}: ${finopsAlertCount} FinOps, ${jenkinsAlertCount} Jenkins, ${githubAlertCount} GitHub, ${prometheusAlertCount} Prometheus.`
-    );
-    setText(
-      'alertsRuleText',
-      'Open alerts from FinOps, Jenkins, GitHub, and Prometheus.'
-    );
-
-    const pill = document.getElementById('alertsStatusPill');
-    if (pill) {
-      pill.hidden = alertCount === 0;
-      pill.textContent = `${alertCount} open`;
-      pill.classList.toggle('is-alert', alertCount > 0);
-    }
-
-    toggleHidden('alertsCard', alertCount === 0);
-    toggleHidden('alertsIdleState', alertCount > 0);
-
-    renderAlertRows('alertsList', alerts, canManageAlerts);
-
-    if (alertCount === 0) {
-      setText('alertsIdleState', 'No open alerts right now.');
-    }
-  } catch (e) {
-    toggleHidden('alertsCard', true);
-    toggleHidden('alertsIdleState', false);
-    setText('alertsIdleState', 'Unable to load alerts right now.');
-    const pill = document.getElementById('alertsStatusPill');
-    if (pill) {
-      pill.hidden = true;
-      pill.textContent = 'Unavailable';
-      pill.classList.remove('is-alert');
-    }
+    _alertsStreamReceived = true;
+    applyAlertsPayload(data);
+  } catch (error) {
+    showAlertsUnavailableState();
   }
 }
 
-document.addEventListener('click', async (event) => {
-  const checkButton = event.target.closest('[data-alert-check-id]');
-  if (checkButton) {
-    const alertId = checkButton.dataset.alertCheckId;
-    if (!alertId) return;
+function connectAlertsLiveStream() {
+  if (!canUseAlertsLiveStream() || alertsLiveStreamActive()) return false;
 
-    checkButton.disabled = true;
-    checkButton.setAttribute('aria-busy', 'true');
+  _alertsStream = new EventSource(getAlertsStreamUrl());
+  _alertsStream.addEventListener('stream_ready', () => {
+    _alertsStreamReceived = true;
+    _alertsStreamLoggedError = false;
+  });
+  _alertsStream.addEventListener('heartbeat', () => {
+    _alertsStreamReceived = true;
+  });
+  _alertsStream.addEventListener('alerts_payload', event => {
+    _alertsStreamReceived = true;
+    _alertsStreamLoggedError = false;
 
     try {
-      await markAlertChecked(alertId);
-      await loadAlerts();
+      applyAlertsPayload(JSON.parse(event.data));
     } catch (error) {
-      checkButton.disabled = false;
-      checkButton.removeAttribute('aria-busy');
+      console.error('Alerts SSE parse error:', error);
     }
+  });
+  _alertsStream.onerror = () => {
+    if (!_alertsStreamLoggedError) {
+      console.warn('Alerts SSE stream disconnected. The browser will retry automatically.');
+      _alertsStreamLoggedError = true;
+    }
+
+    if (!_alertsStreamReceived) {
+      void loadAlerts();
+    }
+  };
+
+  return true;
+}
+
+function setAlertsFilter(filterKey) {
+  const normalized = ALERT_FILTER_KEYS.includes(filterKey) ? filterKey : 'all';
+  if (_alertsFilter === normalized && _alertsPayload) return;
+
+  _alertsFilter = normalized;
+  if (!_alertsPayload) {
+    updateAlertFilterButtons({
+      all: 0,
+      finops: 0,
+      jenkins: 0,
+      prometheus: 0,
+      github: 0,
+    });
+    setText('alertsRuleText', buildAlertsRuleText());
     return;
+  }
+  renderAlertsFromState();
+}
+
+document.addEventListener('click', async event => {
+  const filterButton = event.target.closest('[data-alert-filter]');
+  if (filterButton) {
+    const filterKey = String(filterButton.dataset.alertFilter || 'all').trim().toLowerCase();
+    setAlertsFilter(filterKey);
+    return;
+  }
+
+  const checkButton = event.target.closest('[data-alert-check-id]');
+  if (!checkButton) return;
+
+  const alertId = checkButton.dataset.alertCheckId;
+  if (!alertId) return;
+
+  checkButton.disabled = true;
+  checkButton.setAttribute('aria-busy', 'true');
+
+  try {
+    await markAlertChecked(alertId);
+    applyOptimisticAlertCheck(alertId);
+    await loadAlerts();
+  } catch (error) {
+    checkButton.disabled = false;
+    checkButton.removeAttribute('aria-busy');
   }
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadAlerts();
-  setInterval(loadAlerts, 10000);
+  if (!connectAlertsLiveStream()) {
+    void loadAlerts();
+    return;
+  }
+
+  window.setTimeout(() => {
+    if (!_alertsPayload) {
+      void loadAlerts();
+    }
+  }, 2000);
 });
+
+window.addEventListener('beforeunload', closeAlertsLiveStream);
