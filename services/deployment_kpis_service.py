@@ -1,97 +1,16 @@
-import re
-
 from flask import current_app
-import requests
 
-from collectors.jenkins_collector import get_all_builds, get_console_log
 from collectors.kubernetes_collector import get_cluster_snapshot
 from services.docker_image_service import get_latest_image_artifact
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import get_stored_branch_stage_success_frequency
 
 
-
-IMAGE_PATTERNS = [
-    r'Building Docker image:\s*([^\s:]+):([^\s]+)',
-    r'Docker image built:\s*([^\s:]+):([^\s]+)',
-    r'Docker image:\s*([^\s:]+):([^\s]+)',
-    r'Updated deployment with new image:\s*([^\s:]+):([^\s]+)',
-    r'Applying deployment with image:\s*([^\s:]+):([^\s]+)',
-    r'Successfully pushed\s*([^\s:]+):([^\s]+)',
-    r'naming to docker\.io/([^\s:]+):([^\s]+)',
-]
-ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
-
-
-
-
-def _extract_image_from_log(log_text):
-    if not log_text:
-        return None, None
-    text = ANSI_RE.sub('', log_text)
-    for pattern in IMAGE_PATTERNS:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            return match.group(1), match.group(2)
-    return None, None
-
-
-def _normalize_image_name(image_name):
-    if not image_name:
-        return None
-    name = image_name.strip()
-    if name.startswith('docker.io/'):
-        name = name[len('docker.io/'):]
-    return name
-
-
-def _get_docker_hub_size_mb(image_name, tag):
-    name = _normalize_image_name(image_name)
-    if not name or not tag:
-        return None
-    if '/' not in name:
-        return None
-    namespace, repo = name.split('/', 1)
-    url = f'https://hub.docker.com/v2/repositories/{namespace}/{repo}/tags/{tag}/'
-    try:
-        resp = requests.get(url, timeout=5)
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        images = data.get('images') or []
-        if not images:
-            return None
-        size_bytes = images[0].get('size')
-        if not size_bytes:
-            return None
-        return round(size_bytes / (1024 * 1024), 1)
-    except Exception:
-        return None
-
-
-def _get_latest_image_artifact():
-    builds = get_all_builds()
-    if not builds:
-        return {}
-    for b in builds[:8]:
-        build_number = b.get('number')
-        if not build_number:
-            continue
-        log_text = get_console_log(build_number)
-        if not log_text or log_text.startswith('[ERROR]'):
-            continue
-        image_name, tag = _extract_image_from_log(log_text)
-        if image_name or tag:
-            return {
-                "build_number": build_number,
-                "image_name": image_name,
-                "tag": tag,
-                "size_mb": _get_docker_hub_size_mb(image_name, tag),
-                "result": b.get('result'),
-                "timestamp": b.get('timestamp'),
-            }
-    return {}
-
+DEFAULT_DEPLOYMENT_FREQUENCY = {
+    'successful': 0,
+    'total': 0,
+    'rate': 0,
+}
 
 
 def _run_in_app_context(app, func):
@@ -99,11 +18,24 @@ def _run_in_app_context(app, func):
         return func()
 
 
-def get_deployment_kpis():
+def get_deployment_rollout_payload():
+    try:
+        return {
+            'connected': True,
+            'data': get_cluster_snapshot(),
+        }
+    except Exception as e:
+        return {
+            'connected': False,
+            'message': str(e),
+            'data': {},
+        }
+
+
+def get_deployment_summary_payload():
     try:
         app = current_app._get_current_object()
         tasks = {
-            'cluster': lambda: get_cluster_snapshot(),
             'deployment_frequency': lambda: _run_in_app_context(
                 app,
                 lambda: get_stored_branch_stage_success_frequency(
@@ -113,20 +45,47 @@ def get_deployment_kpis():
             ),
             'latest_image': lambda: _run_in_app_context(app, get_latest_image_artifact),
         }
-
-        results = parallel_execute(tasks, max_workers=3, timeout=30)
-        data = results.get('cluster') or {}
-        data['deployment_frequency'] = (
-            results.get('deployment_frequency')
-            or {'successful': 0, 'total': 0, 'rate': 0}
-        )
-        data['latest_image'] = results.get('latest_image') or {}
+        results = parallel_execute(tasks, max_workers=2, timeout=30)
         return {
-            "connected": True,
-            "data": data
+            'deployment_frequency': (
+                results.get('deployment_frequency')
+                or dict(DEFAULT_DEPLOYMENT_FREQUENCY)
+            ),
+            'latest_image': results.get('latest_image') or {},
         }
     except Exception as e:
         return {
-            "connected": False,
-            "message": str(e)
+            'deployment_frequency': dict(DEFAULT_DEPLOYMENT_FREQUENCY),
+            'latest_image': {},
+            'message': str(e),
         }
+
+
+def merge_deployment_kpis_payload(rollout_payload=None, summary_payload=None):
+    rollout_payload = rollout_payload or {'connected': False, 'data': {}}
+    summary_payload = summary_payload or {}
+
+    data = dict(rollout_payload.get('data') or {})
+    data['deployment_frequency'] = (
+        summary_payload.get('deployment_frequency')
+        or dict(DEFAULT_DEPLOYMENT_FREQUENCY)
+    )
+    data['latest_image'] = summary_payload.get('latest_image') or {}
+
+    payload = {
+        'connected': bool(rollout_payload.get('connected')),
+        'data': data,
+    }
+
+    message = rollout_payload.get('message') or summary_payload.get('message')
+    if message and not payload['connected']:
+        payload['message'] = message
+
+    return payload
+
+
+def get_deployment_kpis():
+    return merge_deployment_kpis_payload(
+        get_deployment_rollout_payload(),
+        get_deployment_summary_payload(),
+    )

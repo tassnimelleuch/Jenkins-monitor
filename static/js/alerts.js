@@ -439,6 +439,10 @@ function connectAlertsLiveStream() {
   if (!canUseAlertsLiveStream() || alertsLiveStreamActive()) return false;
 
   _alertsStream = new EventSource(getAlertsStreamUrl());
+  _alertsStream.addEventListener('open', () => {
+    _alertsStreamReceived = true;
+    _alertsStreamLoggedError = false;
+  });
   _alertsStream.addEventListener('stream_ready', () => {
     _alertsStreamReceived = true;
     _alertsStreamLoggedError = false;
@@ -526,7 +530,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!_alertsPayload) {
       void loadAlerts();
     }
-  }, 2000);
+  }, 750);
 });
 
 window.addEventListener('beforeunload', closeAlertsLiveStream);

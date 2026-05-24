@@ -410,6 +410,20 @@ function renderFailingCommit(data) {
   const commitBadge = commitUrl
     ? `<a href="${escapeHtml(commitUrl)}" target="_blank" rel="noopener" class="gh-commit-sha-badge">${escapeHtml(c.short_sha || '--')}</a>`
     : `<span class="gh-commit-sha-badge">${escapeHtml(c.short_sha || '--')}</span>`;
+  const actionButtons = [];
+  if (buildUrl) {
+    actionButtons.push(
+      `<a href="${escapeHtml(buildUrl)}" target="_blank" rel="noopener" class="gh-build-link">View Jenkins build →</a>`
+    );
+  }
+  if (commitUrl) {
+    actionButtons.push(
+      `<a href="${escapeHtml(commitUrl)}" target="_blank" rel="noopener" class="gh-build-link">View commit →</a>`
+    );
+  }
+  const actionButtonsHtml = actionButtons.length
+    ? `<div class="gh-commit-actions">${actionButtons.join('')}</div>`
+    : '';
 
   container.innerHTML = `
     <div class="gh-commit gh-commit-failing">
@@ -430,7 +444,7 @@ function renderFailingCommit(data) {
       
       <div class="gh-commit-footer">
         ${committedAt !== '--' ? `<div class="gh-meta">Committed ${escapeHtml(committedAt)}</div>` : ''}
-        ${buildUrl ? `<a href="${escapeHtml(buildUrl)}" target="_blank" rel="noopener" class="gh-build-link">View Jenkins build →</a>` : ''}
+        ${actionButtonsHtml}
       </div>
     </div>
   `;

@@ -7,8 +7,8 @@ const OVERVIEW_HISTORY_INITIAL_SHOW = 5;
 const LIVE_RUNNING_WATCH_POLL_MS = 2000;
 const LIVE_RUNNING_POLL_MS = 2000;
 const LIVE_RUNNING_IDLE_CONFIRM_POLLS = 2;
-const KPI_COMPLETION_BURST_MS = 12000;
-const KPI_COMPLETION_BURST_INTERVAL_MS = 2000;
+const KPI_COMPLETION_BURST_MS = 8000;
+const KPI_COMPLETION_BURST_INTERVAL_MS = 1000;
 const OPTIMISTIC_ABORT_WINDOW_MS = 30000;
 
 const _overviewSegTip = document.getElementById('overviewSegTip');
@@ -37,6 +37,7 @@ let _optimisticallyAbortedBuilds = new Map();
 let _overviewLiveStream = null;
 let _overviewLiveStreamReceived = false;
 let _overviewLiveStreamFallbackStarted = false;
+let _overviewLiveStreamLoggedError = false;
 
 function _isWithinLast24Hours(build, now = Date.now()) {
     const ts = Number(build?.timestamp || 0);
@@ -137,7 +138,7 @@ function stopOverviewKpiBurstRefresh() {
 }
 
 function loadImmediateOverviewKPIs() {
-    return loadKPIs({ refresh: true, wait: true });
+    return loadKPIs();
 }
 
 function scheduleOverviewKpiBurstRefresh({
@@ -145,14 +146,6 @@ function scheduleOverviewKpiBurstRefresh({
     intervalMs = KPI_COMPLETION_BURST_INTERVAL_MS,
     immediate = true,
 } = {}) {
-    if (overviewLiveStreamActive()) {
-        stopOverviewKpiBurstRefresh();
-        if (immediate) {
-            loadImmediateOverviewKPIs();
-        }
-        return;
-    }
-
     const stopAt = Date.now() + durationMs;
     _overviewKpiBurstStopAt = Math.max(_overviewKpiBurstStopAt, stopAt);
 
@@ -167,7 +160,7 @@ function scheduleOverviewKpiBurstRefresh({
             stopOverviewKpiBurstRefresh();
             return;
         }
-        loadKPIs({ refresh: true });
+        loadKPIs();
     }, intervalMs);
 }
 
@@ -441,6 +434,7 @@ function closeOverviewLiveStream() {
         _overviewLiveStream.close();
         _overviewLiveStream = null;
     }
+    _overviewLiveStreamLoggedError = false;
 }
 
 function startOverviewPollingFallback({ eager = true } = {}) {
@@ -456,15 +450,19 @@ function connectOverviewLiveStream() {
     _overviewLiveStream = new EventSource(getOverviewLiveStreamUrl());
     _overviewLiveStream.addEventListener('open', () => {
         _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
     });
     _overviewLiveStream.addEventListener('stream_ready', () => {
         _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
     });
     _overviewLiveStream.addEventListener('heartbeat', () => {
         _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
     });
     _overviewLiveStream.addEventListener('jenkins_status', event => {
         _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
         try {
             applyJenkinsStatusPayload(JSON.parse(event.data));
         } catch (error) {
@@ -473,6 +471,7 @@ function connectOverviewLiveStream() {
     });
     _overviewLiveStream.addEventListener('azure_status', event => {
         _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
         try {
             applyAzureStatusPayload(JSON.parse(event.data));
         } catch (error) {
@@ -481,6 +480,7 @@ function connectOverviewLiveStream() {
     });
     _overviewLiveStream.addEventListener('running_stages', event => {
         _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
         try {
             const payload = JSON.parse(event.data);
             applyOverviewLiveRunningBuildsData(payload?.builds, {
@@ -491,13 +491,46 @@ function connectOverviewLiveStream() {
             console.error('Overview running stages SSE parse error:', error);
         }
     });
+    _overviewLiveStream.addEventListener('overview_payload', event => {
+        _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
+        try {
+            const payload = JSON.parse(event.data);
+            if (payload?.connected) {
+                renderOverviewPayload(payload, { eagerRunningStages: false });
+                stopOverviewKpiBurstRefresh();
+            }
+        } catch (error) {
+            console.error('Overview payload SSE parse error:', error);
+        }
+    });
     _overviewLiveStream.addEventListener('build_started', () => {
         _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
+        scheduleOverviewKpiBurstRefresh();
+    });
+    _overviewLiveStream.addEventListener('build_finished', () => {
+        _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
+        scheduleOverviewKpiBurstRefresh();
+    });
+    _overviewLiveStream.addEventListener('snapshot_refreshed', () => {
+        _overviewLiveStreamReceived = true;
+        _overviewLiveStreamLoggedError = false;
         loadImmediateOverviewKPIs();
     });
     _overviewLiveStream.onerror = () => {
-        closeOverviewLiveStream();
-        console.warn('Overview SSE stream closed. REST fallback polling is disabled.');
+        if (!_overviewLiveStreamLoggedError) {
+            console.warn('Overview SSE stream disconnected. The browser will retry automatically.');
+            _overviewLiveStreamLoggedError = true;
+        }
+        if (!_overviewLiveStreamReceived) {
+            scheduleOverviewKpiBurstRefresh({
+                durationMs: 4000,
+                intervalMs: 1000,
+                immediate: true,
+            });
+        }
     };
 
     return true;

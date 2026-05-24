@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-deployment-kpis-url="{{ url_for('deployment_kpis.deployment_kpis_cluster') }}"{% if has_role('admin') %} data-cluster-metrics-url="{{ url_for('deployment_kpis.cluster_metrics_api') }}"{% endif %} data-page="deployment-kpis"{% endblock %}
+{% block body_attrs %}data-deployment-kpis-url="{{ url_for('deployment_kpis.deployment_kpis_cluster') }}" data-live-stream-url="{{ url_for('deployment_kpis.deployment_live_stream') }}"{% if has_role('admin') %} data-cluster-metrics-url="{{ url_for('deployment_kpis.cluster_metrics_api') }}"{% endif %} data-page="deployment-kpis"{% endblock %}
 
 {% block page_content %}
 {% set deployed_app_url = 'http://51.103.56.25:8000/' %}

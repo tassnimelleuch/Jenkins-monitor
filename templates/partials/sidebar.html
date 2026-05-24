@@ -173,7 +173,6 @@
     <button class="sb-chatbot-btn" type="button" onclick="toggleChat()" data-chat-toggle aria-label="Open chatbot">
       {% include 'partials/chatbot_icon.html' %}
       <span class="sb-chatbot-label">AI Assistant</span>
-      <span id="chatbotStatusBadge" class="btn-ai-badge is-checking">Checking</span>
     </button>
 
     <div class="logout-row" onclick="window.location.href='{{ url_for('auth.logout') }}'">

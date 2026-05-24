@@ -1,4 +1,4 @@
-<div id="chatPanel" class="chat-panel" data-chat-url="{{ url_for('chatbot.chat_api') }}" data-chat-health-url="{{ url_for('chatbot.chatbot_health_api') }}" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="chatPanelTitle">
+<div id="chatPanel" class="chat-panel" data-chat-url="{{ url_for('chatbot.chat_api') }}" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="chatPanelTitle">
     <div class="chat-head">
         <div class="chat-avatar">
             {% with icon_class='chatbot-icon chatbot-icon--avatar' %}
@@ -7,7 +7,7 @@
         </div>
         <div>
             <div class="chat-name" id="chatPanelTitle">Dashboard's AI Assistant</div>
-            <div id="chatStatus" class="chat-status is-checking" aria-live="polite">Checking Ollama...</div>
+            <div class="chat-status" aria-live="polite">Ask about your dashboard, builds, or FinOps data.</div>
         </div>
         <div class="chat-head-actions">
             <button id="chatFullscreenBtn" class="chat-head-btn" type="button" onclick="toggleChatFullscreen()" aria-label="Open fullscreen chat" aria-pressed="false">
@@ -37,8 +37,6 @@
             <div class="msg-time">Now</div>
         </div>
     </div>
-
-  
 
     <div class="chat-input-row">
         <textarea id="chatInput" class="chat-input" rows="1" placeholder="Ask something..."

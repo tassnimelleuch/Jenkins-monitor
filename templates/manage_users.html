@@ -49,7 +49,6 @@
         <div class="badges">
           <span class="badge {{ user.role }}">{{ user.display_role if user.display_role is defined else user.role|replace('_', ' ')|title }}</span>
           <span class="badge pending">pending</span>
-          <span class="badge offline">logged out</span>
         </div>
         <div class="actions">
           <form method="POST" action="{{ url_for('user_management.approve_user', username=user.username) }}">
@@ -85,9 +84,6 @@
         <div class="badges">
           <span class="badge {{ user.role }}">{{ user.display_role if user.display_role is defined else user.role|replace('_', ' ')|title }}</span>
           <span class="badge approved">approved</span>
-          <span class="badge {{ 'online' if user.is_logged_in else 'offline' }}">
-            {{ 'logged in' if user.is_logged_in else 'logged out' }}
-          </span>
         </div>
         <div class="actions">
           <form method="POST" action="{{ url_for('user_management.reject_user', username=user.username) }}"
@@ -120,9 +116,6 @@
       <div class="badges">
         <span class="badge {{ user.role }}">{{ user.display_role if user.display_role is defined else user.role|replace('_', ' ')|title }}</span>
         <span class="badge rejected">rejected</span>
-        <span class="badge {{ 'online' if user.is_logged_in else 'offline' }}">
-          {{ 'logged in' if user.is_logged_in else 'logged out' }}
-        </span>
       </div>
       <div class="actions">
         <form method="POST" action="{{ url_for('user_management.approve_user', username=user.username) }}">

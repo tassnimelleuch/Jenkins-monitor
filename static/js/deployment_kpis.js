@@ -120,11 +120,21 @@ function renderDiskChart(key, canvasId, labels, values, colors) {
 }
 
 // ── AKS metrics ─────────────────────────────────────────────────────────────
+const DEPLOYMENT_KPIS_URL = document.body.dataset.deploymentKpisUrl || '';
 const CLUSTER_METRICS_URL = document.body.dataset.clusterMetricsUrl || '';
+const DEPLOYMENT_LIVE_STREAM_URL = document.body.dataset.liveStreamUrl || '';
+const DEPLOYMENT_KPIS_FALLBACK_POLL_MS = 10000;
+const CLUSTER_METRICS_FALLBACK_POLL_MS = 20000;
 let aksCpuNsChart = null;
 let aksRamNsChart = null;
 let aksNetNsChart = null;
 let aksDiskNsChart = null;
+let _deploymentLiveStream = null;
+let _deploymentLiveStreamReceived = false;
+let _deploymentLiveStreamLoggedError = false;
+let _deploymentFallbackStarted = false;
+let _deploymentKpisPollHandle = null;
+let _clusterMetricsPollHandle = null;
 
 function renderNamespaceSeriesChart(canvasId, seriesMap, chartRef, palette, opts = {}) {
   const ctx = document.getElementById(canvasId)?.getContext('2d');
@@ -171,67 +181,70 @@ function renderNamespaceSeriesChart(canvasId, seriesMap, chartRef, palette, opts
   });
 }
 
+function applyClusterMetricsPayload(payload) {
+  const d = payload || {};
+  if (!d.connected || !window.Chart) return;
+
+  const palette = [
+    '#5cb85c', '#3ab8f8', '#ff9f43', '#ff4560',
+    '#7c6fff', '#00dba0', '#f5c542', '#a855f7'
+  ];
+  if (d.namespace_cpu_history) {
+    aksCpuNsChart = renderNamespaceSeriesChart(
+      'aksCpuNsChart',
+      d.namespace_cpu_history,
+      aksCpuNsChart,
+      palette,
+      { unit: '%', max: 100 }
+    );
+    const badge = document.getElementById('nsCpuBadge');
+    const avgCpu = avgFromSeriesMap(d.namespace_cpu_history, 1);
+    if (badge) badge.textContent = avgCpu ? `Avg ${avgCpu}%` : 'Avg —%';
+  }
+  if (d.namespace_ram_history) {
+    aksRamNsChart = renderNamespaceSeriesChart(
+      'aksRamNsChart',
+      d.namespace_ram_history,
+      aksRamNsChart,
+      palette,
+      { unit: 'GB', max: null }
+    );
+    const badge = document.getElementById('nsRamBadge');
+    const avgRam = avgFromSeriesMap(d.namespace_ram_history, 2);
+    if (badge) badge.textContent = avgRam ? `Avg ${avgRam} GB` : 'Avg — GB';
+  }
+  if (d.namespace_net_history) {
+    aksNetNsChart = renderNamespaceSeriesChart(
+      'aksNetNsChart',
+      d.namespace_net_history,
+      aksNetNsChart,
+      palette,
+      { unit: ' MB/s', max: null }
+    );
+    const badge = document.getElementById('nsNetBadge');
+    const avgNet = avgFromSeriesMap(d.namespace_net_history, 2);
+    if (badge) badge.textContent = avgNet ? `Avg ${avgNet} MB/s` : 'Avg — MB/s';
+  }
+  if (d.namespace_disk_history) {
+    aksDiskNsChart = renderNamespaceSeriesChart(
+      'aksDiskNsChart',
+      d.namespace_disk_history,
+      aksDiskNsChart,
+      palette,
+      { unit: 'GB', max: null }
+    );
+    const badge = document.getElementById('nsDiskBadge');
+    const avgDisk = avgFromSeriesMap(d.namespace_disk_history, 2);
+    if (badge) badge.textContent = avgDisk ? `Avg ${avgDisk} GB` : 'Avg — GB';
+  }
+}
+
 async function loadClusterMetrics() {
   if (!CLUSTER_METRICS_URL || !document.getElementById('aksCpuNsChart')) return;
   try {
     const res = await fetch(CLUSTER_METRICS_URL);
-    const d = await res.json();
-    if (!d.connected) return;
-
-    if (window.Chart) {
-      const palette = [
-        '#5cb85c', '#3ab8f8', '#ff9f43', '#ff4560',
-        '#7c6fff', '#00dba0', '#f5c542', '#a855f7'
-      ];
-      if (d.namespace_cpu_history) {
-        aksCpuNsChart = renderNamespaceSeriesChart(
-          'aksCpuNsChart',
-          d.namespace_cpu_history,
-          aksCpuNsChart,
-          palette,
-          { unit: '%', max: 100 }
-        );
-        const badge = document.getElementById('nsCpuBadge');
-        const avgCpu = avgFromSeriesMap(d.namespace_cpu_history, 1);
-        if (badge) badge.textContent = avgCpu ? `Avg ${avgCpu}%` : 'Avg —%';
-      }
-      if (d.namespace_ram_history) {
-        aksRamNsChart = renderNamespaceSeriesChart(
-          'aksRamNsChart',
-          d.namespace_ram_history,
-          aksRamNsChart,
-          palette,
-          { unit: 'GB', max: null }
-        );
-        const badge = document.getElementById('nsRamBadge');
-        const avgRam = avgFromSeriesMap(d.namespace_ram_history, 2);
-        if (badge) badge.textContent = avgRam ? `Avg ${avgRam} GB` : 'Avg — GB';
-      }
-      if (d.namespace_net_history) {
-        aksNetNsChart = renderNamespaceSeriesChart(
-          'aksNetNsChart',
-          d.namespace_net_history,
-          aksNetNsChart,
-          palette,
-          { unit: ' MB/s', max: null }
-        );
-        const badge = document.getElementById('nsNetBadge');
-        const avgNet = avgFromSeriesMap(d.namespace_net_history, 2);
-        if (badge) badge.textContent = avgNet ? `Avg ${avgNet} MB/s` : 'Avg — MB/s';
-      }
-      if (d.namespace_disk_history) {
-        aksDiskNsChart = renderNamespaceSeriesChart(
-          'aksDiskNsChart',
-          d.namespace_disk_history,
-          aksDiskNsChart,
-          palette,
-          { unit: 'GB', max: null }
-        );
-        const badge = document.getElementById('nsDiskBadge');
-        const avgDisk = avgFromSeriesMap(d.namespace_disk_history, 2);
-        if (badge) badge.textContent = avgDisk ? `Avg ${avgDisk} GB` : 'Avg — GB';
-      }
-    }
+    const payload = await res.json().catch(() => ({}));
+    applyClusterMetricsPayload(payload);
   } catch (e) {
     console.warn('Cluster metrics fetch failed', e);
   }
@@ -325,63 +338,140 @@ function renderLatestImageArtifact(latestImage) {
   }
 }
 
+function applyDeploymentKpisPayload(payload) {
+  const data = payload?.data || {};
+
+  const podsTotal = data.pods_total ?? '--';
+  const rsTotal = data.replica_sets_total ?? '--';
+  const pvcsTotal = data.pvcs_total ?? '--';
+
+  const nsEl = document.getElementById('namespacesTotal');
+  const podsEl = document.getElementById('podsTotal');
+  const rsEl = document.getElementById('rsTotal');
+  const pvcsEl = document.getElementById('pvcsTotal');
+  if (nsEl) nsEl.textContent = Object.keys(data.pods_by_namespace || {}).length;
+  if (podsEl) podsEl.textContent = podsTotal;
+  if (rsEl) rsEl.textContent = rsTotal;
+  if (pvcsEl) pvcsEl.textContent = pvcsTotal;
+
+  const preferredNs = ['kube-system', 'default'];
+  const podsNs = toSeries(data.pods_by_namespace, 8, preferredNs);
+  const rsNs = toSeries(data.replica_sets_by_namespace, 8, preferredNs);
+  const podsPhase = toSeries(data.pods_by_phase, 8);
+
+  const podsBadge = document.getElementById('podsNsBadge');
+  const rsBadge = document.getElementById('rsNsBadge');
+  const phaseBadge = document.getElementById('podsPhaseBadge');
+  if (podsBadge) podsBadge.textContent = 'Total ' + (data.pods_total ?? 0);
+  if (rsBadge) rsBadge.textContent = 'Total ' + (data.replica_sets_total ?? 0);
+  if (phaseBadge) phaseBadge.textContent = 'Total ' + (data.pods_total ?? 0);
+
+  renderBarChart('podsNs', 'podsNsChart', podsNs.labels, podsNs.values, getCssVar('--accent'));
+  renderBarChart('rsNs', 'rsNsChart', rsNs.labels, rsNs.values, getCssVar('--blue'));
+
+  const phaseColors = [
+    getCssVar('--green'),
+    getCssVar('--yellow'),
+    getCssVar('--red'),
+    getCssVar('--blue'),
+    getCssVar('--accent')
+  ];
+  renderDiskChart('podsPhase', 'podsPhaseChart', podsPhase.labels, podsPhase.values, phaseColors);
+  renderDeploymentFrequencyChart(data.deployment_frequency || {});
+  renderLatestImageArtifact(data.latest_image || {});
+}
+
 async function loadDeploymentKpis() {
-  const url = document.body.dataset.deploymentKpisUrl;
-  if (!url) return;
+  if (!DEPLOYMENT_KPIS_URL) return;
 
   try {
-    const res = await fetch(url);
+    const res = await fetch(DEPLOYMENT_KPIS_URL);
     const payload = await res.json().catch(() => ({}));
-    const data = payload.data || {};
-
-    const podsTotal = data.pods_total ?? '--';
-    const rsTotal = data.replica_sets_total ?? '--';
-    const pvcsTotal = data.pvcs_total ?? '--';
-
-    const nsEl = document.getElementById('namespacesTotal');
-    const podsEl = document.getElementById('podsTotal');
-    const rsEl = document.getElementById('rsTotal');
-    const pvcsEl = document.getElementById('pvcsTotal');
-    if (nsEl) nsEl.textContent = Object.keys(data.pods_by_namespace || {}).length;
-    if (podsEl) podsEl.textContent = podsTotal;
-    if (rsEl) rsEl.textContent = rsTotal;
-    if (pvcsEl) pvcsEl.textContent = pvcsTotal;
-
-    const preferredNs = ['kube-system', 'default'];
-    const podsNs = toSeries(data.pods_by_namespace, 8, preferredNs);
-    const rsNs = toSeries(data.replica_sets_by_namespace, 8, preferredNs);
-    const podsPhase = toSeries(data.pods_by_phase, 8);
-
-    const podsBadge = document.getElementById('podsNsBadge');
-    const rsBadge = document.getElementById('rsNsBadge');
-    const phaseBadge = document.getElementById('podsPhaseBadge');
-    if (podsBadge) podsBadge.textContent = 'Total ' + (data.pods_total ?? 0);
-    if (rsBadge) rsBadge.textContent = 'Total ' + (data.replica_sets_total ?? 0);
-    if (phaseBadge) phaseBadge.textContent = 'Total ' + (data.pods_total ?? 0);
-
-    renderBarChart('podsNs', 'podsNsChart', podsNs.labels, podsNs.values, getCssVar('--accent'));
-    renderBarChart('rsNs', 'rsNsChart', rsNs.labels, rsNs.values, getCssVar('--blue'));
-
-    const phaseColors = [
-      getCssVar('--green'),
-      getCssVar('--yellow'),
-      getCssVar('--red'),
-      getCssVar('--blue'),
-      getCssVar('--accent')
-    ];
-    renderDiskChart('podsPhase', 'podsPhaseChart', podsPhase.labels, podsPhase.values, phaseColors);
-    renderDeploymentFrequencyChart(data.deployment_frequency || {});
-    renderLatestImageArtifact(data.latest_image || {});
-
+    applyDeploymentKpisPayload(payload);
   } catch (e) {
     console.error('Deployment KPIs error:', e);
   }
 }
 
+function canUseDeploymentLiveStream() {
+  return typeof window.EventSource !== 'undefined' && Boolean(DEPLOYMENT_LIVE_STREAM_URL);
+}
+
+function deploymentLiveStreamActive() {
+  return Boolean(_deploymentLiveStream);
+}
+
+function closeDeploymentLiveStream() {
+  if (_deploymentLiveStream) {
+    _deploymentLiveStream.close();
+    _deploymentLiveStream = null;
+  }
+}
+
+function startDeploymentPollingFallback() {
+  if (_deploymentFallbackStarted) return;
+  _deploymentFallbackStarted = true;
+
+  if (_deploymentKpisPollHandle) clearInterval(_deploymentKpisPollHandle);
+  if (_clusterMetricsPollHandle) clearInterval(_clusterMetricsPollHandle);
+
+  _deploymentKpisPollHandle = window.setInterval(loadDeploymentKpis, DEPLOYMENT_KPIS_FALLBACK_POLL_MS);
+  if (CLUSTER_METRICS_URL && document.getElementById('aksCpuNsChart')) {
+    _clusterMetricsPollHandle = window.setInterval(loadClusterMetrics, CLUSTER_METRICS_FALLBACK_POLL_MS);
+  }
+}
+
+function connectDeploymentLiveStream() {
+  if (!canUseDeploymentLiveStream() || deploymentLiveStreamActive()) return false;
+
+  _deploymentLiveStream = new EventSource(DEPLOYMENT_LIVE_STREAM_URL);
+  _deploymentLiveStream.addEventListener('stream_ready', () => {
+    _deploymentLiveStreamReceived = true;
+    _deploymentLiveStreamLoggedError = false;
+  });
+  _deploymentLiveStream.addEventListener('heartbeat', () => {
+    _deploymentLiveStreamReceived = true;
+  });
+  _deploymentLiveStream.addEventListener('deployment_kpis', event => {
+    _deploymentLiveStreamReceived = true;
+    _deploymentLiveStreamLoggedError = false;
+    try {
+      applyDeploymentKpisPayload(JSON.parse(event.data));
+    } catch (error) {
+      console.error('Deployment SSE parse error:', error);
+    }
+  });
+  _deploymentLiveStream.addEventListener('cluster_metrics', event => {
+    _deploymentLiveStreamReceived = true;
+    _deploymentLiveStreamLoggedError = false;
+    try {
+      applyClusterMetricsPayload(JSON.parse(event.data));
+    } catch (error) {
+      console.error('Deployment cluster metrics SSE parse error:', error);
+    }
+  });
+  _deploymentLiveStream.onerror = () => {
+    if (!_deploymentLiveStreamLoggedError) {
+      console.warn('Deployment SSE stream disconnected. The browser will retry automatically.');
+      _deploymentLiveStreamLoggedError = true;
+    }
+    if (!_deploymentLiveStreamReceived) {
+      startDeploymentPollingFallback();
+    }
+  };
+
+  return true;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  const hasLiveStream = connectDeploymentLiveStream();
   loadDeploymentKpis();
   if (CLUSTER_METRICS_URL && document.getElementById('aksCpuNsChart')) {
     loadClusterMetrics();
-    setInterval(loadClusterMetrics, 30000);
+  }
+  if (!hasLiveStream) {
+    startDeploymentPollingFallback();
   }
 });
+
+window.addEventListener('beforeunload', closeDeploymentLiveStream);

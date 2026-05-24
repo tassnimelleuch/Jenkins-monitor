@@ -1,9 +1,12 @@
-from flask import Response, jsonify, render_template, session, stream_with_context
+from flask import Response, current_app, jsonify, render_template, session, stream_with_context
 
 from alerts import alerts_bp
 from services.access_service import role_required
+from services.background_refresh_service import (
+    get_cached_alerts_payload,
+    refresh_alerts_live_state,
+)
 from services.alerts_service import (
-    get_alerts_payload,
     mark_persistent_alert_checked,
 )
 from services.live_stream_service import iter_alert_live_events
@@ -22,7 +25,7 @@ def alerts_page():
 @alerts_bp.route('/api/alerts')
 @role_required('admin')
 def alerts_api():
-    return jsonify(get_alerts_payload())
+    return jsonify(get_cached_alerts_payload())
 
 
 @alerts_bp.route('/api/alerts/stream')
@@ -44,6 +47,13 @@ def check_alert(alert_id):
     row = mark_persistent_alert_checked(alert_id, session.get('username'))
     if row is None:
         return jsonify({'error': 'Alert not found.'}), 404
+    try:
+        refresh_alerts_live_state(force=True, refresh_pipeline_snapshot=False)
+    except Exception:
+        current_app.logger.exception(
+            'Failed to refresh cached alerts after marking alert %s as checked.',
+            alert_id,
+        )
     return jsonify({
         'checked': True,
         'alert_id': row.id,

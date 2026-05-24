@@ -15,9 +15,8 @@ from pipeline_storage_models import (
 )
 
 
-PIPELINE_SNAPSHOT_CACHE_VERSION = 'v5'
+PIPELINE_SNAPSHOT_CACHE_VERSION = 'v6'
 PIPELINE_SNAPSHOT_CACHE_TIMEOUT_SECONDS = 86400
-PIPELINE_COVERAGE_TREND_HISTORY_LIMIT = 120
 DEPLOY_STAGE_NAME = 'Deploy to AKS'
 ROLLOUT_STAGE_NAME = 'Wait for AKS Rollout'
 
@@ -491,7 +490,9 @@ def _selected_branch_payload(branch_row, selected_branch, build_rows):
     last_completed = next((row for row in build_rows if row.result is not None), None)
 
     finished_rows = [row for row in build_rows if row.result is not None]
-    coverage_rows = list(reversed(finished_rows[:PIPELINE_COVERAGE_TREND_HISTORY_LIMIT]))
+    # Preserve the full stored coverage history so older dates stay visible in
+    # the grouped coverage chart instead of disappearing after the recent-build cutoff.
+    coverage_rows = list(reversed(finished_rows))
     junit_rows = list(reversed(finished_rows))
 
     return {

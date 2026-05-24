@@ -3,8 +3,8 @@ import json
 from flask import session, jsonify, render_template, current_app, request
 from pipeline_kpis import pipeline_kpis_bp
 from services.access_service import role_required
+from services.background_refresh_service import get_dashboard_live_state
 from services.jenkins_service import (
-    get_live_running_builds,
     get_pipeline_kpis,
     invalidate_pipeline_live_state,
     refresh_pipeline_storage_from_jenkins,
@@ -51,13 +51,13 @@ def pipeline_kpis_api():
 @pipeline_kpis_bp.route('/api/running_stages')
 @role_required('admin', 'developer', 'tester')
 def running_stages():
-    return jsonify(get_live_running_builds())
+    return jsonify(get_dashboard_live_state().get('running_stages') or [])
 
 
 @pipeline_kpis_bp.route('/api/running_builds')
 @role_required('admin', 'developer', 'tester')
 def running_builds():
-    return jsonify(get_live_running_builds(include_stages=False))
+    return jsonify(get_dashboard_live_state().get('running_builds') or [])
 
 
 @pipeline_kpis_bp.route('/api/build', methods=['POST'])

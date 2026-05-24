@@ -1,8 +1,11 @@
-from flask import session, jsonify, render_template
+from flask import Response, session, jsonify, render_template, stream_with_context
 from deployment_kpis import deployment_kpis_bp
 from services.access_service import role_required
-from services.deployment_kpis_service import get_deployment_kpis
-from services.metrics_service import get_cluster_metrics
+from services.background_refresh_service import (
+    get_cached_cluster_metrics_payload,
+    get_cached_deployment_kpis_payload,
+)
+from services.live_stream_service import iter_deployment_live_events
 
 @deployment_kpis_bp.route('/deployment_kpis')
 @role_required('admin', 'developer')
@@ -17,7 +20,7 @@ def deployment_kpis():
 @deployment_kpis_bp.route('/deployment_kpis/api/cluster')
 @role_required('admin', 'developer')
 def deployment_kpis_cluster():
-    result = get_deployment_kpis()
+    result = get_cached_deployment_kpis_payload()
     status_code = 200 if result.get('connected') else 503
     return jsonify(result), status_code
 
@@ -25,8 +28,22 @@ def deployment_kpis_cluster():
 @deployment_kpis_bp.route('/api/cluster-metrics')
 @role_required('admin')
 def cluster_metrics_api():
-    from flask import jsonify
-    return jsonify(get_cluster_metrics())
+    return jsonify(get_cached_cluster_metrics_payload())
+
+
+@deployment_kpis_bp.route('/api/deployment/stream')
+@role_required('admin', 'developer')
+def deployment_live_stream():
+    response = Response(
+        stream_with_context(
+            iter_deployment_live_events(include_cluster_metrics=session.get('role') == 'admin')
+        ),
+        mimetype='text/event-stream',
+    )
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    response.headers['Connection'] = 'keep-alive'
+    return response
 
 
 

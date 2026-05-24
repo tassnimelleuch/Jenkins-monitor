@@ -23,6 +23,7 @@ from services.user_account_service import (
     role_matches,
 )
 from services.system_timezone_service import get_system_timezone_name
+from services.background_refresh_service import start_live_refresh_worker
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -105,6 +106,11 @@ def inject_pending_count():
     if current_role == 'admin':
         context['pending_count'] = get_pending_count()
     return context
+
+
+@app.before_request
+def ensure_live_refresh_worker():
+    start_live_refresh_worker(app)
 
 
 if __name__ == '__main__':

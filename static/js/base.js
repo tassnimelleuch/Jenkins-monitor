@@ -350,67 +350,6 @@ let chatOpen=false;
 let chatFullscreen=false;
 let chatSending=false;
 let chatHistory=[];
-let chatStatusState='checking';
-let chatHealthRequest=null;
-function getChatHealthEndpoint(){
-  const panel=document.getElementById('chatPanel');
-  return panel?.dataset.chatHealthUrl || '/api/chatbot/health';
-}
-function setChatStatus(state,message,detail=''){
-  const status=document.getElementById('chatStatus');
-  const badge=document.getElementById('chatbotStatusBadge');
-  const safeState=['online','offline','checking'].includes(state)?state:'checking';
-  const safeMessage=message||'Checking Ollama...';
-  const safeDetail=detail||safeMessage;
-  chatStatusState=safeState;
-
-  if(status){
-    status.className=`chat-status is-${safeState}`;
-    status.textContent=safeMessage;
-    status.title=safeDetail;
-  }
-
-  if(badge){
-    badge.className=`btn-ai-badge is-${safeState}`;
-    badge.textContent=safeState==='online' ? 'Online' : safeState==='offline' ? 'Offline' : 'Checking';
-    badge.title=safeDetail;
-  }
-}
-async function refreshChatStatus(opts={}){
-  if(chatHealthRequest)return chatHealthRequest;
-  if(opts.forceChecking || chatStatusState==='checking'){
-    setChatStatus('checking','Checking Ollama...');
-  }
-
-  chatHealthRequest=(async()=>{
-    try{
-      const res=await fetch(getChatHealthEndpoint(), {
-        headers:{ Accept:'application/json' }
-      });
-      const payload=await res.json().catch(() => ({}));
-
-      if(!res.ok || payload.ok === false){
-        const errorMessage=payload.error || 'Ollama is unreachable from the dashboard.';
-        setChatStatus('offline','Ollama unreachable',errorMessage);
-        return { ok:false, error:errorMessage };
-      }
-
-      const modelLabel=payload.model ? `Ollama reachable · ${payload.model}` : 'Ollama reachable';
-      const detailParts=[payload.base_url, payload.chat_endpoint].filter(Boolean);
-      const detail=detailParts.length ? `${modelLabel} @ ${detailParts.join('')}` : modelLabel;
-      setChatStatus('online',modelLabel,detail);
-      return payload;
-    }catch(e){
-      const errorMessage=e.message || 'Ollama health check failed.';
-      setChatStatus('offline','Ollama unreachable',errorMessage);
-      return { ok:false, error:errorMessage };
-    }finally{
-      chatHealthRequest=null;
-    }
-  })();
-
-  return chatHealthRequest;
-}
 function setChatFullscreen(fullscreen){
   const panel=document.getElementById('chatPanel');
   const button=document.getElementById('chatFullscreenBtn');
@@ -432,7 +371,6 @@ function toggleChat(){
   panel.classList.toggle('open',chatOpen);
   panel.setAttribute('aria-hidden', chatOpen ? 'false' : 'true');
   if(chatOpen){
-    refreshChatStatus();
     setTimeout(()=>document.getElementById('chatInput')?.focus(),320);
   }
 }
@@ -511,13 +449,10 @@ async function send(){
   try{
     const payload=await requestChatReply(pendingMessages);
     const reply=payload.reply;
-    const modelLabel=payload.model ? `Ollama reachable · ${payload.model}` : 'Ollama reachable';
-    setChatStatus('online', modelLabel, modelLabel);
     hideTyping();
     addMsg(reply,'bot');
     chatHistory=trimChatHistory([...pendingMessages,{ role:'assistant', content:reply }]);
   }catch(e){
-    setChatStatus('offline','Ollama unreachable', e.message || 'Ollama is unreachable from the dashboard.');
     hideTyping();
     addMsg(e.message || 'The chatbot is unavailable right now.','bot');
   }finally{
@@ -539,12 +474,6 @@ document.addEventListener('keydown',e=>{
   }
   closeChat();
 });
-document.addEventListener('DOMContentLoaded',()=>{
-  if(!document.getElementById('chatPanel'))return;
-  refreshChatStatus({ forceChecking:true });
-  window.setInterval(()=>refreshChatStatus(),60000);
-});
-
 // ── Toast
 function showToast(msg,cls=''){
   const t=document.getElementById('toast');
@@ -784,150 +713,30 @@ function updatePdfReportsPage(report) {
   if (statCount) statCount.textContent = String(count);
 }
 
-async function exportPDF() {
-  if (!canExportPdf()) {
-    return;
-  }
+function buildPdfReportSummary(payload) {
+  const latestBuild = payload.latest_build || {};
+  const finops = payload.finops || {};
+  const github = payload.github || {};
+  const sonar = payload.sonarqube || {};
+  const kubernetes = payload.kubernetes || {};
+  const docker = payload.docker || {};
+  const mainCommit = github.main_commit || {};
+  const dockerImageReference = formatDockerImageReference(docker.image_name, docker.tag);
+  const exportedAt = formatUserDateTime(payload.generated_at, {
+    includeSeconds: true,
+    fallback: '--'
+  });
+  const metaLine = [
+    `Exported: ${exportedAt}`,
+    `Branch: ${payload.branch_name || getBranchName()}`,
+    `Status: ${latestBuild.status || '--'}`,
+    `Pipeline: ${payload.pipeline_name || getPipelineName()}`
+  ].join(' | ');
 
-  setExportButtonBusy(true);
-
-  try {
-    const payload = await fetchExportReportSnapshot();
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 10;
-    const contentWidth = pageWidth - (margin * 2);
-    const cardGap = 3;
-    const cardWidth = (contentWidth - cardGap) / 2;
-    const rowGap = 2;
-    let y = margin;
-
-    const latestBuild = payload.latest_build || {};
-    const finops = payload.finops || {};
-    const github = payload.github || {};
-    const sonar = payload.sonarqube || {};
-    const kubernetes = payload.kubernetes || {};
-    const docker = payload.docker || {};
-    const mainCommit = github.main_commit || {};
-    const dockerImageReference = formatDockerImageReference(docker.image_name, docker.tag);
-
-    function addHeader() {
-      const headerHeight = 16;
-      doc.setTextColor(40, 84, 107);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text('Pipeline Report', margin, 8);
-      doc.setTextColor(96, 109, 121);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-
-      const exportedAt = formatUserDateTime(payload.generated_at, {
-        includeSeconds: true,
-        fallback: '--'
-      });
-      const metaLine = [
-        `Exported: ${exportedAt}`,
-        `Branch: ${payload.branch_name || getBranchName()}`,
-        `Status: ${latestBuild.status || '--'}`,
-        `Pipeline: ${payload.pipeline_name || getPipelineName()}`
-      ].join(' | ');
-      const metaLines = doc.splitTextToSize(metaLine, contentWidth).slice(0, 2);
-      doc.text(metaLines, margin, 12.5);
-
-      doc.setTextColor(24, 36, 48);
-      y = headerHeight + 3;
-    }
-
-    function ensureSpace(heightNeeded) {
-      if (y + heightNeeded <= pageHeight - 16) return;
-      doc.addPage();
-      addHeader();
-    }
-
-    function getMetricBlockHeight(card, width) {
-      const valueFontSize = card.valueFontSize || 10;
-      const valueMaxLines = card.valueMaxLines || 2;
-      const noteMaxLines = card.noteMaxLines || 1;
-      const titleLines = doc.splitTextToSize(String(card.title || ''), width).slice(0, 2);
-      const valueLines = doc.splitTextToSize(String(card.value ?? '--'), width).slice(0, valueMaxLines);
-      const noteLines = card.note
-        ? doc.splitTextToSize(String(card.note), width).slice(0, noteMaxLines)
-        : [];
-
-      const titleHeight = titleLines.length * 2.9;
-      const valueHeight = valueLines.length * (valueFontSize >= 10 ? 3.9 : 3.4);
-      const noteHeight = noteLines.length ? (noteLines.length * 2.8) + 0.8 : 0;
-      return Math.max(11, 2.5 + titleHeight + valueHeight + noteHeight);
-    }
-
-    function drawMetricCard(x, top, title, value, note = '', opts = {}) {
-      const width = opts.width || cardWidth;
-      const valueFontSize = opts.valueFontSize || 10;
-      const valueMaxLines = opts.valueMaxLines || 2;
-      const noteMaxLines = opts.noteMaxLines || 1;
-      const titleLines = doc.splitTextToSize(String(title || ''), width).slice(0, 2);
-      const valueLines = doc.splitTextToSize(String(value ?? '--'), width).slice(0, valueMaxLines);
-      const noteLines = note
-        ? doc.splitTextToSize(String(note), width).slice(0, noteMaxLines)
-        : [];
-      let cursorY = top + 3;
-
-      doc.setTextColor(96, 109, 121);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.5);
-      doc.text(titleLines, x, cursorY);
-      cursorY += (titleLines.length * 2.9) + 0.8;
-
-      doc.setTextColor(24, 36, 48);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(valueFontSize);
-      doc.text(valueLines, x, cursorY);
-
-      if (noteLines.length) {
-        cursorY += (valueLines.length * (valueFontSize >= 10 ? 3.9 : 3.4)) + 0.7;
-        doc.setTextColor(96, 109, 121);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.2);
-        doc.text(noteLines, x, cursorY);
-      }
-    }
-
-    function drawSection(title, lines) {
-      const printableLines = (Array.isArray(lines) ? lines : [])
-        .map(line => String(line || '').trim())
-        .filter(Boolean);
-
-      if (!printableLines.length) return;
-
-      const wrappedLines = [];
-      printableLines.forEach(line => {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        const parts = doc.splitTextToSize(line, contentWidth);
-        parts.forEach(part => wrappedLines.push(part));
-      });
-
-      const sectionHeight = 4 + (wrappedLines.length * 3.6);
-      ensureSpace(sectionHeight + rowGap);
-
-      doc.setTextColor(40, 84, 107);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.text(title, margin, y + 3);
-
-      doc.setTextColor(24, 36, 48);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.text(wrappedLines, margin, y + 7);
-
-      y += sectionHeight + rowGap;
-    }
-
-    addHeader();
-
-    const cards = [
+  return {
+    title: 'Pipeline Report',
+    latestBuild,
+    cards: [
       {
         title: 'Latest Build',
         value: latestBuild.number != null ? `#${latestBuild.number}` : '--',
@@ -990,54 +799,529 @@ async function exportPDF() {
         valueFontSize: 8.5,
         valueMaxLines: 4
       }
-    ];
-
-    for (let index = 0; index < cards.length; index += 2) {
-      const leftCard = cards[index];
-      const rightCard = cards[index + 1] || null;
-      const leftWidth = rightCard ? cardWidth : contentWidth;
-      const leftHeight = getMetricBlockHeight(leftCard, leftWidth);
-      const rightHeight = rightCard ? getMetricBlockHeight(rightCard, cardWidth) : 0;
-      const rowHeight = Math.max(leftHeight, rightHeight);
-
-      ensureSpace(rowHeight + rowGap);
-
-      drawMetricCard(margin, y, leftCard.title, leftCard.value, leftCard.note, {
-        width: leftWidth,
-        valueFontSize: leftCard.valueFontSize,
-        valueMaxLines: leftCard.valueMaxLines,
-        noteMaxLines: leftCard.noteMaxLines
-      });
-
-      if (rightCard) {
-        drawMetricCard(margin + cardWidth + cardGap, y, rightCard.title, rightCard.value, rightCard.note, {
-          width: cardWidth,
-          valueFontSize: rightCard.valueFontSize,
-          valueMaxLines: rightCard.valueMaxLines,
-          noteMaxLines: rightCard.noteMaxLines
-        });
-      }
-
-      y += rowHeight + rowGap;
-    }
-
-    drawSection('Last Commit on main', [
+    ],
+    commitLines: [
       `Commit: ${mainCommit.short_sha || '--'}${mainCommit.author_name ? ` by ${mainCommit.author_name}` : ''}`,
       `Date: ${mainCommit.date ? formatUserDateTime(mainCommit.date, { includeSeconds: false, fallback: '--' }) : '--'}`,
       `Message: ${truncatePdfText(mainCommit.headline || mainCommit.message || '--', 110)}`
-    ]);
+    ],
+    warningLines: Array.isArray(payload.warnings)
+      ? payload.warnings.map(item => truncatePdfText(item, 140)).filter(Boolean)
+      : [],
+    footerText: `Generated file: ${payload.file_name || 'jenkins-monitor-report.pdf'}`,
+    metaLine
+  };
+}
 
-    if (Array.isArray(payload.warnings) && payload.warnings.length) {
-      drawSection('Notes', payload.warnings.map(item => truncatePdfText(item, 140)));
+function saveBlobAsFile(blob, fileName) {
+  if (!(blob instanceof Blob)) {
+    throw new Error('No PDF data was generated.');
+  }
+
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = fileName || `jenkins-monitor-report-${Date.now()}.pdf`;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1500);
+}
+
+function sanitizePdfText(value) {
+  let text = String(value ?? '');
+  if (typeof text.normalize === 'function') {
+    text = text.normalize('NFKD');
+  }
+
+  return text
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[–—]/g, '-')
+    .replace(/…/g, '...')
+    .replace(/[^\x20-\x7E\n]/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function escapePdfLiteral(value) {
+  return sanitizePdfText(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
+}
+
+function splitLongPdfWord(word, maxChars) {
+  if (word.length <= maxChars) return [word];
+  const parts = [];
+  for (let index = 0; index < word.length; index += maxChars) {
+    parts.push(word.slice(index, index + maxChars));
+  }
+  return parts;
+}
+
+function wrapPdfText(value, maxChars = 90) {
+  const paragraphs = String(value ?? '')
+    .split('\n')
+    .map(part => sanitizePdfText(part));
+  const lines = [];
+
+  paragraphs.forEach(paragraph => {
+    if (!paragraph) {
+      if (lines.length && lines[lines.length - 1] !== '') {
+        lines.push('');
+      }
+      return;
     }
 
-    const footerText = `Generated file: ${payload.file_name || 'jenkins-monitor-report.pdf'}`;
+    let currentLine = '';
+    paragraph.split(/\s+/).forEach(word => {
+      const parts = splitLongPdfWord(word, Math.max(12, maxChars));
+      parts.forEach(part => {
+        const candidate = currentLine ? `${currentLine} ${part}` : part;
+        if (candidate.length <= maxChars) {
+          currentLine = candidate;
+        } else {
+          if (currentLine) lines.push(currentLine);
+          currentLine = part;
+        }
+      });
+    });
+
+    if (currentLine) lines.push(currentLine);
+  });
+
+  return lines.length ? lines : ['--'];
+}
+
+function pdfColorCommand(color, operator) {
+  const safeColor = Array.isArray(color) && color.length === 3 ? color : [24, 36, 48];
+  const normalized = safeColor.map(value => (Math.max(0, Math.min(255, Number(value) || 0)) / 255).toFixed(3));
+  return `${normalized.join(' ')} ${operator}`;
+}
+
+function buildPdfBlobFromPages(pages, opts = {}) {
+  const pageWidth = Number(opts.pageWidth) || 595.28;
+  const pageHeight = Number(opts.pageHeight) || 841.89;
+  const footerText = sanitizePdfText(opts.footerText || '');
+  const footerY = Number(opts.footerY) || 24;
+  const footerLeftX = Number(opts.footerLeftX) || 42;
+  const footerRightX = Number(opts.footerRightX) || pageWidth - 90;
+  const safePages = Array.isArray(pages) && pages.length ? pages : [[]];
+  const pageCount = safePages.length;
+  const objects = [];
+  const pageIds = [];
+  const contentIds = [];
+
+  for (let index = 0; index < pageCount; index += 1) {
+    pageIds.push(5 + (index * 2));
+    contentIds.push(6 + (index * 2));
+  }
+
+  objects[0] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[1] = `<< /Type /Pages /Count ${pageCount} /Kids [${pageIds.map(id => `${id} 0 R`).join(' ')}] >>`;
+  objects[2] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
+  objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>';
+
+  safePages.forEach((pageItems, pageIndex) => {
+    const pageId = pageIds[pageIndex];
+    const contentId = contentIds[pageIndex];
+    const commands = [];
+
+    (Array.isArray(pageItems) ? pageItems : []).forEach(item => {
+      if (!item) return;
+
+      if (item.type === 'line') {
+        commands.push(pdfColorCommand(item.color || [205, 214, 223], 'RG'));
+        commands.push(`${Number(item.width || 0.8).toFixed(2)} w`);
+        commands.push(`${Number(item.x1 || 0).toFixed(2)} ${Number(item.y1 || 0).toFixed(2)} m`);
+        commands.push(`${Number(item.x2 || 0).toFixed(2)} ${Number(item.y2 || 0).toFixed(2)} l`);
+        commands.push('S');
+        return;
+      }
+
+      const text = escapePdfLiteral(item.text || ' ');
+      commands.push('BT');
+      commands.push(`/${item.font || 'F1'} ${Number(item.fontSize || 11).toFixed(2)} Tf`);
+      commands.push(pdfColorCommand(item.color || [24, 36, 48], 'rg'));
+      commands.push(`1 0 0 1 ${Number(item.x || 0).toFixed(2)} ${Number(item.y || 0).toFixed(2)} Tm`);
+      commands.push(`(${text || ' '}) Tj`);
+      commands.push('ET');
+    });
+
+    if (footerText) {
+      commands.push('BT');
+      commands.push('/F1 8.00 Tf');
+      commands.push(pdfColorCommand([96, 109, 121], 'rg'));
+      commands.push(`1 0 0 1 ${footerLeftX.toFixed(2)} ${footerY.toFixed(2)} Tm`);
+      commands.push(`(${escapePdfLiteral(footerText)}) Tj`);
+      commands.push('ET');
+    }
+
+    commands.push('BT');
+    commands.push('/F1 8.00 Tf');
+    commands.push(pdfColorCommand([96, 109, 121], 'rg'));
+    commands.push(`1 0 0 1 ${footerRightX.toFixed(2)} ${footerY.toFixed(2)} Tm`);
+    commands.push(`(${escapePdfLiteral(`Page ${pageIndex + 1} of ${pageCount}`)}) Tj`);
+    commands.push('ET');
+
+    const stream = commands.join('\n');
+    objects[pageId - 1] = [
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth.toFixed(2)} ${pageHeight.toFixed(2)}]`,
+      '/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >>',
+      `/Contents ${contentId} 0 R >>`
+    ].join(' ');
+    objects[contentId - 1] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  });
+
+  let pdfContent = '%PDF-1.4\n';
+  const offsets = [0];
+
+  objects.forEach((objectBody, index) => {
+    offsets[index + 1] = pdfContent.length;
+    pdfContent += `${index + 1} 0 obj\n${objectBody}\nendobj\n`;
+  });
+
+  const xrefOffset = pdfContent.length;
+  pdfContent += `xref\n0 ${objects.length + 1}\n`;
+  pdfContent += '0000000000 65535 f \n';
+
+  for (let index = 1; index <= objects.length; index += 1) {
+    pdfContent += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`;
+  }
+
+  pdfContent += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([pdfContent], { type: 'application/pdf' });
+}
+
+function buildFallbackPdfReportBlob(payload) {
+  const summary = buildPdfReportSummary(payload);
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 42;
+  const bottomMargin = 54;
+  const usableWidth = pageWidth - (margin * 2);
+  const pages = [];
+  let currentPage = null;
+  let y = 0;
+
+  function approxMaxChars(fontSize, width = usableWidth) {
+    return Math.max(24, Math.floor(width / Math.max(5, fontSize * 0.52)));
+  }
+
+  function startPage() {
+    currentPage = [];
+    pages.push(currentPage);
+    y = pageHeight - margin;
+
+    currentPage.push({
+      type: 'text',
+      x: margin,
+      y,
+      text: summary.title,
+      font: 'F2',
+      fontSize: 16,
+      color: [40, 84, 107]
+    });
+    y -= 22;
+
+    wrapPdfText(summary.metaLine, approxMaxChars(10)).slice(0, 2).forEach(line => {
+      currentPage.push({
+        type: 'text',
+        x: margin,
+        y,
+        text: line,
+        font: 'F1',
+        fontSize: 10,
+        color: [96, 109, 121]
+      });
+      y -= 14;
+    });
+
+    currentPage.push({
+      type: 'line',
+      x1: margin,
+      y1: y + 4,
+      x2: pageWidth - margin,
+      y2: y + 4,
+      width: 0.8,
+      color: [205, 214, 223]
+    });
+    y -= 10;
+  }
+
+  function ensureSpace(heightNeeded) {
+    if (!currentPage) {
+      startPage();
+      return;
+    }
+    if ((y - heightNeeded) >= bottomMargin) return;
+    startPage();
+  }
+
+  function addTextBlock(text, opts = {}) {
+    const fontSize = opts.fontSize || 11;
+    const x = opts.x || margin;
+    const width = opts.width || usableWidth;
+    const lineHeight = Math.max(11, fontSize * 1.35);
+    const gapAfter = opts.gapAfter ?? 4;
+    const textLines = Array.isArray(text)
+      ? text.flatMap(line => wrapPdfText(line, approxMaxChars(fontSize, width)))
+      : wrapPdfText(text, approxMaxChars(fontSize, width));
+    const printableLines = textLines.length ? textLines : ['--'];
+
+    ensureSpace((printableLines.length * lineHeight) + gapAfter);
+    printableLines.forEach(line => {
+      currentPage.push({
+        type: 'text',
+        x,
+        y,
+        text: line || ' ',
+        font: opts.bold ? 'F2' : 'F1',
+        fontSize,
+        color: opts.color || [24, 36, 48]
+      });
+      y -= lineHeight;
+    });
+    y -= gapAfter;
+  }
+
+  function addSectionTitle(title) {
+    addTextBlock(title, {
+      fontSize: 13,
+      bold: true,
+      color: [40, 84, 107],
+      gapAfter: 2
+    });
+  }
+
+  function addSpacer(height = 4) {
+    ensureSpace(height);
+    y -= height;
+  }
+
+  startPage();
+  addSectionTitle('Summary');
+  summary.cards.forEach(card => {
+    addTextBlock(`${card.title}: ${card.value || '--'}`, {
+      fontSize: 11,
+      gapAfter: 1
+    });
+  });
+
+  addSpacer(4);
+  addSectionTitle('Last Commit on main');
+  addTextBlock(summary.commitLines, {
+    fontSize: 10.5,
+    gapAfter: 3
+  });
+
+  if (summary.warningLines.length) {
+    addSectionTitle('Notes');
+    addTextBlock(summary.warningLines, {
+      fontSize: 10,
+      gapAfter: 3
+    });
+  }
+
+  return buildPdfBlobFromPages(pages, {
+    pageWidth,
+    pageHeight,
+    footerText: summary.footerText,
+    footerLeftX: margin,
+    footerRightX: pageWidth - 84,
+    footerY: 24
+  });
+}
+
+function buildJsPdfReportBlob(payload) {
+  const jsPdfCtor = window.jspdf?.jsPDF;
+  if (typeof jsPdfCtor !== 'function') {
+    return null;
+  }
+
+  const summary = buildPdfReportSummary(payload);
+  const doc = new jsPdfCtor({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const contentWidth = pageWidth - (margin * 2);
+  const cardGap = 3;
+  const cardWidth = (contentWidth - cardGap) / 2;
+  const rowGap = 2;
+  let y = margin;
+
+  function addHeader() {
+    const headerHeight = 16;
+    doc.setTextColor(40, 84, 107);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text(summary.title, margin, 8);
     doc.setTextColor(96, 109, 121);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.text(footerText, margin, pageHeight - 8);
+    doc.setFontSize(7.5);
 
-    const pdfBlob = doc.output('blob');
+    const metaLines = doc.splitTextToSize(summary.metaLine, contentWidth).slice(0, 2);
+    doc.text(metaLines, margin, 12.5);
+
+    doc.setTextColor(24, 36, 48);
+    y = headerHeight + 3;
+  }
+
+  function ensureSpace(heightNeeded) {
+    if (y + heightNeeded <= pageHeight - 16) return;
+    doc.addPage();
+    addHeader();
+  }
+
+  function getMetricBlockHeight(card, width) {
+    const valueFontSize = card.valueFontSize || 10;
+    const valueMaxLines = card.valueMaxLines || 2;
+    const noteMaxLines = card.noteMaxLines || 1;
+    const titleLines = doc.splitTextToSize(String(card.title || ''), width).slice(0, 2);
+    const valueLines = doc.splitTextToSize(String(card.value ?? '--'), width).slice(0, valueMaxLines);
+    const noteLines = card.note
+      ? doc.splitTextToSize(String(card.note), width).slice(0, noteMaxLines)
+      : [];
+
+    const titleHeight = titleLines.length * 2.9;
+    const valueHeight = valueLines.length * (valueFontSize >= 10 ? 3.9 : 3.4);
+    const noteHeight = noteLines.length ? (noteLines.length * 2.8) + 0.8 : 0;
+    return Math.max(11, 2.5 + titleHeight + valueHeight + noteHeight);
+  }
+
+  function drawMetricCard(x, top, title, value, note = '', opts = {}) {
+    const width = opts.width || cardWidth;
+    const valueFontSize = opts.valueFontSize || 10;
+    const valueMaxLines = opts.valueMaxLines || 2;
+    const noteMaxLines = opts.noteMaxLines || 1;
+    const titleLines = doc.splitTextToSize(String(title || ''), width).slice(0, 2);
+    const valueLines = doc.splitTextToSize(String(value ?? '--'), width).slice(0, valueMaxLines);
+    const noteLines = note
+      ? doc.splitTextToSize(String(note), width).slice(0, noteMaxLines)
+      : [];
+    let cursorY = top + 3;
+
+    doc.setTextColor(96, 109, 121);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.text(titleLines, x, cursorY);
+    cursorY += (titleLines.length * 2.9) + 0.8;
+
+    doc.setTextColor(24, 36, 48);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(valueFontSize);
+    doc.text(valueLines, x, cursorY);
+
+    if (noteLines.length) {
+      cursorY += (valueLines.length * (valueFontSize >= 10 ? 3.9 : 3.4)) + 0.7;
+      doc.setTextColor(96, 109, 121);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.2);
+      doc.text(noteLines, x, cursorY);
+    }
+  }
+
+  function drawSection(title, lines) {
+    const printableLines = (Array.isArray(lines) ? lines : [])
+      .map(line => String(line || '').trim())
+      .filter(Boolean);
+
+    if (!printableLines.length) return;
+
+    const wrappedLines = [];
+    printableLines.forEach(line => {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      const parts = doc.splitTextToSize(line, contentWidth);
+      parts.forEach(part => wrappedLines.push(part));
+    });
+
+    const sectionHeight = 4 + (wrappedLines.length * 3.6);
+    ensureSpace(sectionHeight + rowGap);
+
+    doc.setTextColor(40, 84, 107);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text(title, margin, y + 3);
+
+    doc.setTextColor(24, 36, 48);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text(wrappedLines, margin, y + 7);
+
+    y += sectionHeight + rowGap;
+  }
+
+  addHeader();
+
+  for (let index = 0; index < summary.cards.length; index += 2) {
+    const leftCard = summary.cards[index];
+    const rightCard = summary.cards[index + 1] || null;
+    const leftWidth = rightCard ? cardWidth : contentWidth;
+    const leftHeight = getMetricBlockHeight(leftCard, leftWidth);
+    const rightHeight = rightCard ? getMetricBlockHeight(rightCard, cardWidth) : 0;
+    const rowHeight = Math.max(leftHeight, rightHeight);
+
+    ensureSpace(rowHeight + rowGap);
+
+    drawMetricCard(margin, y, leftCard.title, leftCard.value, leftCard.note, {
+      width: leftWidth,
+      valueFontSize: leftCard.valueFontSize,
+      valueMaxLines: leftCard.valueMaxLines,
+      noteMaxLines: leftCard.noteMaxLines
+    });
+
+    if (rightCard) {
+      drawMetricCard(margin + cardWidth + cardGap, y, rightCard.title, rightCard.value, rightCard.note, {
+        width: cardWidth,
+        valueFontSize: rightCard.valueFontSize,
+        valueMaxLines: rightCard.valueMaxLines,
+        noteMaxLines: rightCard.noteMaxLines
+      });
+    }
+
+    y += rowHeight + rowGap;
+  }
+
+  drawSection('Last Commit on main', summary.commitLines);
+
+  if (summary.warningLines.length) {
+    drawSection('Notes', summary.warningLines);
+  }
+
+  doc.setTextColor(96, 109, 121);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.text(summary.footerText, margin, pageHeight - 8);
+  return doc.output('blob');
+}
+
+function buildPdfReportBlob(payload) {
+  try {
+    const jsPdfBlob = buildJsPdfReportBlob(payload);
+    if (jsPdfBlob) {
+      return { blob: jsPdfBlob, usedFallback: false };
+    }
+  } catch (error) {
+    console.warn('jsPDF export failed, using the built-in PDF fallback.', error);
+  }
+
+  return { blob: buildFallbackPdfReportBlob(payload), usedFallback: true };
+}
+
+async function exportPDF() {
+  if (!canExportPdf()) {
+    return;
+  }
+
+  setExportButtonBusy(true);
+
+  try {
+    const payload = await fetchExportReportSnapshot();
+    const { blob: pdfBlob } = buildPdfReportBlob(payload);
     let storedReport = null;
     let archiveError = null;
 
@@ -1048,7 +1332,7 @@ async function exportPDF() {
       archiveError = error;
     }
 
-    doc.save(payload.file_name || `jenkins-monitor-report-${Date.now()}.pdf`);
+    saveBlobAsFile(pdfBlob, payload.file_name || `jenkins-monitor-report-${Date.now()}.pdf`);
 
     if (storedReport) {
       showToast('PDF exported and archived successfully');

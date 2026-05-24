@@ -168,11 +168,13 @@ function connectPipelineLiveStream() {
   });
   _pipelineLiveStream.addEventListener('build_started', () => {
     _pipelineLiveStreamReceived = true;
-    loadPipelineKPIs({ refresh: true });
   });
   _pipelineLiveStream.addEventListener('build_finished', () => {
     _pipelineLiveStreamReceived = true;
-    schedulePipelineKpiBurstRefresh();
+  });
+  _pipelineLiveStream.addEventListener('snapshot_refreshed', () => {
+    _pipelineLiveStreamReceived = true;
+    loadPipelineKPIs();
   });
   _pipelineLiveStream.onerror = () => {
     closePipelineLiveStream();
@@ -189,9 +191,6 @@ function schedulePipelineKpiBurstRefresh({
 } = {}) {
   if (pipelineLiveStreamActive()) {
     stopPipelineKpiBurstRefresh();
-    if (immediate) {
-      window.setTimeout(() => loadPipelineKPIs({ refresh: true, wait: true }), 0);
-    }
     return;
   }
 
@@ -199,7 +198,7 @@ function schedulePipelineKpiBurstRefresh({
   _pipelineKpiBurstStopAt = Math.max(_pipelineKpiBurstStopAt, stopAt);
 
   if (immediate) {
-    window.setTimeout(() => loadPipelineKPIs({ refresh: true, wait: true }), 0);
+    window.setTimeout(() => loadPipelineKPIs(), 0);
   }
 
   if (_pipelineKpiBurstHandle) return;
@@ -209,7 +208,7 @@ function schedulePipelineKpiBurstRefresh({
       stopPipelineKpiBurstRefresh();
       return;
     }
-    loadPipelineKPIs({ refresh: true, wait: true });
+    loadPipelineKPIs();
   }, intervalMs);
 }
 
@@ -406,7 +405,7 @@ function triggerBuild() {
     queuedMessage: '✅ Build queued — watching for updates',
     triggerErrorMessage: 'Failed to trigger',
     onQueued() {
-      loadPipelineKPIs({ refresh: true });
+      loadPipelineKPIs();
     }
   });
 }

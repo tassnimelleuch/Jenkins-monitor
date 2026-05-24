@@ -801,9 +801,14 @@ def _failed_build_github_author(branch_name: str, build_number: int | None):
 def _build_failure_streak_alerts(branch_name: str, builds):
     streak = []
     for build in _completed_builds(builds):
-        if (build.get('result') or '').strip().upper() != 'FAILURE':
+        result = (build.get('result') or '').strip().upper()
+        if result == 'FAILURE':
+            streak.append(build)
+            continue
+        # Only a successful build resets the streak. Other terminal outcomes
+        # such as ABORTED are ignored while we scan back through history.
+        if result == 'SUCCESS':
             break
-        streak.append(build)
 
     if len(streak) < BUILD_FAILURE_STREAK_THRESHOLD:
         return []
@@ -853,12 +858,13 @@ def _build_failure_streak_alerts(branch_name: str, builds):
     }]
 
 
-def _stage_duration_over_average_alerts(builds):
+def _stage_duration_over_average_alerts(builds, running_builds=None):
     averages_by_stage = _historical_stage_average_durations_ms(builds)
     if not averages_by_stage:
         return []
 
-    running_builds = get_live_running_builds(include_stages=True) or []
+    if running_builds is None:
+        running_builds = get_live_running_builds(include_stages=True) or []
     if not running_builds:
         return []
 
@@ -1047,16 +1053,21 @@ def _count_alerts_by_source(rows, source_system: str):
     return sum(1 for row in rows if (row.source_system or '').strip() == source_system)
 
 
-def get_alerts_payload():
-    try:
-        refresh_pipeline_storage_from_jenkins(
-            include_quality_metrics=False,
-            include_quality_backfill=False,
-        )
-    except Exception:
-        current_app.logger.exception(
-            'Failed to refresh pipeline snapshot for the alerts page.'
-        )
+def get_alerts_payload(
+    *,
+    refresh_pipeline_snapshot=True,
+    running_builds=None,
+):
+    if refresh_pipeline_snapshot:
+        try:
+            refresh_pipeline_storage_from_jenkins(
+                include_quality_metrics=False,
+                include_quality_backfill=False,
+            )
+        except Exception:
+            current_app.logger.exception(
+                'Failed to refresh pipeline snapshot for the alerts page.'
+            )
 
     pipeline_context = _main_pipeline_context()
     branch_name = pipeline_context.get('branch_name') or 'main'
@@ -1064,7 +1075,9 @@ def get_alerts_payload():
 
     observed_alerts = []
     observed_alerts.extend(_build_failure_streak_alerts(branch_name, builds))
-    observed_alerts.extend(_stage_duration_over_average_alerts(builds))
+    observed_alerts.extend(
+        _stage_duration_over_average_alerts(builds, running_builds=running_builds)
+    )
     observed_alerts.extend(_stale_open_pull_request_alerts(branch_name))
     observed_alerts.extend(_prometheus_threshold_alerts())
 
