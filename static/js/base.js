@@ -1666,14 +1666,17 @@ async function loadGitHubBadge() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const page = document.body.dataset.page || '';
   if (!pageUsesLiveStatusStream()) {
     checkStatus();
     checkAzureStatus();
   }
-  if (!['pipeline-kpis', 'overview'].includes(document.body.dataset.page || '')) {
+  if (!['pipeline-kpis', 'overview'].includes(page)) {
     loadLatestBuild();
   }
-  loadGitHubBadge();
+  if (page !== 'github') {
+    loadGitHubBadge();
+  }
 });
 
 

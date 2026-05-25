@@ -1,3 +1,33 @@
+const GITHUB_REFRESH_MS = 15_000;
+const GITHUB_HIDDEN_REFRESH_MS = 60_000;
+
+let githubRefreshTimer = null;
+let githubLoadPromise = null;
+let githubLastLoadedAt = 0;
+
+function currentUserCanManageGitHub() {
+  return document.body.dataset.canManageGithub === 'true';
+}
+
+function setUnavailableMessage(id, message) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = `<div class="gh-empty">${escapeHtml(message)}</div>`;
+}
+
+function renderGitHubUnavailableState(message = 'GitHub unavailable right now.') {
+  [
+    'ghCommits',
+    'ghOpenPRs',
+    'ghMergedPRs',
+    'ghFailingCommit',
+    'ghFixCommit',
+    'ghTimeToFix',
+    'ghMostChanged',
+    'ghCodeChurn',
+  ].forEach(id => setUnavailableMessage(id, message));
+}
+
 function fmtNum(val) {
   if (val === null || val === undefined) return '--';
   return Number(val).toLocaleString();
@@ -256,7 +286,7 @@ function renderCommits(container, commits) {
       link.textContent = 'View commit';
       actions.appendChild(link);
     }
-    if (actions && c.tagging_allowed) {
+    if (actions && currentUserCanManageGitHub() && c.tagging_allowed) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'gh-tag-btn';
@@ -272,75 +302,119 @@ function renderCommits(container, commits) {
 }
 
 async function loadGitHub() {
-  const url = document.body.dataset.githubUrl;
-  if (!url) return;
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`GitHub API returned ${res.status}`);
-    }
-    const data = await res.json();
-
-    if (!data.connected) {
-      setText('ghRepoName', data.message || 'GitHub unavailable');
-      renderCommits(document.getElementById('ghCommits'), []);
-      return;
-    }
-
-    const repo = data.repo_info || {};
-    const full = repo.full_name || `${data.owner}/${data.repo}`;
-
-    const repoDataMissing = !repo || (
-      repo.stars == null &&
-      repo.forks == null &&
-      repo.open_issues == null &&
-      !repo.updated_at
-    );
-
-    setText('ghRepoName', full);
-    setText(
-      'ghRepoDesc',
-      repoDataMissing
-      ? 'Repository data unavailable.'
-      : (repo.description || '—')
-    );
-    setText('ghStars', fmtNum(repo.stars));
-    setText('ghForks', fmtNum(repo.forks));
-    setText('ghIssues', fmtNum(repo.open_issues));
-    setText('ghBranch', repo.default_branch || '—');
-    setText('ghLang', repo.language || '—');
-    setText('ghUpdated', fmtDate(repo.updated_at));
-
-    const link = document.getElementById('ghRepoLink');
-    const repoUrl = safeUrl(repo.html_url);
-    if (link && repoUrl) link.href = repoUrl;
-    setText('ghCommitScope', data.commit_scope_label || 'Most recent commit on each branch');
-
-    renderCommits(document.getElementById('ghCommits'), data.commits || []);
-    renderPullRequests(document.getElementById('ghOpenPRs'), data.pull_requests_open || [], 'open');
-    renderPullRequests(document.getElementById('ghMergedPRs'), data.pull_requests_merged || [], 'merged');
-    try {
-      renderAnalyticsNotice(data);
-      renderFailingCommit(data);
-      renderFixCommit(data);
-      renderTimeToFix(data);
-      renderMostChanged(data);
-      renderCodeChurn(data);
-    } catch (e) {
-      const container = document.getElementById('ghFailingCommit');
-      if (container) {
-        container.innerHTML = '<div class="gh-empty">Failed to render failed commit.</div>';
-      }
-    }
-
-    if (Array.isArray(data.commits) && data.commits[0] && data.commits[0].sha) {
-      localStorage.setItem('gh-last-seen', data.commits[0].sha);
-    }
-  } catch (e) {
-    setText('ghRepoName', 'Failed to load GitHub data');
-    renderCommits(document.getElementById('ghCommits'), []);
+  if (githubLoadPromise) {
+    return githubLoadPromise;
   }
+
+  const url = document.body.dataset.githubUrl;
+  if (!url) return null;
+
+  githubLoadPromise = (async () => {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`GitHub API returned ${res.status}`);
+      }
+      const data = await res.json();
+
+      if (!data.connected) {
+        setText('ghRepoName', data.message || 'GitHub unavailable');
+        renderGitHubUnavailableState(data.message || 'GitHub unavailable right now.');
+        return data;
+      }
+
+      const repo = data.repo_info || {};
+      const full = repo.full_name || `${data.owner}/${data.repo}`;
+
+      const repoDataMissing = !repo || (
+        repo.stars == null &&
+        repo.forks == null &&
+        repo.open_issues == null &&
+        !repo.updated_at
+      );
+
+      setText('ghRepoName', full);
+      setText(
+        'ghRepoDesc',
+        repoDataMissing
+        ? 'Repository data unavailable.'
+        : (repo.description || '—')
+      );
+      setText('ghStars', fmtNum(repo.stars));
+      setText('ghForks', fmtNum(repo.forks));
+      setText('ghIssues', fmtNum(repo.open_issues));
+      setText('ghBranch', repo.default_branch || '—');
+      setText('ghLang', repo.language || '—');
+      setText('ghUpdated', fmtDate(repo.updated_at));
+
+      const link = document.getElementById('ghRepoLink');
+      const repoUrl = safeUrl(repo.html_url);
+      if (link && repoUrl) link.href = repoUrl;
+      setText('ghCommitScope', data.commit_scope_label || 'Most recent commit on each branch');
+
+      renderCommits(document.getElementById('ghCommits'), data.commits || []);
+      renderPullRequests(document.getElementById('ghOpenPRs'), data.pull_requests_open || [], 'open');
+      renderPullRequests(document.getElementById('ghMergedPRs'), data.pull_requests_merged || [], 'merged');
+      try {
+        renderAnalyticsNotice(data);
+        renderFailingCommit(data);
+        renderFixCommit(data);
+        renderTimeToFix(data);
+        renderMostChanged(data);
+        renderCodeChurn(data);
+      } catch (e) {
+        const container = document.getElementById('ghFailingCommit');
+        if (container) {
+          container.innerHTML = '<div class="gh-empty">Failed to render failed commit.</div>';
+        }
+      }
+
+      if (Array.isArray(data.commits) && data.commits[0] && data.commits[0].sha) {
+        localStorage.setItem('gh-last-seen', data.commits[0].sha);
+      }
+
+      githubLastLoadedAt = Date.now();
+      return data;
+    } catch (e) {
+      setText('ghRepoName', 'Failed to load GitHub data');
+      renderGitHubUnavailableState('Failed to load GitHub data.');
+      return null;
+    } finally {
+      githubLoadPromise = null;
+    }
+  })();
+
+  return githubLoadPromise;
+}
+
+function clearGitHubRefreshTimer() {
+  if (!githubRefreshTimer) return;
+  window.clearTimeout(githubRefreshTimer);
+  githubRefreshTimer = null;
+}
+
+function nextGitHubRefreshDelay() {
+  return document.visibilityState === 'visible'
+    ? GITHUB_REFRESH_MS
+    : GITHUB_HIDDEN_REFRESH_MS;
+}
+
+function scheduleGitHubRefresh(delayMs = nextGitHubRefreshDelay()) {
+  clearGitHubRefreshTimer();
+  githubRefreshTimer = window.setTimeout(async () => {
+    await loadGitHub();
+    scheduleGitHubRefresh();
+  }, delayMs);
+}
+
+function handleGitHubVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    const refreshAge = Date.now() - githubLastLoadedAt;
+    if (githubLastLoadedAt === 0 || refreshAge >= GITHUB_REFRESH_MS) {
+      loadGitHub();
+    }
+  }
+  scheduleGitHubRefresh();
 }
 
 function buildUserCard({ avatarUrl, profileUrl, userName, userLogin, extraClasses = '' }) {
@@ -776,5 +850,9 @@ function renderPullRequests(container, prs, type) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadGitHub();
+  loadGitHub().finally(() => {
+    scheduleGitHubRefresh();
+  });
+  document.addEventListener('visibilitychange', handleGitHubVisibilityChange);
+  window.addEventListener('beforeunload', clearGitHubRefreshTimer);
 });

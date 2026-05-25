@@ -1,7 +1,9 @@
 import logging
+import threading
 from datetime import date, datetime, timedelta, timezone
 
 from flask import current_app
+from extensions import cache
 from services.parallel_executor import parallel_execute
 from services.system_timezone_service import format_system_datetime, to_system_timezone
 from collectors.github_collector import (
@@ -25,6 +27,13 @@ logger = logging.getLogger(__name__)
 MAIN_PIPELINE_BRANCH = 'main'
 BRANCH_HEAD_COMMIT_LIMIT = 12
 UNAUTHENTICATED_BRANCH_HEAD_COMMIT_LIMIT = 6
+GITHUB_SUMMARY_CACHE_VERSION = 'v1'
+DEFAULT_GITHUB_SUMMARY_CACHE_TIMEOUT_SECONDS = 20
+MIN_GITHUB_SUMMARY_CACHE_TIMEOUT_SECONDS = 15
+MIN_UNAUTHENTICATED_GITHUB_SUMMARY_CACHE_TIMEOUT_SECONDS = 60
+
+_github_summary_cache_lock = threading.Lock()
+_github_badge_cache_lock = threading.Lock()
 
 
 def is_tag_branch_allowed(branch_name):
@@ -69,6 +78,54 @@ def _get_owner_repo():
 
 def _github_token_configured():
     return bool(str(current_app.config.get('GITHUB_TOKEN') or '').strip())
+
+
+def _github_summary_cache_timeout_seconds():
+    configured_timeout = int(
+        current_app.config.get(
+            'GITHUB_SUMMARY_CACHE_TIMEOUT_SECONDS',
+            DEFAULT_GITHUB_SUMMARY_CACHE_TIMEOUT_SECONDS,
+        )
+    )
+    configured_timeout = max(
+        configured_timeout,
+        MIN_GITHUB_SUMMARY_CACHE_TIMEOUT_SECONDS,
+    )
+    if not _github_token_configured():
+        return max(
+            configured_timeout,
+            MIN_UNAUTHENTICATED_GITHUB_SUMMARY_CACHE_TIMEOUT_SECONDS,
+        )
+    return configured_timeout
+
+
+def _github_summary_cache_key(owner, repo):
+    return f'github_summary:{GITHUB_SUMMARY_CACHE_VERSION}:{owner}:{repo}'
+
+
+def _github_badge_cache_key(owner, repo):
+    return f'github_badge:{GITHUB_SUMMARY_CACHE_VERSION}:{owner}:{repo}'
+
+
+def _load_cached_github_payload(cache_key, timeout_seconds, builder, lock):
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    with lock:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        payload = builder()
+        cache.set(cache_key, payload, timeout=timeout_seconds)
+        return payload
+
+
+def invalidate_github_response_cache(owner, repo):
+    if not owner or not repo:
+        return
+    cache.delete(_github_summary_cache_key(owner, repo))
+    cache.delete(_github_badge_cache_key(owner, repo))
 
 
 def _commit_item(c):
@@ -632,14 +689,7 @@ def _build_commit_item_from_build(owner, repo, branch_name, commit_sha, build_co
     return _fallback_commit_item(owner, repo, commit_sha, branch_name=branch_name)
 
 
-def get_github_summary():
-    owner, repo = _get_owner_repo()
-    if not owner or not repo:
-        return {
-            'connected': False,
-            'message': 'GitHub is not configured. Set GITHUB_OWNER and GITHUB_REPO.',
-        }
-
+def _build_github_summary(owner, repo):
     app = current_app._get_current_object()
     tasks = {
         'repo': lambda: _run_in_app_context(app, lambda: get_repo(owner, repo)),
@@ -791,26 +841,21 @@ def get_github_summary():
         analytics_detail_commit_count,
     )
 
-    # Process pull requests
     prs_open = []
     prs_closed = []
     prs_merged = []
-    
+
     prs_all_raw = results.get('pull_requests')
     if isinstance(prs_all_raw, list):
         logger.info(f"[GitHub] Fetched {len(prs_all_raw)} total pull requests")
         all_prs = [_pr_item(pr) for pr in prs_all_raw]
-        
-        # Separate by state and merge status
+
         for pr in all_prs:
             if pr.get('merged_at'):
-                # Merged PRs
                 prs_merged.append(pr)
             elif pr.get('state') == 'open':
-                # Open PRs (including drafts)
                 prs_open.append(pr)
             else:
-                # Closed (unmerged) PRs
                 prs_closed.append(pr)
 
     return {
@@ -855,7 +900,7 @@ def get_github_summary():
     }
 
 
-def get_github_badge_summary():
+def get_github_summary():
     owner, repo = _get_owner_repo()
     if not owner or not repo:
         return {
@@ -863,6 +908,15 @@ def get_github_badge_summary():
             'message': 'GitHub is not configured. Set GITHUB_OWNER and GITHUB_REPO.',
         }
 
+    return _load_cached_github_payload(
+        _github_summary_cache_key(owner, repo),
+        _github_summary_cache_timeout_seconds(),
+        lambda: _build_github_summary(owner, repo),
+        _github_summary_cache_lock,
+    )
+
+
+def _build_github_badge_summary(owner, repo):
     app = current_app._get_current_object()
     branches_raw = _run_in_app_context(
         app,
@@ -879,3 +933,19 @@ def get_github_badge_summary():
         'connected': True,
         'commits': [_commit_item(c) for c in branch_head_commits_raw],
     }
+
+
+def get_github_badge_summary():
+    owner, repo = _get_owner_repo()
+    if not owner or not repo:
+        return {
+            'connected': False,
+            'message': 'GitHub is not configured. Set GITHUB_OWNER and GITHUB_REPO.',
+        }
+
+    return _load_cached_github_payload(
+        _github_badge_cache_key(owner, repo),
+        _github_summary_cache_timeout_seconds(),
+        lambda: _build_github_badge_summary(owner, repo),
+        _github_badge_cache_lock,
+    )

@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/github.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-github-url="{{ url_for('github.github_api') }}" data-page="github"{% endblock %}
+{% block body_attrs %}data-github-url="{{ url_for('github.github_api') }}" data-can-manage-github="{{ 'true' if has_role('admin', 'developer') else 'false' }}" data-page="github"{% endblock %}
 
 {% block page_content %}
 <div class="gh-hero">
@@ -73,7 +73,6 @@
     
     <div class="gh-divider"></div>
     <div class="gh-card-title">GitHub Activity </div>
-
     <div class="gh-card-title">Most Changed Files in the last 24 hours</div>
     <div class="gh-sub" id="ghMostChangedSub">Top 5 most changed files </div>
     <div class="gh-analytics-summary" id="ghMostChangedSummary"></div>
@@ -92,6 +91,7 @@
 </div>
 
 <!-- Tag Modal -->
+{% if has_role('admin', 'developer') %}
 <div id="ghTagModal" class="gh-tag-modal">
   <div class="gh-tag-modal-content">
     <div class="gh-tag-modal-header">
@@ -125,6 +125,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

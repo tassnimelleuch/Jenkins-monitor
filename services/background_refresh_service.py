@@ -17,6 +17,8 @@ from services.deployment_kpis_service import (
     get_deployment_summary_payload,
     merge_deployment_kpis_payload,
 )
+from services.github_service import invalidate_github_response_cache
+from services.github_storage_service import sync_github_recent_commits
 from services.jenkins_service import (
     get_live_running_builds,
     refresh_pipeline_storage_from_jenkins,
@@ -37,6 +39,7 @@ LIVE_PIPELINE_SNAPSHOT_IDLE_SECONDS = 5
 LIVE_DEPLOYMENT_ROLLOUT_POLL_SECONDS = 10
 LIVE_DEPLOYMENT_SUMMARY_POLL_SECONDS = 60
 LIVE_DEPLOYMENT_CLUSTER_METRICS_POLL_SECONDS = 20
+LIVE_GITHUB_STORAGE_POLL_SECONDS = 30
 
 _DASHBOARD_STATE_CACHE_KEY = 'live_refresh:dashboard_state:v1'
 _ALERTS_STATE_CACHE_KEY = 'live_refresh:alerts_state:v1'
@@ -203,6 +206,18 @@ def _refresh_dashboard_azure_status() -> dict[str, Any]:
             'azure_status': _json_safe(get_connection_status()),
         }
     )
+
+
+def refresh_github_storage_live_state() -> bool:
+    owner = str(current_app.config.get('GITHUB_OWNER') or '').strip()
+    repo = str(current_app.config.get('GITHUB_REPO') or '').strip()
+    if not owner or not repo:
+        return False
+
+    refreshed = sync_github_recent_commits(owner, repo, 'main', force=False)
+    if refreshed:
+        invalidate_github_response_cache(owner, repo)
+    return refreshed
 
 
 def refresh_alerts_live_state(
@@ -493,6 +508,7 @@ def _run_live_refresh_worker(app: Flask):
     next_deployment_rollout_at = 0.0
     next_deployment_summary_at = 0.0
     next_cluster_metrics_at = 0.0
+    next_github_storage_at = 0.0
 
     with app.app_context():
         while True:
@@ -605,6 +621,14 @@ def _run_live_refresh_worker(app: Flask):
                 except Exception:
                     app.logger.exception('Central live refresh failed while updating deployment cluster metrics.')
                 next_cluster_metrics_at = now + LIVE_DEPLOYMENT_CLUSTER_METRICS_POLL_SECONDS
+
+            if now >= next_github_storage_at:
+                try:
+                    refresh_github_storage_live_state()
+                    did_work = True
+                except Exception:
+                    app.logger.exception('Central live refresh failed while updating GitHub storage.')
+                next_github_storage_at = now + LIVE_GITHUB_STORAGE_POLL_SECONDS
 
             if not did_work:
                 time.sleep(LIVE_REFRESH_IDLE_SLEEP_SECONDS)

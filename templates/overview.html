@@ -13,6 +13,7 @@
 {% endblock %}
 {% block page_content %}
 {% set show_overview_build_charts = has_role('admin', 'developer') %}
+{% set show_overview_tests_chart = has_role('admin', 'developer', 'tester') %}
 
 <div id="disconnectedBanner" class="disconnected-banner">
     <svg viewBox="0 0 24 24">
@@ -39,7 +40,7 @@
     </div>
 </div>
 
-{% if show_overview_build_charts %}
+{% if show_overview_tests_chart %}
 <div class="overview-24h-info">
     <div class="overview-24h-head">
         <div class="overview-24h-copy">
@@ -57,11 +58,6 @@
             </div>
         </div>
     </div>
-</div>
-{% else %}
-<div class="overview-role-info">
-    <div class="overview-24h-eyebrow">Coverage Access</div>
-    <div class="overview-24h-title">Tester accounts only see the QA and tests - related charts .</div>
 </div>
 {% endif %}
 
@@ -121,7 +117,9 @@
         <div class="overview-tl-empty">No builds in the last 24 hours.</div>
     </div>
 </div>
+{% endif %}
 
+{% if show_overview_tests_chart %}
 <div class="chart-card overview-tests-duration-card">
     <div class="chart-hdr">
         <div>
@@ -136,7 +134,6 @@
     </div>
 </div>
 {% endif %}
-
 {% endblock %}
 
 {% block extra_markup %}

@@ -16,7 +16,9 @@ from services.parallel_executor import parallel_execute
 
 GITHUB_24H_CACHE_VERSION = 'v2'
 GITHUB_24H_CACHE_TIMEOUT_SECONDS = 300
-DEFAULT_GITHUB_SYNC_INTERVAL_SECONDS = 600
+DEFAULT_GITHUB_SYNC_INTERVAL_SECONDS = 60
+MIN_GITHUB_SYNC_INTERVAL_SECONDS = 30
+MIN_UNAUTHENTICATED_GITHUB_SYNC_INTERVAL_SECONDS = 180
 DEFAULT_GITHUB_INITIAL_BACKFILL_HOURS = 48
 DEFAULT_GITHUB_RETENTION_DAYS = 30
 SYNC_DATASET = 'commit_history'
@@ -27,6 +29,10 @@ _github_refresh_in_progress = set()
 
 def _utcnow():
     return datetime.now(timezone.utc)
+
+
+def _github_token_configured() -> bool:
+    return bool(str(current_app.config.get('GITHUB_TOKEN') or '').strip())
 
 
 def _run_in_app_context(app, func):
@@ -63,12 +69,19 @@ def _parse_commit_datetime(commit_raw) -> Optional[datetime]:
 
 
 def _github_sync_interval_seconds() -> int:
-    return int(
+    configured_interval = int(
         current_app.config.get(
             'GITHUB_SYNC_INTERVAL_SECONDS',
             DEFAULT_GITHUB_SYNC_INTERVAL_SECONDS,
         )
     )
+    configured_interval = max(configured_interval, MIN_GITHUB_SYNC_INTERVAL_SECONDS)
+    if not _github_token_configured():
+        return max(
+            configured_interval,
+            MIN_UNAUTHENTICATED_GITHUB_SYNC_INTERVAL_SECONDS,
+        )
+    return configured_interval
 
 
 def _github_cache_timeout_seconds() -> int:

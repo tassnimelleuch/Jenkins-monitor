@@ -7,8 +7,24 @@ from services.background_refresh_service import (
 )
 from services.live_stream_service import iter_deployment_live_events
 
+
+def _filter_deployment_payload_for_role(payload, role):
+    if role != 'tester':
+        return payload
+
+    source = payload if isinstance(payload, dict) else {}
+    data = source.get('data') if isinstance(source.get('data'), dict) else {}
+    return {
+        'connected': bool(source.get('connected')),
+        'message': source.get('message'),
+        'data': {
+            'latest_image': data.get('latest_image') or {},
+        },
+    }
+
+
 @deployment_kpis_bp.route('/deployment_kpis')
-@role_required('admin', 'developer')
+@role_required('admin', 'developer', 'tester')
 def deployment_kpis():
     return render_template(
         'deployment_kpis.html',
@@ -18,11 +34,11 @@ def deployment_kpis():
 
 
 @deployment_kpis_bp.route('/deployment_kpis/api/cluster')
-@role_required('admin', 'developer')
+@role_required('admin', 'developer', 'tester')
 def deployment_kpis_cluster():
     result = get_cached_deployment_kpis_payload()
     status_code = 200 if result.get('connected') else 503
-    return jsonify(result), status_code
+    return jsonify(_filter_deployment_payload_for_role(result, session.get('role'))), status_code
 
 
 @deployment_kpis_bp.route('/api/cluster-metrics')

@@ -15,9 +15,8 @@
 
 {% block page_content %}
 {% set show_pipeline_management = has_role('admin', 'developer') %}
-{% set show_pipeline_coverage = has_role('admin', 'developer', 'tester') %}
+{% set show_pipeline_test_analytics = has_role('admin', 'developer', 'tester') %}
 {% set show_vm_metrics = has_role('admin') %}
-{% set coverage_only_view = show_pipeline_coverage and not show_pipeline_management %}
 
 <!-- Legacy build-history tooltip kept for later rollback.
 <div class="seg-tip" id="segTip">
@@ -98,7 +97,7 @@
   </div>
   {% endif %}
 
-  {% if show_pipeline_management %}
+  {% if show_pipeline_test_analytics %}
   <div class="chart-card pipeline-tests-duration-card">
     <div class="chart-hdr">
       <div>
@@ -138,8 +137,8 @@
   </div>
   {% endif %}
 
-  {% if show_pipeline_coverage %}
-  <div class="chart-card pipeline-coverage-card{% if coverage_only_view %} pipeline-coverage-card-full{% endif %}">
+  {% if show_pipeline_test_analytics %}
+  <div class="chart-card pipeline-coverage-card">
     <div class="chart-hdr">
       <div>
         <div class="chart-title">Tests Coverage Trend</div>
@@ -162,7 +161,7 @@
   
 </div>
 
-{% if show_pipeline_management %}
+{% if show_pipeline_test_analytics %}
 <div class="pipeline-stage-row">
   <div class="chart-card pipeline-stage-card pipeline-stage-card-full">
     <div class="chart-hdr">
