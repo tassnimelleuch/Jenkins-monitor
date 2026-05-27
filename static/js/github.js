@@ -1,9 +1,12 @@
 const GITHUB_REFRESH_MS = 15_000;
 const GITHUB_HIDDEN_REFRESH_MS = 60_000;
+const GITHUB_COMMITS_INITIAL_SHOW = 5;
 
 let githubRefreshTimer = null;
 let githubLoadPromise = null;
 let githubLastLoadedAt = 0;
+let githubCommits = [];
+let githubCommitsExpanded = false;
 
 function currentUserCanManageGitHub() {
   return document.body.dataset.canManageGithub === 'true';
@@ -15,7 +18,29 @@ function setUnavailableMessage(id, message) {
   el.innerHTML = `<div class="gh-empty">${escapeHtml(message)}</div>`;
 }
 
+function hideGitHubCommitsToggle() {
+  const button = document.getElementById('ghCommitsShowMoreBtn');
+  if (!button) return;
+  button.hidden = true;
+}
+
+function updateGitHubCommitsToggle(totalCount = githubCommits.length) {
+  const button = document.getElementById('ghCommitsShowMoreBtn');
+  if (!button) return;
+
+  if (totalCount <= GITHUB_COMMITS_INITIAL_SHOW) {
+    button.hidden = true;
+    return;
+  }
+
+  button.hidden = false;
+  button.textContent = githubCommitsExpanded
+    ? 'Show less ↑'
+    : `Show all ↓ (${totalCount - GITHUB_COMMITS_INITIAL_SHOW} more)`;
+}
+
 function renderGitHubUnavailableState(message = 'GitHub unavailable right now.') {
+  hideGitHubCommitsToggle();
   [
     'ghCommits',
     'ghOpenPRs',
@@ -249,15 +274,28 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+function toggleGitHubCommitsShowMore() {
+  if (githubCommits.length <= GITHUB_COMMITS_INITIAL_SHOW) return;
+  githubCommitsExpanded = !githubCommitsExpanded;
+  renderCommits(document.getElementById('ghCommits'), githubCommits);
+}
 
 function renderCommits(container, commits) {
   if (!container) return;
-  if (!commits || commits.length === 0) {
+  githubCommits = Array.isArray(commits) ? commits : [];
+
+  if (!githubCommits.length) {
     container.innerHTML = '<div class="gh-empty">No commits found.</div>';
+    hideGitHubCommitsToggle();
     return;
   }
+
+  const visibleCommits = githubCommitsExpanded
+    ? githubCommits
+    : githubCommits.slice(0, GITHUB_COMMITS_INITIAL_SHOW);
+
   container.innerHTML = '';
-  commits.forEach(c => {
+  visibleCommits.forEach(c => {
     const branchName = c.branch_name || '';
     const branchPill = branchName
       ? `<span class="gh-branch-pill">${escapeHtml(branchName)}</span>`
@@ -299,6 +337,8 @@ function renderCommits(container, commits) {
     }
     container.appendChild(div);
   });
+
+  updateGitHubCommitsToggle(githubCommits.length);
 }
 
 async function loadGitHub() {
@@ -850,6 +890,10 @@ function renderPullRequests(container, prs, type) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const commitsToggleBtn = document.getElementById('ghCommitsShowMoreBtn');
+  if (commitsToggleBtn) {
+    commitsToggleBtn.addEventListener('click', toggleGitHubCommitsShowMore);
+  }
   loadGitHub().finally(() => {
     scheduleGitHubRefresh();
   });

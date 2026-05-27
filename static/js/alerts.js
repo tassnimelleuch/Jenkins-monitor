@@ -49,17 +49,8 @@ function formatAlertDuration(ms) {
 }
 
 function formatAlertAgeDays(ms) {
-  const totalDays = Math.max(0, Number(ms || 0)) / ALERT_DAY_MS;
-  if (totalDays <= 0) return '0 days';
-
-  const roundedDays = totalDays >= 10
-    ? Math.round(totalDays)
-    : Math.round(totalDays * 10) / 10;
-  const dayText = Number.isInteger(roundedDays)
-    ? String(roundedDays)
-    : roundedDays.toFixed(1).replace(/\.0$/, '');
-  const dayValue = Number(dayText);
-  return `${dayText} day${dayValue === 1 ? '' : 's'}`;
+  const fullDays = Math.floor(Math.max(0, Number(ms || 0)) / ALERT_DAY_MS);
+  return `${fullDays} day${fullDays === 1 ? '' : 's'}`;
 }
 
 function formatCurrency(value, currencyCode = 'USD') {
@@ -74,6 +65,22 @@ function formatCurrency(value, currencyCode = 'USD') {
 function formatPercent(value) {
   if (value == null || Number.isNaN(Number(value))) return '-';
   return `${Number(value).toFixed(1)}%`;
+}
+
+function formatAlertTimestamp(value) {
+  if (!value) return '--';
+
+  if (typeof formatUserDateTime === 'function') {
+    return formatUserDateTime(new Date(Number(value)), {
+      includeYear: true,
+      includeSeconds: false,
+      fallback: '--'
+    });
+  }
+
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return '--';
+  return date.toLocaleString();
 }
 
 function escapeHtml(value) {
@@ -149,6 +156,7 @@ function buildAlertMeta(alert) {
     );
   }
 
+  items.push(`Sent: ${formatAlertTimestamp(alert.first_detected_at)}`);
   return items;
 }
 
@@ -358,6 +366,9 @@ function applyAlertsPayload(data) {
     ...data,
     alerts: Array.isArray(data?.alerts) ? data.alerts : [],
   };
+  if (typeof window.applyAlertsSidebarBadgePayload === 'function') {
+    window.applyAlertsSidebarBadgePayload(_alertsPayload);
+  }
   renderAlertsFromState();
 }
 
@@ -417,6 +428,9 @@ function applyOptimisticAlertCheck(alertId) {
     ..._alertsPayload,
     alerts: _alertsPayload.alerts.filter(alert => String(alert?.id) !== String(alertId)),
   };
+  if (typeof window.setAlertsSidebarBadgeCount === 'function') {
+    window.setAlertsSidebarBadgeCount(_alertsPayload.alerts.length);
+  }
   renderAlertsFromState();
 }
 

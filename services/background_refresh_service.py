@@ -24,7 +24,8 @@ from services.jenkins_service import (
     refresh_pipeline_storage_from_jenkins,
 )
 from services.metrics_service import get_cluster_metrics
-from services.pipeline_storage_service import get_stored_pipeline_kpis
+from services.pipeline_storage_service import get_stored_overview_kpis, get_stored_pipeline_kpis
+from services.sonarcloud_service import get_sonarcloud_summary
 
 
 LIVE_REFRESH_CACHE_TIMEOUT_SECONDS = 300
@@ -40,10 +41,12 @@ LIVE_DEPLOYMENT_ROLLOUT_POLL_SECONDS = 10
 LIVE_DEPLOYMENT_SUMMARY_POLL_SECONDS = 60
 LIVE_DEPLOYMENT_CLUSTER_METRICS_POLL_SECONDS = 20
 LIVE_GITHUB_STORAGE_POLL_SECONDS = 30
+LIVE_SONARCLOUD_POLL_SECONDS = 30
 
 _DASHBOARD_STATE_CACHE_KEY = 'live_refresh:dashboard_state:v1'
 _ALERTS_STATE_CACHE_KEY = 'live_refresh:alerts_state:v1'
 _DEPLOYMENT_STATE_CACHE_KEY = 'live_refresh:deployment_state:v1'
+_SONARCLOUD_STATE_CACHE_KEY = 'live_refresh:sonarcloud_state:v1'
 
 _worker_lock = threading.Lock()
 _worker_thread: threading.Thread | None = None
@@ -150,17 +153,32 @@ def _update_dashboard_state(*, changes: dict[str, Any]) -> dict[str, Any]:
 def _update_dashboard_snapshot_meta() -> bool:
     state = _cache_get_state(_DASHBOARD_STATE_CACHE_KEY)
     stored_pipeline = get_stored_pipeline_kpis()
+    stored_overview = get_stored_overview_kpis() or {}
     snapshot_signature = _payload_signature(stored_pipeline)
+    overview_signature = _payload_signature(stored_overview)
     current_signature = str(state.get('snapshot_signature') or '')
-    if snapshot_signature == current_signature:
+    current_overview_signature = str(state.get('overview_payload_signature') or '')
+
+    snapshot_changed = snapshot_signature != current_signature
+    overview_changed = overview_signature != current_overview_signature
+    if not snapshot_changed and not overview_changed:
         return False
 
+    changed_at = _utcnow_iso()
     next_state = dict(state)
-    next_state['snapshot_signature'] = snapshot_signature
-    next_state['snapshot_version'] = int(next_state.get('snapshot_version') or 0) + 1
-    next_state['snapshot_generated_at'] = _utcnow_iso()
+    if snapshot_changed:
+        next_state['snapshot_signature'] = snapshot_signature
+        next_state['snapshot_version'] = int(next_state.get('snapshot_version') or 0) + 1
+        next_state['snapshot_generated_at'] = changed_at
+
+    if overview_changed:
+        next_state['overview_payload'] = _json_safe(stored_overview)
+        next_state['overview_payload_signature'] = overview_signature
+        next_state['overview_version'] = int(next_state.get('overview_version') or 0) + 1
+        next_state['overview_generated_at'] = changed_at
+
     next_state['version'] = int(next_state.get('version') or 0) + 1
-    next_state['generated_at'] = next_state['snapshot_generated_at']
+    next_state['generated_at'] = changed_at
     _cache_set_state(_DASHBOARD_STATE_CACHE_KEY, next_state)
     return True
 
@@ -270,6 +288,40 @@ def get_cached_alerts_payload() -> dict[str, Any]:
     )
     payload = refreshed.get('payload')
     return payload if isinstance(payload, dict) else {'connected': False, 'alerts': []}
+
+
+def refresh_sonarcloud_live_state(*, force: bool = False) -> dict[str, Any]:
+    state = _cache_get_state(_SONARCLOUD_STATE_CACHE_KEY)
+    payload = get_sonarcloud_summary()
+    signature = _payload_signature(payload)
+
+    if force or signature != str(state.get('signature') or ''):
+        next_state = {
+            'payload': _json_safe(payload),
+            'signature': signature,
+            'version': int(state.get('version') or 0) + 1,
+            'generated_at': _utcnow_iso(),
+        }
+        _cache_set_state(_SONARCLOUD_STATE_CACHE_KEY, next_state)
+        return next_state
+
+    return state
+
+
+def get_sonarcloud_live_state() -> dict[str, Any]:
+    ensure_live_refresh_worker_started()
+    return _cache_get_state(_SONARCLOUD_STATE_CACHE_KEY)
+
+
+def get_cached_sonarcloud_payload() -> dict[str, Any]:
+    state = get_sonarcloud_live_state()
+    payload = state.get('payload')
+    if isinstance(payload, dict):
+        return payload
+
+    refreshed = refresh_sonarcloud_live_state(force=True)
+    payload = refreshed.get('payload')
+    return payload if isinstance(payload, dict) else {'connected': False}
 
 
 def _update_deployment_state(*, changes: dict[str, Any]) -> dict[str, Any]:
@@ -509,6 +561,7 @@ def _run_live_refresh_worker(app: Flask):
     next_deployment_summary_at = 0.0
     next_cluster_metrics_at = 0.0
     next_github_storage_at = 0.0
+    next_sonarcloud_at = 0.0
 
     with app.app_context():
         while True:
@@ -629,6 +682,14 @@ def _run_live_refresh_worker(app: Flask):
                 except Exception:
                     app.logger.exception('Central live refresh failed while updating GitHub storage.')
                 next_github_storage_at = now + LIVE_GITHUB_STORAGE_POLL_SECONDS
+
+            if now >= next_sonarcloud_at:
+                try:
+                    refresh_sonarcloud_live_state()
+                    did_work = True
+                except Exception:
+                    app.logger.exception('Central live refresh failed while updating SonarCloud state.')
+                next_sonarcloud_at = now + LIVE_SONARCLOUD_POLL_SECONDS
 
             if not did_work:
                 time.sleep(LIVE_REFRESH_IDLE_SLEEP_SECONDS)

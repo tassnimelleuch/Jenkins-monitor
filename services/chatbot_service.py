@@ -9,10 +9,6 @@ import requests
 from flask import current_app
 
 from services.dashboard_kpi_chroma_service import query_dashboard_kpi_chroma
-from services.finops_build_documents_service import (
-    get_finops_build_document,
-    list_finops_build_documents_for_range,
-)
 from services.finops_chroma_service import query_finops_chroma
 
 
@@ -144,6 +140,8 @@ FINOPS_DASHBOARD_KPI_KEYWORDS = (
     'finops month change',
 )
 FINOPS_RAG_RESULT_LIMIT = 4
+FINOPS_RAG_DATE_RESULT_LIMIT = 6
+FINOPS_RAG_MONTH_RESULT_LIMIT = 12
 FINOPS_RAG_HISTORY_USER_MESSAGES = 3
 FINOPS_RAG_STRONG_KEYWORDS = (
     'finops',
@@ -761,7 +759,7 @@ def _build_finops_document_system_message(row):
     }
 
 
-def _build_finops_rag_system_message(matches, *, usage_date=None):
+def _build_finops_rag_system_message(matches, *, usage_date=None, usage_month=None):
     sections = []
     for index, match in enumerate(matches, start=1):
         metadata = match.get('metadata') or {}
@@ -787,6 +785,9 @@ def _build_finops_rag_system_message(matches, *, usage_date=None):
     target_date_line = ''
     if usage_date is not None:
         target_date_line = f'Target date inferred from the user request: {usage_date.isoformat()}\n'
+    target_month_line = ''
+    if usage_month is not None:
+        target_month_line = f'Target month inferred from the user request: {usage_month[0]:04d}-{usage_month[1]:02d}\n'
     evidence_text = '\n\n'.join(sections)
 
     return {
@@ -800,6 +801,7 @@ def _build_finops_rag_system_message(matches, *, usage_date=None):
             'If the evidence is incomplete, spans multiple dates, or cannot prove a cause, say that clearly.\n'
             'Do not invent numbers, dates, costs, failures, or Azure causes.\n'
             f'{target_date_line}'
+            f'{target_month_line}'
             '\nRetrieved FinOps evidence:\n'
             f'{evidence_text}'
         ).strip(),
@@ -809,6 +811,14 @@ def _build_finops_rag_system_message(matches, *, usage_date=None):
 def _month_bounds(year, month):
     last_day = monthrange(year, month)[1]
     return date(year, month, 1), date(year, month, last_day)
+
+
+def _resolve_finops_rag_limit(*, usage_date=None, usage_month=None):
+    if usage_date is not None:
+        return FINOPS_RAG_DATE_RESULT_LIMIT
+    if usage_month is not None:
+        return FINOPS_RAG_MONTH_RESULT_LIMIT
+    return FINOPS_RAG_RESULT_LIMIT
 
 
 def _build_finops_month_system_message(rows, *, year, month):
@@ -950,50 +960,40 @@ def _maybe_add_finops_rag_context(messages):
 
     usage_date = _resolve_target_usage_date(messages)
     usage_month = _resolve_target_usage_month(messages, usage_date=usage_date)
-
-    if usage_date is not None:
-        try:
-            row = get_finops_build_document(usage_date)
-        except Exception:
-            current_app.logger.exception('FinOps document retrieval failed.')
-            row = None
-        if row is not None:
-            return [_build_finops_document_system_message(row), *messages]
-
+    start_date = None
+    end_date = None
     if usage_month is not None:
         start_date, end_date = _month_bounds(*usage_month)
-        try:
-            month_rows = list_finops_build_documents_for_range(start_date, end_date)
-        except Exception:
-            current_app.logger.exception('FinOps month document retrieval failed.')
-            month_rows = []
-        if month_rows:
-            month_message = _build_finops_month_system_message(
-                month_rows,
-                year=usage_month[0],
-                month=usage_month[1],
-            )
-            if month_message is not None:
-                return [month_message, *messages]
 
     try:
         matches = query_finops_chroma(
             query_text,
-            limit=FINOPS_RAG_RESULT_LIMIT,
+            limit=_resolve_finops_rag_limit(
+                usage_date=usage_date,
+                usage_month=usage_month,
+            ),
             usage_date=usage_date,
+            start_date=start_date,
+            end_date=end_date,
         )
-        if not matches and usage_date is not None:
+        if not matches and (usage_date is not None or usage_month is not None):
             matches = query_finops_chroma(
                 query_text,
-                limit=FINOPS_RAG_RESULT_LIMIT,
-                usage_date=None,
+                limit=_resolve_finops_rag_limit(
+                    usage_date=usage_date,
+                    usage_month=usage_month,
+                ),
             )
     except Exception:
         current_app.logger.exception('FinOps Chroma retrieval failed.')
         matches = []
 
     if matches:
-        rag_message = _build_finops_rag_system_message(matches, usage_date=usage_date)
+        rag_message = _build_finops_rag_system_message(
+            matches,
+            usage_date=usage_date,
+            usage_month=usage_month,
+        )
         return [rag_message, *messages]
 
     return messages

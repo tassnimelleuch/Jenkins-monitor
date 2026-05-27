@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
 
-{% block title %}SonarCloud Scan — Jenkins Monitor{% endblock %}
+{% block title %}SonarCloud Scan — Monitoring Dashboard{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sonarcloud.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-sonar-url="{{ url_for('sonarcloud.sonarcloud_api') }}" data-page="sonarcloud"{% endblock %}
+{% block body_attrs %}data-sonar-url="{{ url_for('sonarcloud.sonarcloud_api') }}" data-live-stream-url="{{ url_for('sonarcloud.sonarcloud_live_stream') }}" data-page="sonarcloud"{% endblock %}
 
 {% block page_content %}
 <div class="sonar-hero">
@@ -19,7 +19,7 @@
 </div>
 
 <div class="stat-row sonar-stat-row">
-  <div class="stat-card failed sonar-kpi" data-issue-type="BUG" data-metric="bugs">
+  <div class="stat-card failed sonar-kpi" data-issue-type="BUG" data-metric="bugs" role="button" tabindex="0" title="View bugs details">
     <div class="stat-icon">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="8" y1="8" x2="16" y2="16"/><line x1="16" y1="8" x2="8" y2="16"/></svg>
     </div>
@@ -28,7 +28,7 @@
       <div class="stat-value" id="sonarBugs">--</div>
     </div>
   </div>
-  <div class="stat-card aborted sonar-kpi" data-issue-type="VULNERABILITY" data-metric="vulnerabilities">
+  <div class="stat-card aborted sonar-kpi" data-issue-type="VULNERABILITY" data-metric="vulnerabilities" role="button" tabindex="0" title="View vulnerabilities details">
     <div class="stat-icon">
       <svg viewBox="0 0 24 24"><path d="M12 3l9 4.5v9L12 21 3 16.5v-9z"/><path d="M12 3v18"/></svg>
     </div>
@@ -37,7 +37,7 @@
       <div class="stat-value" id="sonarVulnerabilities">--</div>
     </div>
   </div>
-  <div class="stat-card total sonar-kpi" data-issue-type="CODE_SMELL" data-metric="code_smells">
+  <div class="stat-card total sonar-kpi" data-issue-type="CODE_SMELL" data-metric="code_smells" role="button" tabindex="0" title="View code smells details">
     <div class="stat-icon">
       <svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="4"/><circle cx="16" cy="16" r="4"/><path d="M12 12l4-4"/></svg>
     </div>
@@ -46,7 +46,7 @@
       <div class="stat-value" id="sonarSmells">--</div>
     </div>
   </div>
-  <div class="stat-card success sonar-kpi" data-issue-type="SECURITY_HOTSPOT" data-metric="security_hotspots">
+  <div class="stat-card success sonar-kpi" data-issue-type="SECURITY_HOTSPOT" data-metric="security_hotspots" role="button" tabindex="0" title="View security hotspots details">
     <div class="stat-icon">
       <svg viewBox="0 0 24 24"><path d="M4 4h16v6H4z"/><path d="M8 14h8"/><path d="M10 18h4"/></svg>
     </div>
@@ -59,12 +59,12 @@
 
 <div class="sonar-grid">
   
-  <div class="sonar-card sonar-kpi" data-action="metric" data-metric="duplicated_lines_density">
+  <div class="sonar-card sonar-kpi" data-action="metric" data-metric="duplicated_lines_density" role="button" tabindex="0" title="View duplication details">
     <div class="sonar-label">Duplications</div>
     <div class="sonar-value" id="sonarDupes">--</div>
     <div class="sonar-help">Duplicated lines density</div>
   </div>
-  <div class="sonar-card sonar-kpi" data-action="metric" data-metric="ncloc">
+  <div class="sonar-card sonar-kpi" data-metric="ncloc" aria-disabled="true" title="Lines of Code is display-only">
     <div class="sonar-label">Lines of Code</div>
     <div class="sonar-value" id="sonarNcloc">--</div>
     <div class="sonar-help">ncloc</div>

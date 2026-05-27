@@ -26,6 +26,37 @@ def _normalize_date_input(value):
     return date.fromisoformat(str(value).strip())
 
 
+def _build_usage_date_where(*, usage_date=None, start_date=None, end_date=None):
+    usage_date = _normalize_date_input(usage_date)
+    start_date = _normalize_date_input(start_date)
+    end_date = _normalize_date_input(end_date)
+
+    if usage_date is not None:
+        start_date = usage_date
+        end_date = usage_date
+    if start_date is not None and end_date is None:
+        end_date = start_date
+    if end_date is not None and start_date is None:
+        start_date = end_date
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise ValueError('start_date must be before or equal to end_date.')
+
+    if start_date is None and end_date is None:
+        return None
+    if start_date is not None and end_date is not None and start_date == end_date:
+        return {'usage_date': start_date.isoformat()}
+
+    clauses = []
+    if start_date is not None:
+        clauses.append({'usage_date': {'$gte': start_date.isoformat()}})
+    if end_date is not None:
+        clauses.append({'usage_date': {'$lte': end_date.isoformat()}})
+
+    if len(clauses) == 1:
+        return clauses[0]
+    return {'$and': clauses}
+
+
 def _chunk_query(target_date=None, start_date=None, end_date=None):
     query = (
         FinOpsBuildDocumentChunk.query
@@ -170,12 +201,12 @@ def sync_finops_documents_to_chroma(*, target_date=None, start_date=None, end_da
     }
 
 
-def query_finops_chroma(query_text, *, limit=5, usage_date=None):
-    usage_date = _normalize_date_input(usage_date)
-    where = None
-    if usage_date is not None:
-        where = {'usage_date': usage_date.isoformat()}
-
+def query_finops_chroma(query_text, *, limit=5, usage_date=None, start_date=None, end_date=None):
+    where = _build_usage_date_where(
+        usage_date=usage_date,
+        start_date=start_date,
+        end_date=end_date,
+    )
     return query_collection(
         collection_name_key=COLLECTION_NAME_KEY,
         default_collection_metadata=DEFAULT_COLLECTION_METADATA,

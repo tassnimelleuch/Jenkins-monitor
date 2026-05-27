@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}GitHub — Jenkins Monitor{% endblock %}
+{% block title %}GitHub — Monitoring Dashboard{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/github.css') }}">
@@ -14,7 +14,6 @@
     <div class="gh-title">GitHub Repo</div>
     <div class="gh-sub" id="ghRepoName">Loading...</div>
   </div>
-  <a class="gh-link" id="ghRepoLink" href="#" target="_blank" rel="noopener">Open Repository</a>
 </div>
 
 <div class="gh-grid single">
@@ -39,6 +38,9 @@
     <div class="gh-sub" id="ghCommitScope">Most recent commit on each branch</div>
     <div class="gh-commits" id="ghCommits">
       <div class="gh-empty">Loading commits...</div>
+    </div>
+    <div class="gh-commits-footer">
+      <button class="gh-show-more-btn" id="ghCommitsShowMoreBtn" type="button" hidden>Show all ↓</button>
     </div>
 
     <div class="gh-divider"></div>
@@ -68,7 +70,7 @@
     <div class="gh-divider"></div>
     <div class="gh-card-title">Time to Fix</div>
     <div id="ghTimeToFix">
-      <div class="gh-empty">Calculating time to fix...</div>
+    <div class="gh-empty">Calculating time to fix...</div>
     </div>
     
     <div class="gh-divider"></div>

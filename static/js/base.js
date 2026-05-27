@@ -1118,14 +1118,6 @@ function buildFallbackPdfReportBlob(payload) {
     gapAfter: 3
   });
 
-  if (summary.warningLines.length) {
-    addSectionTitle('Notes');
-    addTextBlock(summary.warningLines, {
-      fontSize: 10,
-      gapAfter: 3
-    });
-  }
-
   return buildPdfBlobFromPages(pages, {
     pageWidth,
     pageHeight,
@@ -1287,10 +1279,6 @@ function buildJsPdfReportBlob(payload) {
   }
 
   drawSection('Last Commit on main', summary.commitLines);
-
-  if (summary.warningLines.length) {
-    drawSection('Notes', summary.warningLines);
-  }
 
   doc.setTextColor(96, 109, 121);
   doc.setFont('helvetica', 'normal');
@@ -1665,6 +1653,58 @@ async function loadGitHubBadge() {
   }
 }
 
+const ALERTS_BADGE_POLL_MS = 15_000;
+let _alertsBadgePollHandle = null;
+
+function setAlertsSidebarBadgeCount(count) {
+  const badge = document.getElementById('alertsBadge');
+  if (!badge) return;
+
+  const normalizedCount = Math.max(0, Number(count) || 0);
+  if (normalizedCount > 0) {
+    badge.textContent = normalizedCount > 99 ? '99+' : String(normalizedCount);
+    badge.style.display = 'flex';
+  } else {
+    badge.textContent = '';
+    badge.style.display = 'none';
+  }
+}
+
+function applyAlertsSidebarBadgePayload(payload) {
+  const summaryCount = Number(payload?.summary?.alert_count);
+  const listCount = Array.isArray(payload?.alerts) ? payload.alerts.length : 0;
+  const nextCount = Number.isFinite(summaryCount) ? summaryCount : listCount;
+  setAlertsSidebarBadgeCount(nextCount);
+}
+
+window.setAlertsSidebarBadgeCount = setAlertsSidebarBadgeCount;
+window.applyAlertsSidebarBadgePayload = applyAlertsSidebarBadgePayload;
+
+async function loadAlertsSidebarBadge() {
+  const badge = document.getElementById('alertsBadge');
+  const url = document.body.dataset.alertsBadgeUrl || '';
+  if (!badge || !url) return;
+
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    applyAlertsSidebarBadgePayload(data);
+  } catch (e) {
+    console.error('Alerts badge fetch failed', e);
+  }
+}
+
+function startAlertsSidebarBadgePolling() {
+  const badge = document.getElementById('alertsBadge');
+  const url = document.body.dataset.alertsBadgeUrl || '';
+  if (!badge || !url || _alertsBadgePollHandle) return;
+
+  _alertsBadgePollHandle = window.setInterval(() => {
+    void loadAlertsSidebarBadge();
+  }, ALERTS_BADGE_POLL_MS);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const page = document.body.dataset.page || '';
   if (!pageUsesLiveStatusStream()) {
@@ -1676,6 +1716,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if (page !== 'github') {
     loadGitHubBadge();
+  }
+  if (document.getElementById('alertsBadge') && page !== 'alerts') {
+    void loadAlertsSidebarBadge();
+    startAlertsSidebarBadgePolling();
   }
 });
 

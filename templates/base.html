@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Jenkins Monitor{% endblock %}</title>
+    <title>{% block title %}Monitoring Dashboard{% endblock %}</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,6 +17,7 @@
     data-branch-name="{{ branch_name }}"
     data-can-manage-builds="{{ 'true' if has_role('admin', 'developer') else 'false' }}"
     data-can-export-pdf="{{ 'true' if has_role('admin') else 'false' }}"
+    {% if has_role('admin') %}data-alerts-badge-url="{{ url_for('alerts.alerts_api') }}"{% endif %}
     data-export-report-url="{{ url_for('overview.export_pdf_report_api') }}"
     data-store-export-report-url="{{ url_for('overview.store_exported_pdf_report_api') }}"
     data-system-time-zone="{{ system_time_zone }}"

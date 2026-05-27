@@ -1053,6 +1053,14 @@ def _count_alerts_by_source(rows, source_system: str):
     return sum(1 for row in rows if (row.source_system or '').strip() == source_system)
 
 
+def get_open_alert_count() -> int:
+    return (
+        PersistentAlert.query
+        .filter(PersistentAlert.is_checked.is_(False))
+        .count()
+    )
+
+
 def get_alerts_payload(
     *,
     refresh_pipeline_snapshot=True,

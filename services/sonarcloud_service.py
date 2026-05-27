@@ -5,6 +5,7 @@ using parallel execution where possible to minimise latency.
 """
 
 import logging
+from urllib.parse import urlencode
 from flask import current_app
 
 from collectors.sonarcloud_collector import (
@@ -79,6 +80,48 @@ def _get_project_key():
     return current_app.config.get("SONARCLOUD_PROJECT_KEY")
 
 
+def _get_ui_base_url():
+    """Return the SonarCloud UI base URL derived from the configured API URL."""
+    base_url = str(
+        current_app.config.get("SONARCLOUD_BASE_URL", "https://sonarcloud.io/api")
+        or "https://sonarcloud.io/api"
+    ).rstrip("/")
+    return base_url[:-4] if base_url.endswith("/api") else base_url
+
+
+def _build_project_overview_url(project_key):
+    """Return the SonarCloud project overview URL for the given project."""
+    return f"{_get_ui_base_url()}/project/overview?{urlencode({'id': project_key})}"
+
+
+def _build_project_issues_url(
+    project_key,
+    *,
+    issue_type=None,
+    severity=None,
+    issue_key=None,
+    branch=None,
+    pull_request=None,
+):
+    """Return a SonarCloud issues page URL, optionally focused on a single issue."""
+    params = {
+        "id": project_key,
+        "resolved": "false",
+    }
+    if issue_type:
+        params["types"] = issue_type
+    if severity:
+        params["severities"] = severity
+    if branch:
+        params["branch"] = branch
+    if pull_request:
+        params["pullRequest"] = pull_request
+    if issue_key:
+        params["issues"] = issue_key
+        params["open"] = issue_key
+    return f"{_get_ui_base_url()}/project/issues?{urlencode(params)}"
+
+
 def _not_configured_response(extra=None):
     """Standard response when SonarCloud is not configured."""
     payload = {
@@ -121,22 +164,42 @@ def _bug_count_for_severities(project_key, severities):
     return total
 
 
-def _format_issue(issue):
+def _format_issue(issue, *, project_key=None, default_issue_type=None):
     """Extract the fields we care about from a raw SonarCloud issue dict."""
+    issue_key = issue.get("key")
+    issue_type = issue.get("type") or default_issue_type
+    severity = issue.get("severity")
+    branch = issue.get("branch")
+    pull_request = issue.get("pullRequest")
     return {
-        "key":                 issue.get("key"),
+        "key":                 issue_key,
+        "type":                issue_type,
         "rule":                issue.get("rule"),
-        "severity":            issue.get("severity"),
+        "severity":            severity,
         "message":             issue.get("message"),
         "component":           issue.get("component"),
         "line":                issue.get("line"),
         "status":              issue.get("status"),
         "author":              issue.get("author"),
+        "branch":              branch,
+        "pull_request":        pull_request,
         "creation_date":       issue.get("creationDate"),
         "update_date":         issue.get("updateDate"),
         "tags":                issue.get("tags", []),
         "clean_code_attribute": issue.get("cleanCodeAttribute"),
         "impacts":             issue.get("impacts", []),
+        "url": (
+            _build_project_issues_url(
+                project_key,
+                issue_type=issue_type,
+                severity=severity,
+                issue_key=issue_key,
+                branch=branch,
+                pull_request=pull_request,
+            )
+            if project_key and issue_key
+            else None
+        ),
     }
 
 
@@ -222,6 +285,19 @@ def get_sonarcloud_summary():
     return {
         "connected":   True,
         "project_key": project_key,
+        "links": {
+            "project": _build_project_overview_url(project_key),
+            "issues": _build_project_issues_url(project_key),
+            "issue_types": {
+                issue_type: _build_project_issues_url(project_key, issue_type=issue_type)
+                for issue_type in (
+                    "BUG",
+                    "VULNERABILITY",
+                    "CODE_SMELL",
+                    "SECURITY_HOTSPOT",
+                )
+            },
+        },
         "quality_gate": {
             "status":     gate.get("status"),
             "failed":     len(failing),
@@ -295,7 +371,13 @@ def get_bug_details(level=None, page=1, page_size=20):
             if key in seen_keys:
                 continue
             seen_keys.add(key)
-            collected.append(_format_issue(issue))
+            collected.append(
+                _format_issue(
+                    issue,
+                    project_key=project_key,
+                    default_issue_type="BUG",
+                )
+            )
 
     # Sort by severity (most critical first)
     collected.sort(key=lambda x: SEVERITY_ORDER.get(x["severity"], 999))
@@ -345,7 +427,14 @@ def get_issue_details(issue_type=None, page=1, page_size=20, severity=None):
             "issues":    [],
         }
 
-    issues = [_format_issue(i) for i in data.get("issues", [])]
+    issues = [
+        _format_issue(
+            issue,
+            project_key=project_key,
+            default_issue_type=issue_type,
+        )
+        for issue in data.get("issues", [])
+    ]
     issues.sort(key=lambda x: SEVERITY_ORDER.get(x["severity"], 999))
 
     return {

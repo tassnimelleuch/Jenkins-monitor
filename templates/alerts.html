@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Alerts — Jenkins Monitor{% endblock %}
+{% block title %}Alerts — Monitoring Dashboard{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
@@ -15,7 +15,6 @@
     <div class="alerts-title">Alerts</div>
     <div class="alerts-sub" id="alertsSubtitle">Checking active alerts...</div>
   </div>
-  <div class="alerts-pill" id="alertsStatusPill" hidden>Checking...</div>
 </div>
 
 <div class="alerts-filters" id="alertsFilters" aria-label="Alert source filters">
@@ -45,5 +44,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/alerts.js', v='20260524-live2') }}"></script>
+<script src="{{ url_for('static', filename='js/alerts.js', v='20260526-alert-time1') }}"></script>
 {% endblock %}

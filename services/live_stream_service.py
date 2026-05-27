@@ -14,6 +14,8 @@ from services.background_refresh_service import (
     get_alerts_live_state,
     get_deployment_live_state,
     get_dashboard_live_state,
+    get_cached_sonarcloud_payload,
+    get_sonarcloud_live_state,
 )
 from services.azure_service import get_connection_status
 from services.pipeline_storage_service import get_stored_overview_kpis
@@ -154,6 +156,7 @@ def iter_dashboard_live_events():
     last_jenkins_status_signature = None
     last_azure_status_signature = None
     last_overview_payload_signature = None
+    last_overview_version = None
     last_running_build_numbers = set()
     last_dashboard_version = None
     last_snapshot_version = None
@@ -169,9 +172,15 @@ def iter_dashboard_live_events():
         )
 
         try:
-            initial_overview_payload = _json_safe(get_stored_overview_kpis() or {})
+            initial_dashboard_state = get_dashboard_live_state()
+            initial_overview_payload = _json_safe(
+                initial_dashboard_state.get('overview_payload')
+                or get_stored_overview_kpis()
+                or {}
+            )
             if initial_overview_payload:
                 last_overview_payload_signature = _payload_signature(initial_overview_payload)
+                last_overview_version = int(initial_dashboard_state.get('overview_version') or 0)
                 yield _format_sse_event(
                     'overview_payload',
                     initial_overview_payload,
@@ -267,30 +276,27 @@ def iter_dashboard_live_events():
                         emitted = True
                         yield _format_sse_event('azure_status', azure_status)
 
+                    overview_version = int(dashboard_state.get('overview_version') or 0)
+                    overview_payload = _json_safe(dashboard_state.get('overview_payload') or {})
+                    if overview_version and overview_version != last_overview_version:
+                        last_overview_version = overview_version
+                        overview_payload_signature = _payload_signature(overview_payload)
+                        if overview_payload and (
+                            overview_payload_signature != last_overview_payload_signature
+                        ):
+                            last_overview_payload_signature = overview_payload_signature
+                            emitted = True
+                            yield _format_sse_event(
+                                'overview_payload',
+                                overview_payload,
+                                retry_ms=LIVE_STREAM_RETRY_MS,
+                            )
+
                     snapshot_version = int(dashboard_state.get('snapshot_version') or 0)
                     if last_snapshot_version is None:
                         last_snapshot_version = snapshot_version
                     elif snapshot_version != last_snapshot_version:
                         last_snapshot_version = snapshot_version
-                        try:
-                            overview_payload = _json_safe(get_stored_overview_kpis() or {})
-                        except Exception:
-                            overview_payload = {}
-                            _log_stream_exception(
-                                'Dashboard live stream overview payload refresh failed.'
-                            )
-                        else:
-                            overview_payload_signature = _payload_signature(overview_payload)
-                            if overview_payload and (
-                                overview_payload_signature != last_overview_payload_signature
-                            ):
-                                last_overview_payload_signature = overview_payload_signature
-                                emitted = True
-                                yield _format_sse_event(
-                                    'overview_payload',
-                                    overview_payload,
-                                    retry_ms=LIVE_STREAM_RETRY_MS,
-                                )
                         emitted = True
                         yield _format_sse_event(
                             'snapshot_refreshed',
@@ -375,6 +381,72 @@ def iter_alert_live_events():
                 emitted = True
                 _log_stream_exception('Alerts live stream cached-state update failed.')
                 yield _format_sse_comment(f'alerts-state-error {_utcnow_iso()}')
+
+            if now >= next_heartbeat_at:
+                emitted = True
+                yield _format_sse_event(
+                    'heartbeat',
+                    {'ts': _utcnow_iso()},
+                )
+                next_heartbeat_at = now + LIVE_HEARTBEAT_SECONDS
+
+            if not emitted:
+                time.sleep(0.25)
+    except GeneratorExit:
+        return
+
+
+def iter_sonarcloud_live_events():
+    ensure_live_refresh_worker_started()
+
+    last_payload_signature = None
+    last_payload_version = None
+    next_heartbeat_at = 0.0
+
+    try:
+        yield _format_sse_event(
+            'stream_ready',
+            {'ts': _utcnow_iso()},
+            retry_ms=LIVE_STREAM_RETRY_MS,
+        )
+
+        try:
+            initial_payload = _json_safe(get_cached_sonarcloud_payload())
+            if initial_payload:
+                last_payload_signature = _payload_signature(initial_payload)
+                last_payload_version = int(get_sonarcloud_live_state().get('version') or 0)
+                yield _format_sse_event(
+                    'sonarcloud_payload',
+                    initial_payload,
+                    retry_ms=LIVE_STREAM_RETRY_MS,
+                )
+        except Exception:
+            _log_stream_exception('SonarCloud live stream initial payload load failed.')
+            yield _format_sse_comment(f'sonarcloud-initial-state-error {_utcnow_iso()}')
+
+        while True:
+            now = time.monotonic()
+            emitted = False
+
+            try:
+                sonarcloud_state = get_sonarcloud_live_state()
+                sonarcloud_version = int(sonarcloud_state.get('version') or 0)
+                sonarcloud_payload = _json_safe(sonarcloud_state.get('payload') or {})
+                if sonarcloud_version and sonarcloud_version != last_payload_version:
+                    last_payload_version = sonarcloud_version
+                    payload_signature = _payload_signature(sonarcloud_payload)
+                    if payload_signature != last_payload_signature:
+                        last_payload_signature = payload_signature
+                        emitted = True
+                        yield _format_sse_event(
+                            'sonarcloud_payload',
+                            sonarcloud_payload,
+                            retry_ms=LIVE_STREAM_RETRY_MS,
+                        )
+            except Exception:
+                emitted = True
+                _log_stream_exception('SonarCloud live stream cached-state update failed.')
+                yield _format_sse_comment(f'sonarcloud-state-error {_utcnow_iso()}')
 
             if now >= next_heartbeat_at:
                 emitted = True

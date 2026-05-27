@@ -1,3 +1,29 @@
+const SONAR_URL = document.body.dataset.sonarUrl || '';
+const SONAR_LIVE_STREAM_URL = document.body.dataset.liveStreamUrl || '';
+const SONAR_FALLBACK_POLL_MS = 30000;
+
+const ISSUE_TYPE_LABELS = {
+  BUG: 'Bugs',
+  VULNERABILITY: 'Vulnerabilities',
+  CODE_SMELL: 'Code Smells',
+  SECURITY_HOTSPOT: 'Security Hotspots'
+};
+
+let _sonarLiveStream = null;
+let _sonarFallbackPollHandle = null;
+let _sonarFallbackStarted = false;
+let _sonarLiveStreamReceived = false;
+let _sonarLiveStreamLoggedError = false;
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function fmtInt(val) {
   if (val === null || val === undefined) return '--';
   if (typeof val === 'object') {
@@ -38,17 +64,54 @@ function setTextById(id, value) {
   if (el) el.textContent = value;
 }
 
+function resetSonarMetrics() {
+  setTextById('sonarBugs', '--');
+  setTextById('sonarVulnerabilities', '--');
+  setTextById('sonarSmells', '--');
+  setTextById('sonarHotspots', '--');
+  setTextById('sonarDupes', '--');
+  setTextById('sonarNcloc', '--');
+  setTextById('sonarGateStatus', '--');
+  setTextById('sonarGateMeta', 'Conditions: 0 · Failing: 0');
+}
+
 function setConditionsState(message) {
   const listEl = document.getElementById('sonarConditions');
-  if (listEl) listEl.innerHTML = `<div class="sonar-empty">${message}</div>`;
+  if (!listEl) return;
+  const empty = document.createElement('div');
+  empty.className = 'sonar-empty';
+  empty.textContent = message;
+  listEl.replaceChildren(empty);
+}
+
+function formatIssueTypeLabel(issueType) {
+  return ISSUE_TYPE_LABELS[issueType] || String(issueType || 'Issues').replace(/_/g, ' ');
+}
+
+function updateIssueCardLinks(data) {
+  const issueLinks = (data && data.links && data.links.issue_types) || {};
+  document.querySelectorAll('.sonar-kpi[data-issue-type]').forEach(card => {
+    const issueType = card.dataset.issueType;
+    const url = issueLinks[issueType] || '';
+    if (url) {
+      card.dataset.externalUrl = url;
+      card.setAttribute('aria-disabled', 'false');
+      card.setAttribute('aria-label', `View ${formatIssueTypeLabel(issueType)} details`);
+    } else {
+      delete card.dataset.externalUrl;
+      card.setAttribute('aria-disabled', 'true');
+      card.setAttribute('aria-label', `${formatIssueTypeLabel(issueType)} unavailable`);
+    }
+  });
 }
 
 function renderConditions(listEl, conditions) {
   if (!listEl) return;
   if (!conditions || conditions.length === 0) {
-    listEl.innerHTML = '<div class="sonar-empty">No conditions reported.</div>';
+    setConditionsState('No conditions reported.');
     return;
   }
+
   listEl.innerHTML = '';
   conditions.forEach(c => {
     const status = (c.status || '').toUpperCase();
@@ -59,73 +122,67 @@ function renderConditions(listEl, conditions) {
     div.className = 'sonar-cond-item';
     div.innerHTML = `
       <div class="sonar-cond-left">
-        <span class="sonar-cond-status ${statusClass}">${status || '--'}</span>
-        <span class="sonar-cond-key">${c.metric || 'metric'}</span>
+        <span class="sonar-cond-status ${statusClass}">${escapeHtml(status || '--')}</span>
+        <span class="sonar-cond-key">${escapeHtml(c.metric || 'metric')}</span>
       </div>
-      <div class="sonar-cond-right">value: <strong>${value}</strong> · threshold: ${threshold}</div>
+      <div class="sonar-cond-right">value: <strong>${escapeHtml(value)}</strong> · threshold: ${escapeHtml(threshold)}</div>
     `;
     listEl.appendChild(div);
   });
 }
 
-async function loadSonarCloud() {
-  const url = document.body.dataset.sonarUrl;
-  if (!url) return;
-
+function applySonarCloudPayload(data) {
   const projectKeyEl = document.getElementById('sonarProjectKey');
   const gatePill = document.getElementById('sonarGatePill');
+  window.__sonarData = data || {};
+  updateIssueCardLinks(data);
+
+  if (!data || !data.connected) {
+    if (projectKeyEl) projectKeyEl.textContent = 'Project: —';
+    resetSonarMetrics();
+    setGatePill(gatePill, null);
+    setConditionsState((data && data.message) || 'Conditions unavailable.');
+    highlightFailingKpis(null);
+    return;
+  }
+
+  if (projectKeyEl) projectKeyEl.textContent = 'Project: ' + (data.project_key || '--');
+
+  const metrics = data.metrics || {};
+  const gate = data.quality_gate || {};
+  setTextById('sonarBugs', fmtInt(metrics.bugs));
+  setTextById('sonarVulnerabilities', fmtInt(metrics.vulnerabilities));
+  setTextById('sonarSmells', fmtInt(metrics.code_smells));
+  setTextById('sonarHotspots', fmtInt(metrics.security_hotspots));
+  setTextById('sonarDupes', fmtPct(metrics.duplicated_lines_density));
+  setTextById('sonarNcloc', fmtInt(metrics.ncloc));
+
+  setTextById('sonarGateStatus', gate.status || '--');
+  setTextById(
+    'sonarGateMeta',
+    'Conditions: ' + (gate.conditions ? gate.conditions.length : 0) + ' · Failing: ' + (gate.failed ?? 0)
+  );
+
+  setGatePill(gatePill, gate.status);
+  renderConditions(document.getElementById('sonarConditions'), gate.conditions);
+  highlightFailingKpis(gate);
+}
+
+async function loadSonarCloud() {
+  if (!SONAR_URL) return;
+
   setConditionsState('Loading conditions...');
 
   try {
-    const res = await fetch(url);
+    const res = await fetch(SONAR_URL);
     const data = await res.json();
-    window.__sonarData = data;
-
-    if (!data.connected) {
-      setGatePill(gatePill, null);
-      setConditionsState('No conditions reported.');
-      return;
-    }
-    if (projectKeyEl) projectKeyEl.textContent = 'Project: ' + (data.project_key || '--');
-
-    const metrics = data.metrics || {};
-    const gate = data.quality_gate || {};
-
-    const bugsEl = document.getElementById('sonarBugs');
-    if (bugsEl) bugsEl.textContent = fmtInt(metrics.bugs);
-
-    const vulnEl = document.getElementById('sonarVulnerabilities');
-    if (vulnEl) vulnEl.textContent = fmtInt(metrics.vulnerabilities);
-
-    const smellsEl = document.getElementById('sonarSmells');
-    if (smellsEl) smellsEl.textContent = fmtInt(metrics.code_smells);
-
-    const hotspotsEl = document.getElementById('sonarHotspots');
-    if (hotspotsEl) hotspotsEl.textContent = fmtInt(metrics.security_hotspots);
-
-    const dupesEl = document.getElementById('sonarDupes');
-    if (dupesEl) dupesEl.textContent = fmtPct(metrics.duplicated_lines_density);
-
-    const nclocEl = document.getElementById('sonarNcloc');
-    if (nclocEl) nclocEl.textContent = fmtInt(metrics.ncloc);
-
-    const gateStatus = gate.status || '--';
-    setTextById('sonarGateStatus', gateStatus);
-    setTextById(
-      'sonarGateMeta',
-      'Conditions: ' + (gate.conditions ? gate.conditions.length : 0) + ' · Failing: ' + (gate.failed ?? 0)
-    );
-
-    setGatePill(gatePill, gate.status);
-    renderConditions(document.getElementById('sonarConditions'), gate.conditions);
-    highlightFailingKpis(gate);
+    applySonarCloudPayload(data);
   } catch (e) {
-    setGatePill(gatePill, null);
+    resetSonarMetrics();
+    setGatePill(document.getElementById('sonarGatePill'), null);
     setConditionsState('Conditions unavailable.');
   }
 }
-
-document.addEventListener('DOMContentLoaded', loadSonarCloud);
 
 function highlightFailingKpis(gate) {
   document.querySelectorAll('.sonar-kpi-fail').forEach(el => el.classList.remove('sonar-kpi-fail'));
@@ -173,6 +230,7 @@ function renderIssues(issues) {
   if (!issues || issues.length === 0) {
     return '<div class="sonar-empty">No open issues found.</div>';
   }
+
   return issues.map(issue => {
     const rawSev = (issue.severity || 'INFO').toUpperCase();
     const sevClass = rawSev.toLowerCase();
@@ -180,16 +238,27 @@ function renderIssues(issues) {
     if (rawSev === 'BLOCKER' || rawSev === 'CRITICAL') sevLabel = 'High';
     else if (rawSev === 'MAJOR') sevLabel = 'Medium';
     else if (rawSev === 'MINOR' || rawSev === 'INFO') sevLabel = 'Low';
+
+    const issueUrl = issue.url || '';
     const line = issue.line ? `:${issue.line}` : '';
+    const tagName = issueUrl ? 'a' : 'div';
+    const hrefAttr = issueUrl
+      ? ` href="${escapeHtml(issueUrl)}" target="_blank" rel="noopener noreferrer"`
+      : '';
+    const openLabel = issueUrl
+      ? '<span class="sonar-issue-open">Open in SonarCloud</span>'
+      : '';
+
     return `
-      <div class="sonar-issue">
+      <${tagName} class="sonar-issue${issueUrl ? ' sonar-issue-link' : ''}"${hrefAttr}>
         <div class="sonar-issue-head">
-          <span class="sonar-issue-sev ${sevClass}">${sevLabel}</span>
-          <span class="sonar-issue-rule">${issue.rule || 'rule'}</span>
+          <span class="sonar-issue-sev ${sevClass}">${escapeHtml(sevLabel)}</span>
+          <span class="sonar-issue-rule">${escapeHtml(issue.rule || 'rule')}</span>
         </div>
-        <div class="sonar-issue-msg">${issue.message || '—'}</div>
-        <div class="sonar-issue-meta">${issue.component || 'component'}${line} · status: ${issue.status || '--'}</div>
-      </div>
+        <div class="sonar-issue-msg">${escapeHtml(issue.message || '—')}</div>
+        <div class="sonar-issue-meta">${escapeHtml((issue.component || 'component') + line)} · status: ${escapeHtml(issue.status || '--')}</div>
+        ${openLabel}
+      </${tagName}>
     `;
   }).join('');
 }
@@ -201,21 +270,75 @@ function renderFailingConditions(conditions) {
     <div class="sonar-issue">
       <div class="sonar-issue-head">
         <span class="sonar-issue-sev critical">FAIL</span>
-        <span class="sonar-issue-rule">${c.metric || 'metric'}</span>
+        <span class="sonar-issue-rule">${escapeHtml(c.metric || 'metric')}</span>
       </div>
-      <div class="sonar-issue-msg">Actual: ${c.value ?? '--'} · Threshold: ${c.threshold ?? '--'}</div>
-      <div class="sonar-issue-meta">Status: ${c.status || '--'}</div>
+      <div class="sonar-issue-msg">Actual: ${escapeHtml(c.value ?? '--')} · Threshold: ${escapeHtml(c.threshold ?? '--')}</div>
+      <div class="sonar-issue-meta">Status: ${escapeHtml(c.status || '--')}</div>
     </div>
   `).join('');
 }
 
-async function handleKpiClick(card) {
+function renderMetricDetails(metric) {
+  const data = window.__sonarData || {};
+  const metrics = data.metrics || {};
+  const gate = data.quality_gate || {};
+  const conditions = Array.isArray(gate.conditions) ? gate.conditions : [];
+
+  if (metric === 'duplicated_lines_density') {
+    const value = metrics.duplicated_lines_density;
+    const condition = conditions.find(item => item.metric === 'duplicated_lines_density');
+    const rows = [
+      `
+        <div class="sonar-issue">
+          <div class="sonar-issue-head">
+            <span class="sonar-issue-rule">Current duplication</span>
+          </div>
+          <div class="sonar-issue-msg">${escapeHtml(fmtPct(value))}</div>
+          <div class="sonar-issue-meta">Duplicated lines density reported by SonarCloud.</div>
+        </div>
+      `
+    ];
+
+    if (condition) {
+      rows.push(`
+        <div class="sonar-issue">
+          <div class="sonar-issue-head">
+            <span class="sonar-issue-sev ${String(condition.status || '').toLowerCase() === 'error' ? 'critical' : 'major'}">${escapeHtml(condition.status || '--')}</span>
+            <span class="sonar-issue-rule">Quality Gate Condition</span>
+          </div>
+          <div class="sonar-issue-msg">Actual: ${escapeHtml(condition.value ?? '--')} · Threshold: ${escapeHtml(condition.threshold ?? '--')}</div>
+          <div class="sonar-issue-meta">This metric is tracked at quality-gate level, not as an issue list.</div>
+        </div>
+      `);
+    } else {
+      rows.push(`
+        <div class="sonar-issue">
+          <div class="sonar-issue-head">
+            <span class="sonar-issue-rule">No issue list</span>
+          </div>
+          <div class="sonar-issue-msg">Duplications are shown as a metric, not as Bugs/Vulnerabilities/Code Smells.</div>
+          <div class="sonar-issue-meta">If you have duplication, you will see the percentage here and any related quality-gate condition if SonarCloud returns one.</div>
+        </div>
+      `);
+    }
+
+    return rows.join('');
+  }
+
+  return '<div class="sonar-empty">No detail panel for this KPI.</div>';
+}
+
+async function handleKpiClick(event, card) {
+  if (card.getAttribute('aria-disabled') === 'true') {
+    return;
+  }
+
   const issueType = card.dataset.issueType;
   const metric = card.dataset.metric;
   const action = card.dataset.action;
 
   if (issueType) {
-    openDrawer(`${issueType.replace('_', ' ')} Issues`, 'Loading...', '<div class="sonar-empty">Loading issues...</div>');
+    openDrawer(`${formatIssueTypeLabel(issueType)}`, 'Loading...', '<div class="sonar-empty">Loading issues...</div>');
     try {
       const res = await fetch(`/api/sonarcloud/issues?type=${encodeURIComponent(issueType)}&page=1&page_size=50`);
       const data = await res.json();
@@ -224,7 +347,7 @@ async function handleKpiClick(card) {
         return;
       }
       const subtitle = `Total: ${data.paging?.total ?? data.issues?.length ?? 0}`;
-      openDrawer(`${issueType.replace('_', ' ')} Issues`, subtitle, renderIssues(data.issues));
+      openDrawer(formatIssueTypeLabel(issueType), subtitle, renderIssues(data.issues));
     } catch (e) {
       openDrawer('Issues', 'Failed to load', '<div class="sonar-empty">Request failed.</div>');
     }
@@ -238,16 +361,89 @@ async function handleKpiClick(card) {
   }
 
   if (action === 'metric') {
-    openDrawer('Metric', metric || '—', '<div class="sonar-empty">No issue list for this KPI.</div>');
+    openDrawer('Metric', metric || '—', renderMetricDetails(metric));
   }
+}
+
+function canUseSonarLiveStream() {
+  return typeof window.EventSource !== 'undefined' && Boolean(SONAR_LIVE_STREAM_URL);
+}
+
+function sonarLiveStreamActive() {
+  return Boolean(_sonarLiveStream);
+}
+
+function closeSonarLiveStream() {
+  if (_sonarLiveStream) {
+    _sonarLiveStream.close();
+    _sonarLiveStream = null;
+  }
+}
+
+function startSonarPollingFallback() {
+  if (_sonarFallbackStarted) return;
+  _sonarFallbackStarted = true;
+  if (_sonarFallbackPollHandle) clearInterval(_sonarFallbackPollHandle);
+  _sonarFallbackPollHandle = window.setInterval(loadSonarCloud, SONAR_FALLBACK_POLL_MS);
+}
+
+function connectSonarLiveStream() {
+  if (!canUseSonarLiveStream() || sonarLiveStreamActive()) return false;
+
+  _sonarLiveStream = new EventSource(SONAR_LIVE_STREAM_URL);
+  _sonarLiveStream.addEventListener('stream_ready', () => {
+    _sonarLiveStreamReceived = true;
+    _sonarLiveStreamLoggedError = false;
+  });
+  _sonarLiveStream.addEventListener('heartbeat', () => {
+    _sonarLiveStreamReceived = true;
+  });
+  _sonarLiveStream.addEventListener('sonarcloud_payload', event => {
+    _sonarLiveStreamReceived = true;
+    _sonarLiveStreamLoggedError = false;
+    try {
+      applySonarCloudPayload(JSON.parse(event.data));
+    } catch (error) {
+      console.error('SonarCloud SSE parse error:', error);
+    }
+  });
+  _sonarLiveStream.onerror = () => {
+    if (!_sonarLiveStreamLoggedError) {
+      console.warn('SonarCloud SSE stream disconnected. The browser will retry automatically.');
+      _sonarLiveStreamLoggedError = true;
+    }
+    if (!_sonarLiveStreamReceived) {
+      startSonarPollingFallback();
+    }
+  };
+
+  return true;
 }
 
 document.addEventListener('click', (e) => {
   const card = e.target.closest('.sonar-kpi');
   if (card) {
-    handleKpiClick(card);
+    handleKpiClick(e, card);
   }
   if (e.target.id === 'sonarDrawerBackdrop' || e.target.id === 'sonarDrawerClose') {
     closeDrawer();
   }
 });
+
+document.addEventListener('keydown', (e) => {
+  const card = e.target.closest('.sonar-kpi');
+  if (!card) return;
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  handleKpiClick(e, card);
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  const hasLiveStream = connectSonarLiveStream();
+  loadSonarCloud();
+  if (!hasLiveStream) {
+    startSonarPollingFallback();
+  }
+});
+
+window.addEventListener('beforeunload', closeSonarLiveStream);

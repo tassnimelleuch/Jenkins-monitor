@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}EcoOps - Jenkins Monitor{% endblock %}
+{% block title %}EcoOps - Monitoring Dashboard{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ecoops.css') }}">
@@ -14,7 +14,8 @@
     <div class="ecoops-kicker">Live sustainability telemetry</div>
     <h1 class="ecoops-title">EcoOps</h1>
     <p class="ecoops-sub">
-      Real-time CO2 estimation for the AKS cluster and virtual machine, calculated from live Prometheus CPU and memory usage over the latest hour.
+      Real-time CO2 estimation for the AKS cluster and virtual machine, 
+      calculated from live Prometheus CPU and memory usage over the latest hour.
     </p>
   </div>
 

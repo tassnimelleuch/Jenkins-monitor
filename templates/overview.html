@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% from 'partials/kpi_cards.html' import stat_row, latest_builds_chart %}
 
-{% block title %}Overview - Jenkins Monitor{% endblock %}
+{% block title %}Overview - Monitoring Dashboard{% endblock %}
 
 {% block body_attrs %}data-kpis-url="{{ url_for('overview.kpis') }}" data-live-stream-url="{{ url_for('overview.live_updates_stream') }}" data-page="overview"{% endblock %}
 

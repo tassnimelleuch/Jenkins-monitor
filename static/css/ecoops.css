@@ -2,10 +2,10 @@
   position:relative;
   overflow:hidden;
   background:
-    radial-gradient(circle at top right, rgba(58,184,248,.22), transparent 34%),
+    radial-gradient(circle at top right, rgba(0,219,160,.18), transparent 34%),
     radial-gradient(circle at bottom left, rgba(0,219,160,.18), transparent 28%),
-    linear-gradient(135deg, var(--bg2), rgba(20, 34, 54, .96));
-  border:1px solid var(--border);
+    linear-gradient(135deg, var(--bg2), rgba(199, 202, 205, 0.96));
+  border:1px solid rgba(0,219,160,.16);
   border-radius:22px;
   padding:24px;
   display:flex;
@@ -21,9 +21,9 @@
   gap:8px;
   padding:6px 10px;
   border-radius:999px;
-  border:1px solid rgba(58,184,248,.24);
-  background:rgba(58,184,248,.1);
-  color:var(--blue);
+  border:1px solid rgba(0,219,160,.24);
+  background:rgba(0,219,160,.1);
+  color:var(--green);
   font-size:10.5px;
   font-weight:800;
   letter-spacing:.08em;
@@ -115,7 +115,7 @@
   position:relative;
   overflow:hidden;
   background:var(--bg2);
-  border:1px solid var(--border);
+  border:1px solid rgba(0,219,160,.12);
   border-radius:18px;
   padding:18px;
   animation:fadeUp .5s ease both;
@@ -128,7 +128,7 @@
   width:160px;
   height:160px;
   border-radius:50%;
-  background:radial-gradient(circle, rgba(255,255,255,.08), transparent 68%);
+  background:radial-gradient(circle, rgba(0,219,160,.14), transparent 68%);
   pointer-events:none;
 }
 
@@ -137,11 +137,11 @@
 }
 
 .ecoops-card-blue{
-  background:linear-gradient(160deg, rgba(58,184,248,.12), var(--bg2) 54%);
+  background:linear-gradient(160deg, rgba(0,219,160,.08), var(--bg2) 54%);
 }
 
 .ecoops-card-glow{
-  background:linear-gradient(160deg, rgba(245,197,66,.1), var(--bg2) 54%);
+  background:linear-gradient(160deg, rgba(0,219,160,.1), var(--bg2) 54%);
 }
 
 .ecoops-card-label{
@@ -176,7 +176,7 @@
 .ecoops-formula-card{
   margin-top:14px;
   background:var(--bg2);
-  border:1px solid var(--border);
+  border:1px solid rgba(0,219,160,.12);
   border-radius:20px;
   padding:18px;
 }
@@ -241,7 +241,7 @@
 .ecoops-formula-item{
   padding:12px 14px;
   border-radius:14px;
-  border:1px solid var(--border);
+  border:1px solid rgba(0,219,160,.12);
   background:var(--bg3);
   color:var(--text3);
   font-family:'JetBrains Mono', monospace;

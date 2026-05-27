@@ -1,8 +1,9 @@
-from flask import jsonify, render_template, request, session
+from flask import Response, jsonify, render_template, request, session, stream_with_context
 from sonarcloud import sonarcloud_bp
 from services.access_service import role_required
+from services.background_refresh_service import get_cached_sonarcloud_payload
+from services.live_stream_service import iter_sonarcloud_live_events
 from services.sonarcloud_service import (
-    get_sonarcloud_summary,
     get_bug_details,
     get_issue_details,
 )
@@ -21,7 +22,22 @@ def dashboard():
 @sonarcloud_bp.route('/api/sonarcloud')
 @role_required('admin', 'developer', 'tester')
 def sonarcloud_api():
-    return jsonify(get_sonarcloud_summary())
+    result = get_cached_sonarcloud_payload()
+    status_code = 200 if result.get('connected') else 503
+    return jsonify(result), status_code
+
+
+@sonarcloud_bp.route('/api/sonarcloud/stream')
+@role_required('admin', 'developer', 'tester')
+def sonarcloud_live_stream():
+    response = Response(
+        stream_with_context(iter_sonarcloud_live_events()),
+        mimetype='text/event-stream',
+    )
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    response.headers['Connection'] = 'keep-alive'
+    return response
 
 
 @sonarcloud_bp.route('/api/sonarcloud/bugs')

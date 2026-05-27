@@ -22,6 +22,7 @@ from services.user_account_service import (
     normalize_role,
     role_matches,
 )
+from services.alerts_service import get_open_alert_count
 from services.system_timezone_service import get_system_timezone_name
 from services.background_refresh_service import start_live_refresh_worker
 
@@ -105,6 +106,10 @@ def inject_pending_count():
     }
     if current_role == 'admin':
         context['pending_count'] = get_pending_count()
+        try:
+            context['open_alert_count'] = get_open_alert_count()
+        except Exception:
+            context['open_alert_count'] = 0
     return context
 
 
