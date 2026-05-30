@@ -1,12 +1,11 @@
 from datetime import datetime, timezone
 
 from flask import current_app
-from sqlalchemy import func, inspect, text
+from sqlalchemy import func
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from auth_models import UserAccount
 from extensions import db
-from services.system_timezone_service import get_system_timezone_name
 
 
 ROLE_ALIASES = {
@@ -18,24 +17,6 @@ ROLE_ALIASES = {
 }
 REGISTRABLE_ROLES = ('developer', 'tester')
 USER_STATUSES = ('pending', 'approved', 'rejected')
-_USER_PREFERENCE_COLUMN_DDLS = {
-    'time_format': (
-        "ALTER TABLE user_accounts "
-        "ADD COLUMN time_format VARCHAR(10) NOT NULL DEFAULT '24h'"
-    ),
-    'date_format': (
-        "ALTER TABLE user_accounts "
-        "ADD COLUMN date_format VARCHAR(20) NOT NULL DEFAULT 'yyyy-mm-dd'"
-    ),
-    'time_zone': (
-        "ALTER TABLE user_accounts "
-        f"ADD COLUMN time_zone VARCHAR(64) NOT NULL DEFAULT '{get_system_timezone_name()}'"
-    ),
-    'show_seconds': (
-        "ALTER TABLE user_accounts "
-        "ADD COLUMN show_seconds BOOLEAN NOT NULL DEFAULT FALSE"
-    ),
-}
 
 
 def _utcnow():
@@ -51,24 +32,6 @@ def role_matches(role, allowed_roles):
     normalized_role = normalize_role(role)
     normalized_allowed = {normalize_role(item) for item in allowed_roles}
     return normalized_role in normalized_allowed
-
-
-def ensure_user_preference_columns():
-    inspector = inspect(db.engine)
-    existing_columns = {
-        column['name']
-        for column in inspector.get_columns(UserAccount.__tablename__)
-    }
-    missing_columns = [
-        name for name in _USER_PREFERENCE_COLUMN_DDLS
-        if name not in existing_columns
-    ]
-    if not missing_columns:
-        return
-
-    for column_name in missing_columns:
-        db.session.execute(text(_USER_PREFERENCE_COLUMN_DDLS[column_name]))
-    db.session.commit()
 
 
 def find_user(username):

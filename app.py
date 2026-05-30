@@ -2,20 +2,19 @@ from flask import Flask, jsonify, redirect, request, url_for, session
 from auth import auth_bp
 from alerts import alerts_bp
 from overview import overview_bp
-from pipeline_kpis import pipeline_kpis_bp
 from user_management import user_management_bp
 from config import Config
+from pipeline_kpis import pipeline_kpis_bp
+
 from deployment_kpis import deployment_kpis_bp
 from sonarcloud import sonarcloud_bp
 from github import github_bp
 from finops import finops_bp
 from ecoops import ecoops_bp
-from settings import settings_bp
 from chatbot import chatbot_bp
 from extensions import cache, db
 from pipeline_identity import configured_branch_name, pipeline_name
 from services.user_account_service import (
-    ensure_user_preference_columns,
     ensure_admin_account,
     get_active_session_user,
     get_pending_count,
@@ -61,7 +60,6 @@ with app.app_context():
     ensure_finops_storage_schema()
     ensure_github_storage_schema()
     ensure_pipeline_storage_schema()
-    ensure_user_preference_columns()
     ensure_admin_account()
 
 app.register_blueprint(auth_bp)
@@ -74,7 +72,6 @@ app.register_blueprint(sonarcloud_bp)
 app.register_blueprint(github_bp)
 app.register_blueprint(finops_bp)
 app.register_blueprint(ecoops_bp)
-app.register_blueprint(settings_bp)
 app.register_blueprint(chatbot_bp)
 
 @app.route('/')

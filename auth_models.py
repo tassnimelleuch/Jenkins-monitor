@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 from extensions import db
-from services.system_timezone_service import get_system_timezone_name
 
 
 def _utcnow():
@@ -21,10 +20,6 @@ class UserAccount(db.Model):
     last_logout_at = db.Column(db.DateTime(timezone=True), nullable=True)
     approved_at = db.Column(db.DateTime(timezone=True), nullable=True)
     rejected_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    time_format = db.Column(db.String(10), nullable=False, default='24h')
-    date_format = db.Column(db.String(20), nullable=False, default='yyyy-mm-dd')
-    time_zone = db.Column(db.String(64), nullable=False, default=get_system_timezone_name)
-    show_seconds = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = db.Column(
         db.DateTime(timezone=True),

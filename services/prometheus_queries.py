@@ -92,7 +92,6 @@ CLUSTER_VCPUS_QUERY = 'sum(machine_cpu_cores)'
 CLUSTER_RAM_TOTAL_BYTES_QUERY = 'sum(node_memory_MemTotal_bytes)'
 
 
-# ── Namespace history fallbacks used by the deployment dashboard ─────────────
 NAMESPACE_CPU_HISTORY_QUERIES = [
     (
         'sum by (namespace) (rate(container_cpu_usage_seconds_total'
