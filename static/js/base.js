@@ -633,7 +633,17 @@ async function fetchExportReportSnapshot() {
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
-    throw new Error('Your session no longer has access to the PDF export endpoint.');
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Your session no longer has access to the PDF export endpoint.');
+    }
+    if (res.status === 408 || res.status === 504) {
+      throw new Error('The PDF export request timed out while waiting for dashboard data.');
+    }
+    throw new Error(
+      res.ok
+        ? 'The PDF export endpoint returned an unexpected response.'
+        : `PDF export request failed with HTTP ${res.status}.`
+    );
   }
 
   const data = await res.json();
@@ -663,7 +673,17 @@ async function storeExportedPdfReport(pdfBlob, payload) {
 
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
-    throw new Error('Your session no longer has access to the PDF archive endpoint.');
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Your session no longer has access to the PDF archive endpoint.');
+    }
+    if (res.status === 408 || res.status === 504) {
+      throw new Error('The PDF archive request timed out.');
+    }
+    throw new Error(
+      res.ok
+        ? 'The PDF archive endpoint returned an unexpected response.'
+        : `PDF archive request failed with HTTP ${res.status}.`
+    );
   }
 
   const data = await res.json();

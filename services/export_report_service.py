@@ -1,23 +1,21 @@
 from __future__ import annotations
 
-import logging
-
 from flask import current_app
 
-from collectors.azure_cost_collector import AzureCostProvider
-from collectors.github_collector import get_latest_commit_for_branch, get_pull_requests
+from extensions import cache
 from pipeline_identity import configured_branch_name, pipeline_name
-from services.deployment_kpis_service import get_deployment_kpis
-from services.finops_service import FinOpsService
+from services.background_refresh_service import (
+    get_deployment_live_state,
+    get_sonarcloud_live_state,
+)
+from services.finops_storage_service import get_cached_stored_daily_cost_chart
+from services.github_service import _github_summary_cache_key
 from services.github_storage_service import get_cached_github_24h_commit_details
-from services.jenkins_service import get_pipeline_kpis, refresh_pipeline_storage_from_jenkins
+from services.jenkins_service import get_pipeline_kpis
 from services.parallel_executor import parallel_execute
 from services.pipeline_storage_service import get_stored_pipeline_kpis
-from services.sonarcloud_service import get_sonarcloud_summary
 from services.system_timezone_service import now_system_timezone
 
-
-logger = logging.getLogger(__name__)
 
 MAIN_BRANCH_NAME = 'main'
 
@@ -82,14 +80,6 @@ def _selected_branch_payload(payload):
 
 
 def _load_pipeline_snapshot():
-    refresh_warning = None
-
-    try:
-        refresh_pipeline_storage_from_jenkins()
-    except Exception as exc:  # noqa: BLE001
-        logger.exception('Pipeline refresh failed during PDF export.')
-        refresh_warning = f'Pipeline refresh failed ({type(exc).__name__}).'
-
     payload = get_stored_pipeline_kpis() or get_pipeline_kpis()
     if not payload or not payload.get('connected'):
         return {
@@ -104,7 +94,7 @@ def _load_pipeline_snapshot():
 
     return {
         'connected': True,
-        'message': refresh_warning,
+        'message': None,
         'pipeline_name': (payload.get('pipeline') or {}).get('name') or pipeline_name(
             current_app.config.get('JENKINS_JOB'),
             branch_name=selected_branch,
@@ -131,8 +121,16 @@ def _load_finops_snapshot(exported_at):
             'message': 'Azure subscription is not configured.',
         }
 
-    service = FinOpsService(AzureCostProvider(subscription_id=subscription_id))
-    chart = service.get_daily_cost_chart(exported_at.year, exported_at.month)
+    chart = get_cached_stored_daily_cost_chart(
+        subscription_id,
+        exported_at.year,
+        exported_at.month,
+    )
+    if not chart:
+        return {
+            'connected': False,
+            'message': 'Stored Azure cost data is not available yet.',
+        }
 
     labels = chart.get('labels') or []
     totals = ((chart.get('series') or {}).get('total') or [])
@@ -151,18 +149,6 @@ def _load_finops_snapshot(exported_at):
         'currency_code': 'USD',
         'day_cost': _safe_float(daily_map.get(snapshot_day), default=0.0) or 0.0,
         'month_total_cost': _safe_float(summary.get('total_cost'), default=0.0) or 0.0,
-    }
-
-
-def _format_pull_request(pr):
-    pr = pr or {}
-    user = pr.get('user') or {}
-    return {
-        'number': pr.get('number'),
-        'title': pr.get('title'),
-        'draft': bool(pr.get('draft')),
-        'author': user.get('login') or user.get('name') or 'unknown',
-        'url': pr.get('html_url'),
     }
 
 
@@ -187,6 +173,26 @@ def _format_commit(commit_raw, branch_name=MAIN_BRANCH_NAME):
         'date': author.get('date') or committer.get('date'),
         'url': commit_raw.get('html_url'),
     }
+
+
+def _latest_commit_from_analytics_payload(analytics_payload):
+    commits_raw = analytics_payload.get('commits_raw') or []
+    dated_items = []
+
+    for commit_raw in commits_raw:
+        if not isinstance(commit_raw, dict):
+            continue
+        commit = commit_raw.get('commit', {}) or {}
+        author = commit.get('author', {}) or {}
+        committer = commit.get('committer', {}) or {}
+        commit_date = author.get('date') or committer.get('date')
+        dated_items.append((commit_date or '', commit_raw))
+
+    if not dated_items:
+        return None
+
+    dated_items.sort(key=lambda item: item[0], reverse=True)
+    return dated_items[0][1]
 
 
 def _top_changed_file_from_commits(commits_raw):
@@ -236,27 +242,37 @@ def _load_github_snapshot():
             'message': 'GitHub repository is not configured.',
         }
 
-    open_prs_raw = get_pull_requests(owner, repo, state='open', per_page=100) or []
-    latest_main_commit_raw = get_latest_commit_for_branch(owner, repo, MAIN_BRANCH_NAME)
     analytics_payload = get_cached_github_24h_commit_details(owner, repo, MAIN_BRANCH_NAME) or {}
+    cached_summary = cache.get(_github_summary_cache_key(owner, repo)) or {}
+    pull_requests_open = cached_summary.get('pull_requests_open')
+    open_pr_count = len(pull_requests_open) if isinstance(pull_requests_open, list) else None
+    latest_main_commit_raw = _latest_commit_from_analytics_payload(analytics_payload)
     top_changed_file = _top_changed_file_from_commits(analytics_payload.get('commits_raw') or [])
+    has_cached_data = bool(latest_main_commit_raw or top_changed_file or open_pr_count is not None)
 
     return {
-        'connected': bool(open_prs_raw or latest_main_commit_raw),
+        'connected': has_cached_data,
         'owner': owner,
         'repo': repo,
-        'open_pr_count': len(open_prs_raw),
+        'open_pr_count': open_pr_count,
         'main_commit': (
             _format_commit(latest_main_commit_raw, branch_name=MAIN_BRANCH_NAME)
             if latest_main_commit_raw else None
         ),
         'top_changed_file': top_changed_file,
-        'message': None if (open_prs_raw or latest_main_commit_raw) else 'Unable to fetch GitHub export data.',
+        'message': None if has_cached_data else 'Stored GitHub export data is not available yet.',
     }
 
 
 def _load_sonar_snapshot():
-    summary = get_sonarcloud_summary()
+    state = get_sonarcloud_live_state()
+    summary = state.get('payload') if isinstance(state, dict) else None
+    if not isinstance(summary, dict):
+        return {
+            'connected': False,
+            'message': 'Cached SonarCloud data is not available yet.',
+        }
+
     if not summary.get('connected'):
         return {
             'connected': False,
@@ -281,7 +297,14 @@ def _load_sonar_snapshot():
 
 
 def _load_cluster_and_docker_snapshot():
-    result = get_deployment_kpis()
+    state = get_deployment_live_state()
+    result = state.get('deployment_kpis') if isinstance(state, dict) else None
+    if not isinstance(result, dict):
+        return {
+            'connected': False,
+            'message': 'Cached cluster data is not available yet.',
+        }
+
     if not result.get('connected'):
         return {
             'connected': False,
@@ -338,25 +361,17 @@ def get_pdf_report_snapshot():
         'sonarcloud': lambda: _run_in_app_context(app, _load_sonar_snapshot),
         'cluster': lambda: _run_in_app_context(app, _load_cluster_and_docker_snapshot),
     }
-    results = parallel_execute(tasks, max_workers=5, timeout=90)
+    results = parallel_execute(tasks, max_workers=5, timeout=10)
 
     pipeline_snapshot = results.get('pipeline') or {}
-    if not pipeline_snapshot.get('connected'):
-        raise RuntimeError(
-            (pipeline_snapshot.get('message') or 'Unable to fetch Jenkins pipeline data for PDF export.')
-        )
-
     cluster_snapshot = results.get('cluster') or {}
     github_snapshot = results.get('github') or {}
     sonar_snapshot = results.get('sonarcloud') or {}
     finops_snapshot = results.get('finops') or {}
 
     warnings = []
-    pipeline_warning = (pipeline_snapshot.get('message') or '').strip()
-    if pipeline_warning:
-        warnings.append(pipeline_warning)
-
     for section_name, payload in (
+        ('Jenkins', pipeline_snapshot),
         ('FinOps', finops_snapshot),
         ('GitHub', github_snapshot),
         ('SonarCloud', sonar_snapshot),
