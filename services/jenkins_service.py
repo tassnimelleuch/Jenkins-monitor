@@ -36,6 +36,7 @@ LIVE_RUNNING_BUILDS_CACHE_TIMEOUT_SECONDS = 1
 PIPELINE_COVERAGE_TREND_HISTORY_LIMIT = 120
 PIPELINE_JUNIT_TREND_HISTORY_LIMIT = 20
 PIPELINE_JUNIT_TREND_LOOKBACK_DAYS = 28
+PIPELINE_QUALITY_REFRESH_HISTORY_LIMIT = 20
 
 _pipeline_head_cache = {
     'checked_at': None,
@@ -69,6 +70,13 @@ def _select_recent_junit_builds(finished_builds):
     if recent_builds:
         return list(reversed(recent_builds))
     return list(reversed((finished_builds or [])[:PIPELINE_JUNIT_TREND_HISTORY_LIMIT]))
+
+
+def _select_recent_quality_builds(finished_builds):
+    recent_builds = _select_recent_junit_builds(finished_builds)
+    if len(recent_builds) <= PIPELINE_QUALITY_REFRESH_HISTORY_LIMIT:
+        return recent_builds
+    return recent_builds[-PIPELINE_QUALITY_REFRESH_HISTORY_LIMIT:]
 
 
 def _live_running_builds_cache_key(include_stages=True):
@@ -203,10 +211,15 @@ def _stored_payload_needs_artifact_refresh(stored_payload):
     if not branch_payload:
         return True
 
+    recent_finished_builds = _select_recent_quality_builds([
+        build
+        for build in (branch_payload.get('builds') or [])
+        if build.get('number') is not None and build.get('result') is not None
+    ])
+
     return any(
         _build_needs_artifact_refresh(branch_payload, build.get('number'))
-        for build in (branch_payload.get('builds') or [])
-        if build.get('number') is not None
+        for build in recent_finished_builds
     )
 
 
@@ -232,6 +245,22 @@ def _stored_payload_has_stage_history_gaps(stored_payload):
 def _stored_branch_payload(payload):
     _, branch_payload = _get_selected_branch_snapshot(payload or {})
     return branch_payload or {}
+
+
+def _stored_builds_by_number(stored_branch_payload):
+    return {
+        build.get('number'): build
+        for build in (stored_branch_payload.get('builds') or [])
+        if build.get('number') is not None
+    }
+
+
+def _stored_build_has_junit_report(stored_build):
+    stored_build = stored_build or {}
+    return any(
+        stored_build.get(key) is not None
+        for key in ('junit_total', 'junit_passed', 'junit_failed', 'junit_skipped')
+    )
 
 
 def _overlay_stored_stage_history(builds_data, stored_branch_payload):
@@ -387,7 +416,10 @@ def _refresh_pipeline_storage_in_background(app, stored_payload=None):
                 ):
                     return
 
-            refresh_pipeline_storage_from_jenkins()
+            refresh_pipeline_storage_from_jenkins(
+                include_quality_metrics=False,
+                include_quality_backfill=True,
+            )
     except Exception:
         app.logger.exception('Background pipeline refresh failed.')
     finally:
@@ -615,8 +647,9 @@ def _fetch_pipeline_kpis_from_jenkins(include_quality_metrics=True):
 
     summary = _summarize_build_history(all_builds)
     app = current_app._get_current_object()
-    stored_payload = get_stored_pipeline_kpis() if not include_quality_metrics else None
+    stored_payload = get_stored_pipeline_kpis()
     stored_branch_payload = _stored_branch_payload(stored_payload)
+    stored_builds_by_number = _stored_builds_by_number(stored_branch_payload)
 
     stage_build_numbers = []
     recent_finished_stage_fetches = 0
@@ -694,8 +727,23 @@ def _fetch_pipeline_kpis_from_jenkins(include_quality_metrics=True):
     junit_trend = []
     avg_test_coverage = None
     if include_quality_metrics:
-        coverage_builds = list(reversed(finished[:PIPELINE_COVERAGE_TREND_HISTORY_LIMIT]))
-        junit_builds = _select_recent_junit_builds(finished)
+        quality_builds = [
+            build
+            for build in _select_recent_quality_builds(finished)
+            if _build_has_test_related_stages(build)
+        ]
+        coverage_builds = [
+            build
+            for build in quality_builds
+            if (stored_builds_by_number.get(build.get('number')) or {}).get('coverage_percent') is None
+        ]
+        junit_builds = [
+            build
+            for build in quality_builds
+            if not _stored_build_has_junit_report(
+                stored_builds_by_number.get(build.get('number'))
+            )
+        ]
 
         coverage_tasks = {
             b.get('number'): (
@@ -873,9 +921,14 @@ def refresh_pipeline_storage_from_jenkins(
     selected_payload = ((payload.get('branches') or {}).get(selected_branch) or {})
     if include_quality_backfill:
         app = current_app._get_current_object()
+        finished_builds = [
+            build
+            for build in (selected_payload.get('builds') or [])
+            if build.get('number') is not None and build.get('result') is not None
+        ]
         backfill_branch_test_results(
             selected_branch,
-            selected_payload.get('builds') or [],
+            _select_recent_quality_builds(finished_builds),
             coverage_fetcher=lambda n: _call_in_app_context(app, lambda: get_coverage_percent(n)),
             test_report_fetcher=lambda n: _call_in_app_context(app, lambda: get_test_report(n)),
         )
