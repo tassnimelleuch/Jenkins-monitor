@@ -582,8 +582,12 @@ function fmtDate(ts) {
     });
 }
 
-function currentUserCanManageBuilds() {
-    return document.body.dataset.canManageBuilds === 'true';
+function currentUserCanStartBuilds() {
+    return document.body.dataset.canStartBuilds === 'true';
+}
+
+function currentUserCanAbortBuilds() {
+    return document.body.dataset.canAbortBuilds === 'true';
 }
 
 function showOverviewSegTip(el, name, dur, stcls, sttext) {
@@ -687,7 +691,7 @@ function buildOverviewHistoryRowHtml(build) {
     const minutes = Math.floor(elapsedSeconds / 60);
     const seconds = elapsedSeconds % 60;
     const durText = isRunning ? `${minutes}m ${String(seconds).padStart(2, '0')}s` : '';
-    const abortButton = currentUserCanManageBuilds()
+    const abortButton = currentUserCanAbortBuilds()
         ? `<button class="br-abort" onclick="event.stopPropagation();confirmAbort(${build.number})" title="Abort build #${build.number}">
              <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
            </button>`
@@ -1388,7 +1392,7 @@ function updateActiveBuilds(runningCount, builds) {
         const m          = Math.floor(elapsedSec / 60);
         const s          = elapsedSec % 60;
 
-        const abortButton = currentUserCanManageBuilds()
+        const abortButton = currentUserCanAbortBuilds()
             ? `<button class="bl-abort"
                     onclick="confirmAbort(${b.number})"
                     title="Abort build #${b.number}">
@@ -1458,6 +1462,11 @@ function updateActiveBuilds(runningCount, builds) {
 
 //TRIGGER BUILD
 function triggerBuild() {
+    if (!currentUserCanStartBuilds()) {
+        showToast('You do not have permission to start builds.', 'abort-toast');
+        return;
+    }
+
     triggerBuildWithConfirmation({
         bodyHtml: `Are you sure you want to trigger a new build for ${pipelineStrongLabel()} on <strong>${escapeHtml(getBranchName())}</strong>?`,
         queuedMessage: '✅ Build queued — watch Active Builds',

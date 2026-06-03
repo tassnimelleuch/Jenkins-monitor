@@ -15,11 +15,13 @@
 <body
     data-pipeline-name="{{ pipeline_name }}"
     data-branch-name="{{ branch_name }}"
-    data-can-manage-builds="{{ 'true' if has_role('admin', 'developer') else 'false' }}"
-    data-can-export-pdf="{{ 'true' if has_role('admin') else 'false' }}"
-    {% if has_role('admin') %}data-alerts-badge-url="{{ url_for('alerts.alerts_api') }}"{% endif %}
-    data-export-report-url="{{ url_for('overview.export_pdf_report_api') }}"
-    data-store-export-report-url="{{ url_for('overview.store_exported_pdf_report_api') }}"
+    data-can-start-builds="{{ 'true' if access['start_builds'] else 'false' }}"
+    data-can-abort-builds="{{ 'true' if access['abort_builds'] else 'false' }}"
+    data-can-manage-builds="{{ 'true' if access['abort_builds'] else 'false' }}"
+    data-can-export-pdf="{{ 'true' if access['export_pdf'] else 'false' }}"
+    {% if access['alerts'] %}data-alerts-badge-url="{{ url_for('alerts.alerts_api') }}"{% endif %}
+    {% if access['export_pdf'] %}data-export-report-url="{{ url_for('overview.export_pdf_report_api') }}"{% endif %}
+    {% if access['export_pdf'] %}data-store-export-report-url="{{ url_for('overview.store_exported_pdf_report_api') }}"{% endif %}
     data-system-time-zone="{{ system_time_zone }}"
     {% block body_attrs %}{% endblock %}>
 
@@ -34,12 +36,14 @@
     </main>
 
     <div id="toast" class="toast"></div>
+    {% if access['chatbot'] %}
     {% include 'partials/chat_panel.html' %}
+    {% endif %}
 
     {% block extra_markup %}{% endblock %}
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="{{ url_for('static', filename='js/base.js', v='20260523-sse3') }}"></script>
+    <script src="{{ url_for('static', filename='js/base.js', v='20260603-rolefix1') }}"></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

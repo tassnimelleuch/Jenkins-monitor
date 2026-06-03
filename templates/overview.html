@@ -12,8 +12,8 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css', v='20260524-copy1') }}">
 {% endblock %}
 {% block page_content %}
-{% set show_overview_build_charts = has_role('admin', 'developer') %}
-{% set show_overview_tests_chart = has_role('admin', 'developer', 'tester') %}
+{% set show_overview_build_charts = access['overview_build_charts'] %}
+{% set show_overview_tests_chart = access['overview_tests_chart'] %}
 
 <div id="disconnectedBanner" class="disconnected-banner">
     <svg viewBox="0 0 24 24">
@@ -148,5 +148,5 @@
 
 {% block extra_js %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="{{ url_for('static', filename='js/overview.js', v='20260524-live3') }}"></script>
+<script src="{{ url_for('static', filename='js/overview.js', v='20260603-rolefix1') }}"></script>
 {% endblock %}

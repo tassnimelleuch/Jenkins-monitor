@@ -1,6 +1,6 @@
 from flask import Response, session, jsonify, render_template, request, send_from_directory, stream_with_context, url_for
 from overview import overview_bp
-from services.access_service import role_required
+from services.access_service import admin_required, dashboard_user_required
 from services.dashboard_kpi_chroma_service import (
     get_dashboard_kpi_chroma_status,
     sync_dashboard_kpi_documents_to_chroma,
@@ -70,7 +70,7 @@ def _serialize_dashboard_kpi_chunk(row, include_content=True):
 
 
 @overview_bp.route('/overview')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def dashboard():
     return render_template(
         'overview.html',
@@ -81,7 +81,7 @@ def dashboard():
 
 
 @overview_bp.route('/pdf-reports')
-@role_required('admin')
+@admin_required
 def pdf_reports_page():
     return render_template(
         'pdf_reports.html',
@@ -93,7 +93,7 @@ def pdf_reports_page():
 
 
 @overview_bp.route('/api/pipeline/kpis')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def kpis():
     if request.args.get('refresh') == '1' and request.args.get('wait') == '1':
         refresh_pipeline_storage_from_jenkins(
@@ -109,20 +109,20 @@ def kpis():
 
 
 @overview_bp.route('/api/status')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def status():
     return jsonify(get_cached_jenkins_status_payload())
 
 
 @overview_bp.route('/api/log/<int:build_number>')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def log_api(build_number):
     log = get_console_log(build_number)
     return jsonify({'log': log, 'build_number': build_number})
 
 
 @overview_bp.route('/console/<int:build_number>')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def console(build_number):
     return render_template(
         'console.html',
@@ -132,7 +132,7 @@ def console(build_number):
     )
 
 @overview_bp.route('/api/latest_build')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def latest_build():
     kpis = get_overview_kpis()
     return jsonify({
@@ -140,7 +140,7 @@ def latest_build():
     })
 
 @overview_bp.route('/api/azure/status', methods=['GET'])
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def azure_status():
     result = get_cached_azure_status_payload()
     status_code = 200 if result['connected'] else 503
@@ -148,7 +148,7 @@ def azure_status():
 
 
 @overview_bp.route('/api/stream/live')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def live_updates_stream():
     response = Response(
         stream_with_context(iter_dashboard_live_events()),
@@ -161,7 +161,7 @@ def live_updates_stream():
 
 
 @overview_bp.route('/api/stream/log/<int:build_number>')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def console_log_stream(build_number):
     response = Response(
         stream_with_context(iter_console_log_events(build_number)),
@@ -174,7 +174,7 @@ def console_log_stream(build_number):
 
 
 @overview_bp.route('/api/export/pdf-report', methods=['GET'])
-@role_required('admin')
+@admin_required
 def export_pdf_report_api():
     try:
         payload = get_pdf_report_snapshot()
@@ -186,7 +186,7 @@ def export_pdf_report_api():
 
 
 @overview_bp.route('/api/export/pdf-report/store', methods=['POST'])
-@role_required('admin')
+@admin_required
 def store_exported_pdf_report_api():
     file_storage = request.files.get('file')
     if file_storage is None:
@@ -214,7 +214,7 @@ def store_exported_pdf_report_api():
 
 
 @overview_bp.route('/pdf-reports/view/<path:file_name>')
-@role_required('admin')
+@admin_required
 def view_pdf_report(file_name):
     path = get_pdf_report_path(file_name)
     if path is None:
@@ -223,7 +223,7 @@ def view_pdf_report(file_name):
 
 
 @overview_bp.route('/pdf-reports/download/<path:file_name>')
-@role_required('admin')
+@admin_required
 def download_pdf_report(file_name):
     path = get_pdf_report_path(file_name)
     if path is None:
@@ -232,7 +232,7 @@ def download_pdf_report(file_name):
 
 
 @overview_bp.route('/api/dashboard/kpi-documents', methods=['GET'])
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def dashboard_kpi_documents():
     document_key = request.args.get('key')
     dashboard_page = request.args.get('page')
@@ -255,7 +255,7 @@ def dashboard_kpi_documents():
 
 
 @overview_bp.route('/api/dashboard/kpi-documents/refresh', methods=['POST'])
-@role_required('admin')
+@admin_required
 def refresh_dashboard_kpi_documents():
     try:
         result = sync_dashboard_kpi_documents()
@@ -267,7 +267,7 @@ def refresh_dashboard_kpi_documents():
 
 
 @overview_bp.route('/api/dashboard/kpi-documents/chunks', methods=['GET'])
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def dashboard_kpi_document_chunks():
     document_key = request.args.get('key')
     dashboard_page = request.args.get('page')
@@ -296,7 +296,7 @@ def dashboard_kpi_document_chunks():
 
 
 @overview_bp.route('/api/dashboard/kpi-documents/chroma/status', methods=['GET'])
-@role_required('admin')
+@admin_required
 def dashboard_kpi_documents_chroma_status():
     status = get_dashboard_kpi_chroma_status()
     status_code = 200 if status.get('chromadb_installed') else 503
@@ -304,7 +304,7 @@ def dashboard_kpi_documents_chroma_status():
 
 
 @overview_bp.route('/api/dashboard/kpi-documents/chroma/sync', methods=['POST'])
-@role_required('admin')
+@admin_required
 def sync_dashboard_kpi_documents_chroma():
     body = request.get_json(silent=True) or {}
 

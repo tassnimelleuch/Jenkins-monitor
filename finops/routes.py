@@ -23,13 +23,13 @@ from services.finops_chroma_service import (
     get_finops_chroma_status,
     sync_finops_documents_to_chroma,
 )
-from services.access_service import role_required
+from services.access_service import admin_required
 
 finops_bp = Blueprint("finops", __name__)
 
 
 @finops_bp.route("/finops")
-@role_required("admin")
+@admin_required
 def finops_dashboard():
     return render_template(
         "finops.html",
@@ -106,7 +106,7 @@ def _delete_finops_keys():
 
 
 @finops_bp.route("/api/finops/daily-cost")
-@role_required("admin")
+@admin_required
 def daily_cost():
     service, subscription_id = _make_service()
     if not service:
@@ -123,6 +123,7 @@ def daily_cost():
             year=year,
             month=month,
             service=service,
+            serve_stored_first=True,
         )
         return jsonify(payload)
     except RuntimeError as exc:
@@ -132,7 +133,7 @@ def daily_cost():
 
 
 @finops_bp.route("/api/finops/cache/refresh", methods=["POST"])
-@role_required("admin")
+@admin_required
 def refresh_cache():
     """
     Clears all finops Redis cache keys and optionally prefetches fresh data.
@@ -180,7 +181,7 @@ def refresh_cache():
 
 
 @finops_bp.route("/api/finops/cache/keys")
-@role_required("admin")
+@admin_required
 def list_cache_keys():
     """
     Lists all current finops keys in Redis with their TTL.
@@ -213,7 +214,7 @@ def list_cache_keys():
 
 
 @finops_bp.route("/api/finops/build-documents", methods=["GET"])
-@role_required("admin")
+@admin_required
 def finops_build_documents():
     document_date = request.args.get("date")
     limit = request.args.get("limit", default=30, type=int)
@@ -263,7 +264,7 @@ def finops_build_documents():
 
 
 @finops_bp.route("/api/finops/build-documents/chunks", methods=["GET"])
-@role_required("admin")
+@admin_required
 def finops_build_document_chunks():
     document_date = request.args.get("date")
     limit = request.args.get("limit", default=120, type=int)
@@ -321,7 +322,7 @@ def finops_build_document_chunks():
 
 
 @finops_bp.route("/api/finops/build-documents/refresh", methods=["POST"])
-@role_required("admin")
+@admin_required
 def refresh_finops_build_documents():
     body = request.get_json(silent=True) or {}
 
@@ -340,7 +341,7 @@ def refresh_finops_build_documents():
 
 
 @finops_bp.route("/api/finops/build-documents/chroma/status", methods=["GET"])
-@role_required("admin")
+@admin_required
 def finops_build_documents_chroma_status():
     status = get_finops_chroma_status()
     status_code = 200 if status.get('chromadb_installed') else 503
@@ -348,7 +349,7 @@ def finops_build_documents_chroma_status():
 
 
 @finops_bp.route("/api/finops/build-documents/chroma/sync", methods=["POST"])
-@role_required("admin")
+@admin_required
 def sync_finops_build_documents_chroma():
     body = request.get_json(silent=True) or {}
 

@@ -1,6 +1,6 @@
 from flask import Response, session, jsonify, render_template, stream_with_context
 from deployment_kpis import deployment_kpis_bp
-from services.access_service import role_required
+from services.access_service import admin_required, build_manager_required, dashboard_user_required
 from services.background_refresh_service import (
     get_cached_cluster_metrics_payload,
     get_cached_deployment_kpis_payload,
@@ -24,7 +24,7 @@ def _filter_deployment_payload_for_role(payload, role):
 
 
 @deployment_kpis_bp.route('/deployment_kpis')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def deployment_kpis():
     return render_template(
         'deployment_kpis.html',
@@ -34,7 +34,7 @@ def deployment_kpis():
 
 
 @deployment_kpis_bp.route('/deployment_kpis/api/cluster')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def deployment_kpis_cluster():
     result = get_cached_deployment_kpis_payload()
     status_code = 200 if result.get('connected') else 503
@@ -42,13 +42,13 @@ def deployment_kpis_cluster():
 
 
 @deployment_kpis_bp.route('/api/cluster-metrics')
-@role_required('admin')
+@admin_required
 def cluster_metrics_api():
     return jsonify(get_cached_cluster_metrics_payload())
 
 
 @deployment_kpis_bp.route('/api/deployment/stream')
-@role_required('admin', 'developer')
+@build_manager_required
 def deployment_live_stream():
     response = Response(
         stream_with_context(
@@ -64,7 +64,7 @@ def deployment_live_stream():
 
 
 @deployment_kpis_bp.route('/api/debug-metrics')
-@role_required('admin')
+@admin_required
 def debug_metrics():
     from flask import jsonify
     from collectors.prometheus_collector import query_range_series, query

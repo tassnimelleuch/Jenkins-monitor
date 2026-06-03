@@ -490,6 +490,18 @@ function getBranchName() {
   return document.body.dataset.branchName || 'main';
 }
 
+function currentUserCanStartBuilds() {
+  return document.body?.dataset.canStartBuilds === 'true';
+}
+
+function currentUserCanAbortBuilds() {
+  return document.body?.dataset.canAbortBuilds === 'true';
+}
+
+function currentUserCanManageBuilds() {
+  return currentUserCanAbortBuilds();
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -505,15 +517,70 @@ function pipelineStrongLabel() {
 
 // Shared pipeline actions
 async function apiTriggerBuild() {
-  const res = await fetch('/api/build', { method: 'POST' });
-  const data = await res.json();
+  const res = await fetch('/api/build', {
+    method: 'POST',
+    headers: { Accept: 'application/json' }
+  });
+  const contentType = res.headers.get('content-type') || '';
+  const data = contentType.includes('application/json')
+    ? await res.json().catch(() => ({}))
+    : {
+        error: res.redirected || res.status === 401 || res.status === 403
+          ? 'Your session no longer has access to start builds.'
+          : `Build request failed with HTTP ${res.status}.`
+      };
   return { ok: res.ok, data };
 }
 
 async function apiAbortBuild(buildNumber) {
-  const res = await fetch('/api/abort/' + buildNumber, { method: 'POST' });
-  const data = await res.json();
+  const res = await fetch('/api/abort/' + buildNumber, {
+    method: 'POST',
+    headers: { Accept: 'application/json' }
+  });
+  const contentType = res.headers.get('content-type') || '';
+  const data = contentType.includes('application/json')
+    ? await res.json().catch(() => ({}))
+    : {
+        error: res.redirected || res.status === 401 || res.status === 403
+          ? 'Your session no longer has access to abort builds.'
+          : `Abort request failed with HTTP ${res.status}.`
+      };
   return { ok: res.ok, data };
+}
+
+function handleSharedBuildQueued() {
+  const page = document.body?.dataset.page || '';
+
+  if (page === 'overview' && typeof loadImmediateOverviewKPIs === 'function') {
+    loadImmediateOverviewKPIs();
+    return;
+  }
+  if (page === 'pipeline-kpis' && typeof loadPipelineKPIs === 'function') {
+    loadPipelineKPIs();
+    return;
+  }
+
+  refreshBuildViewsAfterMutation({ liveDelayMs: 400, fullDelayMs: 1600 });
+}
+
+function triggerBuild() {
+  if (!currentUserCanStartBuilds()) {
+    showToast('You do not have permission to start builds.', 'abort-toast');
+    return;
+  }
+
+  triggerBuildWithConfirmation({
+    bodyHtml: `Trigger a new build for ${pipelineStrongLabel()} on <strong>${escapeHtml(getBranchName())}</strong>?`,
+    queuedMessage: '✅ Build queued — watching for updates',
+    triggerErrorMessage: 'Failed to trigger build',
+    onQueued() {
+      handleSharedBuildQueued();
+    }
+  });
+}
+
+function toggleBuild() {
+  triggerBuild();
 }
 
 function triggerBuildWithConfirmation(opts = {}) {
@@ -1499,6 +1566,7 @@ function applyAzureStatusPayload(data) {
 function pageUsesLiveStatusStream() {
   return (
     typeof window.EventSource !== 'undefined' &&
+    ['overview', 'pipeline-kpis'].includes(document.body?.dataset.page || '') &&
     Boolean(document.body.dataset.liveStreamUrl)
   );
 }
@@ -1776,6 +1844,11 @@ function segCls(status){
 }
 //confirm abort
 function confirmAbort(buildNumber) {
+  if (!currentUserCanAbortBuilds()) {
+    showToast('You do not have permission to abort builds.', 'abort-toast');
+    return;
+  }
+
   showConfirm(
     '⊘ Abort Build #' + buildNumber,
     'Are you sure you want to abort build <strong>#' + buildNumber + '</strong>?',

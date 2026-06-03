@@ -74,8 +74,12 @@ function fmtDate(ts) {
   });
 }
 
-function currentUserCanManageBuilds() {
-  return document.body.dataset.canManageBuilds === 'true';
+function currentUserCanStartBuilds() {
+  return document.body.dataset.canStartBuilds === 'true';
+}
+
+function currentUserCanAbortBuilds() {
+  return document.body.dataset.canAbortBuilds === 'true';
 }
 
 function pipelineSignaturePart(value) {
@@ -297,7 +301,7 @@ function buildRowHtml(b) {
   const runBar = isRunning
     ? `<div class="run-bar"><div class="run-bar-fill" id="rb-${b.number}" style="width:${pct}%"></div></div>`
     : '';
-  const abortButton = currentUserCanManageBuilds()
+  const abortButton = currentUserCanAbortBuilds()
     ? `<button class="br-abort" onclick="event.stopPropagation();confirmAbort(${b.number})" title="Abort build #${b.number}">
          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
        </button>`
@@ -400,6 +404,11 @@ function toggleShowMore() {
 }
 
 function triggerBuild() {
+  if (!currentUserCanStartBuilds()) {
+    showToast('You do not have permission to start builds.', 'abort-toast');
+    return;
+  }
+
   triggerBuildWithConfirmation({
     bodyHtml: `Trigger a new build for ${pipelineStrongLabel()} on <strong>${escapeHtml(getBranchName())}</strong>?`,
     queuedMessage: '✅ Build queued — watching for updates',

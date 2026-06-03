@@ -149,6 +149,10 @@ def _sync_is_due(state: Optional[FinOpsSyncState], max_age_seconds: Optional[int
     return (_utcnow() - reference_time) >= timedelta(seconds=max_age_seconds)
 
 
+def _state_needs_sync(state: Optional[FinOpsSyncState]) -> bool:
+    return state is None or state.last_synced_at is None or _sync_is_due(state)
+
+
 def _daily_storage_query(subscription_id: str, year: int, month: int):
     start_date, end_date = _month_bounds(year, month)
     return (
@@ -444,12 +448,30 @@ def schedule_daily_cost_sync_if_due(
     )
 
 
+def _schedule_daily_cost_refreshes_if_due(
+    subscription_id: str,
+    year: int,
+    month: int,
+    *,
+    current_state: Optional[FinOpsSyncState] = None,
+    previous_state: Optional[FinOpsSyncState] = None,
+):
+    prev_year, prev_month = _previous_month(year, month)
+
+    if _state_needs_sync(current_state):
+        schedule_daily_cost_sync_if_due(subscription_id, year, month)
+
+    if _state_needs_sync(previous_state):
+        schedule_daily_cost_sync_if_due(subscription_id, prev_year, prev_month)
+
+
 def get_finops_daily_cost_chart(
     subscription_id: str,
     year: int,
     month: int,
     *,
     service: Optional[FinOpsService] = None,
+    serve_stored_first: bool = False,
 ):
     year = int(year)
     month = int(month)
@@ -466,6 +488,16 @@ def get_finops_daily_cost_chart(
         and not _sync_is_due(current_state)
     )
 
+    if serve_stored_first and stored is not None:
+        _schedule_daily_cost_refreshes_if_due(
+            subscription_id,
+            year,
+            month,
+            current_state=current_state,
+            previous_state=previous_state,
+        )
+        return stored
+
     if current_month_is_ready:
         schedule_daily_cost_sync_if_due(subscription_id, prev_year, prev_month)
         return stored
@@ -479,11 +511,7 @@ def get_finops_daily_cost_chart(
         force=True,
     )
     try:
-        if (
-            previous_state is None
-            or previous_state.last_synced_at is None
-            or _sync_is_due(previous_state)
-        ):
+        if _state_needs_sync(previous_state):
             sync_finops_daily_cost_month(
                 subscription_id,
                 prev_year,

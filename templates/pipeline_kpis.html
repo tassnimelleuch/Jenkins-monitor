@@ -11,12 +11,12 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/overview.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-live-stream-url="{{ url_for('overview.live_updates_stream') }}"{% if has_role('admin') %} data-vm-metrics-url="{{ url_for('pipeline_kpis.vm_metrics_api') }}"{% endif %} data-page="pipeline-kpis"{% endblock %}
+{% block body_attrs %}data-pipeline-kpis-url="{{ url_for('pipeline_kpis.pipeline_kpis_api') }}" data-live-stream-url="{{ url_for('overview.live_updates_stream') }}"{% if access['vm_metrics'] %} data-vm-metrics-url="{{ url_for('pipeline_kpis.vm_metrics_api') }}"{% endif %} data-page="pipeline-kpis"{% endblock %}
 
 {% block page_content %}
-{% set show_pipeline_management = has_role('admin', 'developer') %}
-{% set show_pipeline_test_analytics = has_role('admin', 'developer', 'tester') %}
-{% set show_vm_metrics = has_role('admin') %}
+{% set show_pipeline_management = access['pipeline_management'] %}
+{% set show_pipeline_test_analytics = access['pipeline_test_analytics'] %}
+{% set show_vm_metrics = access['vm_metrics'] %}
 
 <!-- Legacy build-history tooltip kept for later rollback.
 <div class="seg-tip" id="segTip">
@@ -190,7 +190,7 @@
 
 {% block extra_js %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="{{ url_for('static', filename='js/pipeline_kpis.js', v='20260523-sse3') }}"></script>
+<script src="{{ url_for('static', filename='js/pipeline_kpis.js', v='20260603-rolefix1') }}"></script>
 {% endblock %}
 
 {% block extra_markup %}

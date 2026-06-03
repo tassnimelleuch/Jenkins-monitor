@@ -12,10 +12,10 @@
 
     <div class="topbar-actions">
         {% block topbar_actions %}
-        {% if has_role('admin', 'developer') %}
+        {% if access['start_builds'] %}
         <button class="btn btn-green" id="startStopBtn" type="button" onclick="toggleBuild()">▶ Start Build</button>
         {% endif %}
-        {% if has_role('admin') %}
+        {% if access['export_pdf'] %}
         <button class="btn btn-export" id="exportPdfBtn" type="button" onclick="exportPDF()">↓ Export PDF</button>
         {% endif %}
         {% endblock %}

@@ -21,6 +21,7 @@ from services.user_account_service import (
     normalize_role,
     role_matches,
 )
+from services.access_service import build_access_context
 from services.alerts_service import get_open_alert_count
 from services.system_timezone_service import get_system_timezone_name
 from services.background_refresh_service import start_live_refresh_worker
@@ -95,13 +96,15 @@ def inject_pending_count():
         if current_user:
             current_role = normalize_role(current_user.role)
             session['role'] = current_role
+    access = build_access_context(current_role)
     context = {
         'pipeline_name': pipeline_name(app.config.get('JENKINS_JOB'), branch_name=branch_name),
         'branch_name': branch_name,
         'system_time_zone': get_system_timezone_name(),
+        'access': access,
         'has_role': lambda *roles, role=current_role: role_matches(role, roles),
     }
-    if current_role == 'admin':
+    if access['manage_users']:
         context['pending_count'] = get_pending_count()
         try:
             context['open_alert_count'] = get_open_alert_count()

@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/github.css') }}">
 {% endblock %}
 
-{% block body_attrs %}data-github-url="{{ url_for('github.github_api') }}" data-can-manage-github="{{ 'true' if has_role('admin', 'developer') else 'false' }}" data-page="github"{% endblock %}
+{% block body_attrs %}data-github-url="{{ url_for('github.github_api') }}" data-can-manage-github="{{ 'true' if access['github'] else 'false' }}" data-page="github"{% endblock %}
 
 {% block page_content %}
 <div class="gh-hero">
@@ -93,7 +93,7 @@
 </div>
 
 <!-- Tag Modal -->
-{% if has_role('admin', 'developer') %}
+{% if access['github'] %}
 <div id="ghTagModal" class="gh-tag-modal">
   <div class="gh-tag-modal-content">
     <div class="gh-tag-modal-header">

@@ -1,6 +1,6 @@
 from flask import jsonify, render_template, session, request
 from github import github_bp
-from services.access_service import role_required
+from services.access_service import build_manager_required
 from services.github_service import get_github_badge_summary, get_github_summary, is_tag_branch_allowed
 from collectors.github_collector import create_tag, get_branches
 from flask import current_app
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 @github_bp.route('/github')
-@role_required('admin', 'developer')
+@build_manager_required
 def dashboard():
     return render_template(
         'github.html',
@@ -20,19 +20,19 @@ def dashboard():
 
 
 @github_bp.route('/api/github')
-@role_required('admin', 'developer')
+@build_manager_required
 def github_api():
     return jsonify(get_github_summary())
 
 
 @github_bp.route('/api/github/badge')
-@role_required('admin', 'developer')
+@build_manager_required
 def github_badge_api():
     return jsonify(get_github_badge_summary())
 
 
 @github_bp.route('/api/github/tag', methods=['POST'])
-@role_required('admin', 'developer')
+@build_manager_required
 def create_commit_tag():
     """Create a tag on a commit in GitHub."""
     data = request.get_json()

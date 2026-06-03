@@ -1,6 +1,6 @@
 from flask import Response, jsonify, render_template, request, session, stream_with_context
 from sonarcloud import sonarcloud_bp
-from services.access_service import role_required
+from services.access_service import dashboard_user_required
 from services.background_refresh_service import get_cached_sonarcloud_payload
 from services.live_stream_service import iter_sonarcloud_live_events
 from services.sonarcloud_service import (
@@ -10,7 +10,7 @@ from services.sonarcloud_service import (
 
 
 @sonarcloud_bp.route('/sonarcloud')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def dashboard():
     return render_template(
         'sonarcloud.html',
@@ -20,7 +20,7 @@ def dashboard():
 
 
 @sonarcloud_bp.route('/api/sonarcloud')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def sonarcloud_api():
     result = get_cached_sonarcloud_payload()
     status_code = 200 if result.get('connected') else 503
@@ -28,7 +28,7 @@ def sonarcloud_api():
 
 
 @sonarcloud_bp.route('/api/sonarcloud/stream')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def sonarcloud_live_stream():
     response = Response(
         stream_with_context(iter_sonarcloud_live_events()),
@@ -41,7 +41,7 @@ def sonarcloud_live_stream():
 
 
 @sonarcloud_bp.route('/api/sonarcloud/bugs')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def sonarcloud_bug_details_api():
     level = request.args.get('level')  # low, medium, high
     page = request.args.get('page', default=1, type=int)
@@ -51,7 +51,7 @@ def sonarcloud_bug_details_api():
 
 
 @sonarcloud_bp.route('/api/sonarcloud/issues')
-@role_required('admin', 'developer', 'tester')
+@dashboard_user_required
 def sonarcloud_issues_api():
     issue_type = request.args.get('type')  # BUG, VULNERABILITY, CODE_SMELL, SECURITY_HOTSPOT
     severity = request.args.get('severity')

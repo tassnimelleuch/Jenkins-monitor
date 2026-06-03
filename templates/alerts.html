@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css', v='20260524-live1') }}">
 {% endblock %}
 
-{% block body_attrs %}data-alerts-url="{{ url_for('alerts.alerts_api') }}" data-alerts-stream-url="{{ url_for('alerts.alerts_stream') }}" data-alert-check-url-template="{{ url_for('alerts.check_alert', alert_id=0) }}" data-can-check-alerts="{{ 'true' if role == 'admin' else 'false' }}" data-page="alerts"{% endblock %}
+{% block body_attrs %}data-alerts-url="{{ url_for('alerts.alerts_api') }}" data-alerts-stream-url="{{ url_for('alerts.alerts_stream') }}" data-alert-check-url-template="{{ url_for('alerts.check_alert', alert_id=0) }}" data-can-check-alerts="{{ 'true' if access['check_alerts'] else 'false' }}" data-page="alerts"{% endblock %}
 
 {% block page_content %}
 <div class="alerts-hero">
