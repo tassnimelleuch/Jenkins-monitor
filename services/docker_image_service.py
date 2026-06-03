@@ -34,14 +34,18 @@ def _extract_image_from_log(log_text):
     return None, None
 
 
-def _docker_stage_passed(stages):
+def _docker_push_stage_passed(stages):
     if not stages:
         return False
 
     for stage in stages:
         name = (stage.get('name') or '').strip().lower()
         status = (stage.get('status') or '').strip().upper()
-        if 'docker' in name and status == 'SUCCESS':
+        if status != 'SUCCESS':
+            continue
+        if 'push' not in name:
+            continue
+        if any(marker in name for marker in ('docker', 'image', 'dockerhub', 'registry')):
             return True
     return False
 
@@ -67,12 +71,6 @@ def _build_console_image_metadata(build, image_name, tag):
 
 
 def get_latest_image_artifact(search_limit=12):
-    configured_tag = (current_app.config.get('DOCKERHUB_TAG') or '').strip()
-    if configured_tag:
-        metadata = get_latest_image_metadata(tag=configured_tag) or {}
-        if metadata:
-            return metadata
-
     target_branch = (current_app.config.get('JENKINS_BRANCH') or 'main').strip()
     finished_builds = [
         build
@@ -84,6 +82,10 @@ def get_latest_image_artifact(search_limit=12):
         if not build_number:
             continue
 
+        stages = get_stages(build_number)
+        if not _docker_push_stage_passed(stages):
+            continue
+
         branch_name = (build.get('branch') or build.get('displayName') or target_branch or '').strip()
         tag_data = find_repository_tag_for_build(
             build_number,
@@ -92,16 +94,18 @@ def get_latest_image_artifact(search_limit=12):
         if tag_data:
             return build_image_metadata(tag_data, build=build) or {}
 
-        stages = get_stages(build_number)
-        if not _docker_stage_passed(stages):
-            continue
-
         log_text = get_console_log(build_number)
         if not log_text or log_text.startswith('[ERROR]'):
             continue
 
         image_name, tag = _extract_image_from_log(log_text)
         metadata = _build_console_image_metadata(build, image_name, tag)
+        if metadata:
+            return metadata
+
+    configured_tag = (current_app.config.get('DOCKERHUB_TAG') or '').strip()
+    if configured_tag:
+        metadata = get_latest_image_metadata(tag=configured_tag) or {}
         if metadata:
             return metadata
 
